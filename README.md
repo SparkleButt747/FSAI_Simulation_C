@@ -1,7 +1,5 @@
 # FSAI Simulation In C
 
-A brief description of your project goes here. For example:
-
 This project is a simulation-based racing application that integrates various modules such as graphics rendering, physics simulation, path logic, and telemetry to create a comprehensive testing environment.
 
 ## Key Modules
