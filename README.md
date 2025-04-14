@@ -17,11 +17,11 @@ To build the project, follow these steps:
 
 1. Ensure you have CMake installed on your system.
 2. Navigate to the root directory of the project.
-3. Run the following commands:
-4. (Apple Silicon macs might and will have to change the include paths in the CMakeLists.txt, this will cause all sorts of merge conflicts, so make sure to clone once and have a .gitignore setup or something)
+3. Run the following commands or use the `build.sh`/`rebuild.sh` scripts:
 
    ```sh
    cd build
    cmake ..
    make
 
+4. The CMakeLists.txt should now automatically detect architecture (only arm and not arm) and use the correct paths
