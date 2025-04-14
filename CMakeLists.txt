@@ -17,11 +17,16 @@ include_directories(${CMAKE_SOURCE_DIR}/Telemetry)
 include_directories(${CMAKE_SOURCE_DIR}/Graphics)
 
 # Add system include directory for libyaml.
-include_directories(/usr/local/include)
-link_directories(/usr/local/lib)
-# If you're on Apple Silicon, you might need:
-# include_directories(/opt/homebrew/include)
-# link_directories(/opt/homebrew/lib)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64" OR CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
+set(INCLUDE_PATH "/opt/homebrew/include")
+set(LINK_PATH "/opt/homebrew/lib")
+else()
+set(INCLUDE_PATH "/usr/local/include")
+set(LINK_PATH "/usr/local/lib")
+endif()
+
+include_directories(${INCLUDE_PATH})
+link_directories(${LINK_PATH})
 
 # Find SDL2
 find_package(SDL2 REQUIRED)
@@ -44,11 +49,11 @@ set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/SimulationModels/test.c")
 
 # Create the SimulationModels executable.
 add_executable(SimulationModelsTest ${SIMULATION_TEST_SOURCE} ${DYNAMIC_BICYCLE_SOURCES} ${KEY_SOURCES} ${GRAPHICS_SOURCES} ${GRAPHICS_H_SOURCES})
-
+       
 # Link the libyaml library. You can use either option 1 or 2. option 1 is works for me.
 # Option 1: Link using full path
 # target_link_libraries(SimulationModelsTest /usr/local/lib/libyaml.dylib)
-target_link_libraries(SimulationModelsTest /usr/local/lib/libyaml.dylib ${SDL2_LIBRARIES})
+target_link_libraries(SimulationModelsTest ${LINK_PATH}/libyaml.dylib ${SDL2_LIBRARIES})
 
 # Option 2: Or use find_library
 # find_library(YAML_LIB NAMES yaml PATHS /usr/local/lib)
@@ -108,5 +113,18 @@ add_executable(MainController
     ${GRAPHICS_H_SOURCES}
 )
 
-target_link_libraries(MainController /usr/local/lib/libyaml.dylib ${SDL2_LIBRARIES})
+target_link_libraries(MainController ${LINK_PATH}/libyaml.dylib ${SDL2_LIBRARIES})
 
+
+set(THROTTLE_TEST_SOURCE "${CMAKE_SOURCE_DIR}/RacingAlgorithms/test/TestThrottle.c")
+add_executable(ThrottleTest ${THROTTLE_TEST_SOURCE}
+                ${RACING_SOURCES}
+                ${PHYSICS_SOURCES}
+            )
+
+set(STEERING_TEST_SOURCE "${CMAKE_SOURCE_DIR}/RacingAlgorithms/test/TestSteering.c")
+add_executable(SteeringTest ${STEERING_TEST_SOURCE}
+                ${RACING_SOURCES}
+                ${PHYSICS_SOURCES}
+            )
+                     

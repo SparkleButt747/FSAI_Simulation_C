@@ -39,7 +39,7 @@ float Vector2_SignedAngle(const Vector2 from, const Vector2 to) {
     angle = angle * (180.0f / (float)M_PI);
     // Normalize to [-180, 180].
     while (angle > 180.0f) angle -= 360.0f;
-    while (angle < -180.0f) angle += 360.0f;
+    while (angle <= -180.0f) angle += 360.0f;
     return angle;
 }
 

@@ -63,6 +63,8 @@ typedef struct
     // Flag: use racing algorithm (1) or manual input (0).
     int useRacingAlgorithm;
 
+    LookahaedIndicies LI;
+
 } CarController;
 
 // Initialize the CarController: load car model, set initial state, and generate track.

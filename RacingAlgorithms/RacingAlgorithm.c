@@ -1,6 +1,7 @@
 #include "RacingAlgorithm.h"
 #include "math.h"
 #include <stdlib.h>
+#include <stdio.h>
 
 // Helper function: Compute the car's forward direction (2D) from its yaw.
 // We assume the car's forward direction in the horizontal plane is (cos(yaw), sin(yaw)).
@@ -20,7 +21,7 @@ static float clamp_float(float value, float min, float max) {
 // If the angle is near zero, we assume full speed (MAX_SPEED). Otherwise, we use the expression:
 // expectedSpeed = abs(1/(accelerationFactor * angle)), clamped to MAX_SPEED.
 static float CalculateExpectedSpeed(float angle, float accelerationFactor) {
-    if (fabsf(angle) < 0.001f) {
+    if (fabsf(angle) < EPSILON) {
         return MAX_SPEED;
     }
     float expected = fabsf(1.0f / (accelerationFactor * angle));
@@ -35,12 +36,36 @@ static float CalculateExpectedSpeed(float angle, float accelerationFactor) {
 static float CalculateThrottle(float accelerationNeeded) {
     float posThrottle = 0.0f, negThrottle = 0.0f;
     if (accelerationNeeded > 0) {
-        posThrottle = accelerationNeeded / 3.4323432343f;
+        posThrottle = accelerationNeeded / MAX_ACC;
     } else {
         negThrottle = accelerationNeeded / 10.0f; // accelerationNeeded is negative.
     }
     float throttle = posThrottle + negThrottle;
     return clamp_float(throttle, -1.0f, 1.0f);
+}
+
+LookahaedIndicies RacingAlgorithm_GetLookaheadIndices(int nCheckpoints, double carVelocity,
+                                                        const RacingAlgorithmConfig* config) {
+
+    if (nCheckpoints <= 0) {
+        LookahaedIndicies LI = {-1, -1, -1};
+        return LI;
+    }
+
+    // Compute lookahead distances based on sensitivity.
+    int speedLookaheadDistance = ((int)floorf(config->speedLookAheadSensitivity * (float)carVelocity)) + 1;
+    int steeringLookaheadDistance = ((int)floorf(config->steeringLookAheadSensitivity * (float)carVelocity)) + 1;
+    int lookaheadMax = (speedLookaheadDistance > steeringLookaheadDistance) ? speedLookaheadDistance : steeringLookaheadDistance;
+    if (lookaheadMax > nCheckpoints - 1)
+        lookaheadMax = nCheckpoints - 1;
+
+    int steeringIndex = (steeringLookaheadDistance < (lookaheadMax + 1)) ? steeringLookaheadDistance : lookaheadMax;
+    int speedIndex = (speedLookaheadDistance < (lookaheadMax + 1)) ? speedLookaheadDistance : lookaheadMax;
+
+    LookahaedIndicies LI = {steeringIndex, speedIndex, lookaheadMax};
+    printf("LIObj: %d, %d, %d\n", LI.steer, LI.speed, LI.max);
+    return LI;
+
 }
 
 // Computes throttle input based on checkpoint lookahead.
@@ -50,16 +75,15 @@ static float CalculateThrottle(float accelerationNeeded) {
 float RacingAlgorithm_GetThrottleInput(const Vector3* checkpointPositions, int nCheckpoints, 
                                          double carVelocity, const Transform* carTransform, 
                                          const RacingAlgorithmConfig* config, double dt) {
-    if (nCheckpoints <= 0)
-        return 0.0f;
 
-    // Compute lookahead distances based on sensitivity.
-    int speedLookaheadDistance = ((int)floorf(config->speedLookAheadSensitivity * (float)carVelocity)) + 1;
-    int steeringLookaheadDistance = ((int)floorf(config->steeringLookAheadSensitivity * (float)carVelocity)) + 1;
-    int lookaheadMax = (speedLookaheadDistance > steeringLookaheadDistance) ? speedLookaheadDistance : steeringLookaheadDistance;
-    if (lookaheadMax > nCheckpoints - 1)
-        lookaheadMax = nCheckpoints - 1;
+    // Choose the lookahead index for throttle.
+    LookahaedIndicies LI = RacingAlgorithm_GetLookaheadIndices(nCheckpoints, carVelocity, config);
+    int lookaheadIndex = LI.speed;
+    int lookaheadMax = LI.max;
 
+    if (lookaheadIndex == -1) {
+        return 0.0;
+    }
     // Use variable-length arrays (VLAs) to cache checkpoint directions and distances.
     Vector2 cachedDirections[lookaheadMax + 1];
     float cachedDistances[lookaheadMax + 1];
@@ -67,17 +91,14 @@ float RacingAlgorithm_GetThrottleInput(const Vector3* checkpointPositions, int n
     // Precompute for checkpoints [0, lookaheadMax].
     for (int i = 0; i <= lookaheadMax; i++) {
         Vector3 diff = { checkpointPositions[i].x - carTransform->position.x,
-                         checkpointPositions[i].y - carTransform->position.y,
-                         checkpointPositions[i].z - carTransform->position.z };
+                            checkpointPositions[i].y - carTransform->position.y,
+                            checkpointPositions[i].z - carTransform->position.z };
         // Consider only X and Z for horizontal motion.
         Vector2 diff2D = { diff.x, diff.z };
         float distance = Vector2_Magnitude(diff2D);
         cachedDistances[i] = distance;
         cachedDirections[i] = Vector2_Normalize(diff2D);
     }
-
-    // Choose the lookahead index for throttle.
-    int lookaheadIndex = (speedLookaheadDistance < (lookaheadMax + 1)) ? speedLookaheadDistance : lookaheadMax;
 
     Vector2 checkpointDir = cachedDirections[lookaheadIndex];
     float distanceToCheckpoint = cachedDistances[lookaheadIndex];
@@ -92,10 +113,10 @@ float RacingAlgorithm_GetThrottleInput(const Vector3* checkpointPositions, int n
 
     // Compute acceleration needed to reach expected speed.
     float speed = (float)carVelocity;
-    if (fabsf(speed) < 0.001f)
+    if (fabsf(speed) < EPSILON)
         speed = 0.1f; // Prevent division by zero.
     float accelerationNeeded = (expectedSpeed - speed) / (distanceToCheckpoint / speed);
-    if (fabsf(accelerationNeeded) < 0.001f)
+    if (fabsf(accelerationNeeded) < EPSILON)
         accelerationNeeded = 1.0f;
 
     return CalculateThrottle(accelerationNeeded);
@@ -108,14 +129,15 @@ float RacingAlgorithm_GetThrottleInput(const Vector3* checkpointPositions, int n
 float RacingAlgorithm_GetSteeringInput(const Vector3* checkpointPositions, int nCheckpoints, 
                                        double carVelocity, const Transform* carTransform, 
                                        const RacingAlgorithmConfig* config, double dt) {
-    if (nCheckpoints <= 0)
-        return 0.0f;
 
-    int speedLookaheadDistance = ((int)floorf(config->speedLookAheadSensitivity * (float)carVelocity)) + 1;
-    int steeringLookaheadDistance = ((int)floorf(config->steeringLookAheadSensitivity * (float)carVelocity)) + 1;
-    int lookaheadMax = (speedLookaheadDistance > steeringLookaheadDistance) ? speedLookaheadDistance : steeringLookaheadDistance;
-    if (lookaheadMax > nCheckpoints - 1)
-        lookaheadMax = nCheckpoints - 1;
+    // Choose the lookahead index for throttle.
+    LookahaedIndicies LI = RacingAlgorithm_GetLookaheadIndices(nCheckpoints, carVelocity, config);
+    int lookaheadIndex = LI.steer;
+    int lookaheadMax = LI.max;
+
+    if (lookaheadIndex == -1) {
+        return 0.0;
+    }
 
     Vector2 cachedDirections[lookaheadMax + 1];
     float cachedDistances[lookaheadMax + 1];
@@ -128,9 +150,7 @@ float RacingAlgorithm_GetSteeringInput(const Vector3* checkpointPositions, int n
         float distance = Vector2_Magnitude(diff2D);
         cachedDistances[i] = distance;
         cachedDirections[i] = Vector2_Normalize(diff2D);
-    }
-
-    int lookaheadIndex = (steeringLookaheadDistance < (lookaheadMax + 1)) ? steeringLookaheadDistance : lookaheadMax;
+    } 
 
     Vector2 checkpointDir = cachedDirections[lookaheadIndex];
     float distanceToCheckpoint = cachedDistances[lookaheadIndex];
@@ -138,17 +158,20 @@ float RacingAlgorithm_GetSteeringInput(const Vector3* checkpointPositions, int n
     Vector2 carForward = GetCarForwardDirection(carTransform);
 
     float angle = Vector2_SignedAngle(carForward, checkpointDir);
+    return clamp_float(angle / MAX_ANGLE, -1.0f, 1.0f);
 
-    float speed = (float)carVelocity;
-    if (fabsf(speed) < 0.001f)
-        speed = 0.1f;
-    float reactionTime = distanceToCheckpoint / speed;
-    if (fabsf(reactionTime) < 0.001f)
-        reactionTime = 0.1f;
+    // Including this code makes the car veer off the path, I don't know why
 
-    float angleChangeRate = -angle / reactionTime;
-    float updatedAngle = angle + angleChangeRate * (float)dt;
-
-    float steeringInput = clamp_float(updatedAngle / 21.0f, -1.0f, 1.0f);
-    return -steeringInput;
+    // float speed = (float)carVelocity;
+    // float reactionTime = distanceToCheckpoint / speed;
+    // if (fabsf(reactionTime) < 0.001f || speed < 0.01f)
+    //     reactionTime = 0.1f;
+    // if (reactionTime > 1)
+    //     reactionTime = 1;
+    // printf("Reaction time: %f\n", reactionTime);
+    // float angleChangeRate = -angle / reactionTime;
+    // float updatedAngle = angle + angleChangeRate * (float)dt;
+    // printf("Unclamped Steer Angle: %f\n", updatedAngle);
+    // float steeringInput = clamp_float(updatedAngle / MAX_ANGLE, -1.0f, 1.0f);
+    // return -steeringInput;
 }

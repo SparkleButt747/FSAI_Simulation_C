@@ -10,6 +10,8 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+#define SCALE 3
+
 int main(int argc, char* argv[]) {
     // Seed random number generator.
     srand((unsigned) time(NULL));
@@ -31,7 +33,6 @@ int main(int argc, char* argv[]) {
     // Initialize the car controller.
     CarController controller;
     CarController_Init(&controller, "configDry.yaml");
-
     // Open CSV file to record car state log.
     FILE* csvFile = fopen("CarStateLog.csv", "w");
     if (!csvFile) {
@@ -54,7 +55,6 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Graphics_Init failed\n");
         exit(EXIT_FAILURE);
     }
-
     double totalTime = 0.0;
     while (1) {
         // Poll SDL events to keep window responsive.
@@ -90,24 +90,43 @@ int main(int argc, char* argv[]) {
         // --- Graphics Update ---
         Graphics_Clear(&g);
         Graphics_DrawGrid(&g, 50);  // Draw grid with 50-pixel spacing.
+        SDL_SetRenderDrawColor(g.renderer, 200, 0, 200, 255);
+        Graphics_DrawFilledCircle(&g, controller.checkpointPositions[0].x*SCALE + g.width/2, controller.checkpointPositions[0].z*SCALE + g.height/2, 1.5*SCALE);
         
         // Draw cones as black circles.
-        SDL_SetRenderDrawColor(g.renderer, 0, 0, 0, 255);
         for (int i = 0; i < controller.nLeftCones; i++) {
-            int coneX = (int)(controller.leftCones[i].x + g.width/2);
-            int coneY = (int)(controller.leftCones[i].z + g.height/2);
-            Graphics_DrawFilledCircle(&g, coneX, coneY, 5);
+            if (i == 0) {
+                SDL_SetRenderDrawColor(g.renderer, 0, 255, 0, 255);
+            } else if (i == controller.LI.speed) {
+                SDL_SetRenderDrawColor(g.renderer, 255, 255, 0, 255);
+            } else if (i == controller.LI.steer) {
+                SDL_SetRenderDrawColor(g.renderer, 255, 0, 255, 255);
+            } else {
+                SDL_SetRenderDrawColor(g.renderer, 120, 120, 120, 255);
+            }
+            int coneX = (int)(controller.leftCones[i].x*SCALE + g.width/2);
+            int coneY = (int)(controller.leftCones[i].z*SCALE + g.height/2);
+            Graphics_DrawFilledCircle(&g, coneX, coneY, SCALE);
         }
         for (int i = 0; i < controller.nRightCones; i++) {
-            int coneX = (int)(controller.rightCones[i].x + g.width/2);
-            int coneY = (int)(controller.rightCones[i].z + g.height/2);
-            Graphics_DrawFilledCircle(&g, coneX, coneY, 5);
+            if (i == 0) {
+                SDL_SetRenderDrawColor(g.renderer, 0, 255, 0, 255);
+            } else if (i == controller.LI.speed) {
+                SDL_SetRenderDrawColor(g.renderer, 255, 255, 0, 255);
+            } else if (i == controller.LI.steer) {
+                SDL_SetRenderDrawColor(g.renderer, 255, 0, 255, 255);
+            } else {
+                SDL_SetRenderDrawColor(g.renderer, 80, 80, 80, 255);
+            }
+            int coneX = (int)(controller.rightCones[i].x*SCALE + g.width/2);
+            int coneY = (int)(controller.rightCones[i].z*SCALE + g.height/2);
+            Graphics_DrawFilledCircle(&g, coneX, coneY, SCALE);
         }
         
         // Map simulation coordinates to screen coordinates.
-        float carScreenX = (float)controller.carState.x + g.width / 2.0f;
-        float carScreenY = (float)controller.carState.y + g.height / 2.0f;
-        float carRadius = 10.0f;
+        float carScreenX = (float)controller.carState.x*SCALE + g.width / 2.0f;
+        float carScreenY = (float)controller.carState.y*SCALE + g.height / 2.0f;
+        float carRadius = 2.0f*SCALE;
         float carYaw = (float)controller.carState.yaw;
         // Draw the car using Graphics_DrawCar.
         Graphics_DrawCar(&g, carScreenX, carScreenY, carRadius, carYaw);
