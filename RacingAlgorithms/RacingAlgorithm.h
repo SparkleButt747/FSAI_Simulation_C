@@ -34,7 +34,7 @@ extern "C"
                                            double carVelocity, const Transform *carTransform,
                                            const RacingAlgorithmConfig *config, double dt);
 
-    LookahaedIndicies RacingAlgorithm_GetLookaheadIndices(int nCheckpoints, double carVelocity,
+    LookaheadIndices RacingAlgorithm_GetLookaheadIndices(int nCheckpoints, double carVelocity,
                                                 const RacingAlgorithmConfig* config);
 
 #ifdef __cplusplus

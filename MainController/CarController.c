@@ -143,7 +143,7 @@ void CarController_Update(CarController* controller, double dt) {
         printf("Racing algorithm mode. Using racing algorithm for control.\n");
         Vector3 carVelocity = {controller->carState.v_x, controller->carState.v_y, controller->carState.v_z};
         float carSpeed = Vector3_Magnitude(carVelocity);
-        controller->LI = RacingAlgorithm_GetLookaheadIndices(
+        controller->lookaheadIndices = RacingAlgorithm_GetLookaheadIndices(
             controller->nCheckpoints,
             carSpeed,
             &controller->racingConfig);

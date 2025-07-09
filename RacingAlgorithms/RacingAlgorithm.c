@@ -44,12 +44,12 @@ static float CalculateThrottle(float accelerationNeeded) {
     return clamp_float(throttle, -1.0f, 1.0f);
 }
 
-LookahaedIndicies RacingAlgorithm_GetLookaheadIndices(int nCheckpoints, double carVelocity,
+LookaheadIndices RacingAlgorithm_GetLookaheadIndices(int nCheckpoints, double carVelocity,
                                                         const RacingAlgorithmConfig* config) {
 
     if (nCheckpoints <= 0) {
-        LookahaedIndicies LI = {-1, -1, -1};
-        return LI;
+        LookaheadIndices indices = {-1, -1, -1};
+        return indices;
     }
 
     // Compute lookahead distances based on sensitivity.
@@ -62,9 +62,9 @@ LookahaedIndicies RacingAlgorithm_GetLookaheadIndices(int nCheckpoints, double c
     int steeringIndex = (steeringLookaheadDistance < (lookaheadMax + 1)) ? steeringLookaheadDistance : lookaheadMax;
     int speedIndex = (speedLookaheadDistance < (lookaheadMax + 1)) ? speedLookaheadDistance : lookaheadMax;
 
-    LookahaedIndicies LI = {steeringIndex, speedIndex, lookaheadMax};
-    printf("LIObj: %d, %d, %d\n", LI.steer, LI.speed, LI.max);
-    return LI;
+    LookaheadIndices indices = {steeringIndex, speedIndex, lookaheadMax};
+    printf("LIObj: %d, %d, %d\n", indices.steer, indices.speed, indices.max);
+    return indices;
 
 }
 
@@ -77,9 +77,9 @@ float RacingAlgorithm_GetThrottleInput(const Vector3* checkpointPositions, int n
                                          const RacingAlgorithmConfig* config, double dt) {
 
     // Choose the lookahead index for throttle.
-    LookahaedIndicies LI = RacingAlgorithm_GetLookaheadIndices(nCheckpoints, carVelocity, config);
-    int lookaheadIndex = LI.speed;
-    int lookaheadMax = LI.max;
+    LookaheadIndices indices = RacingAlgorithm_GetLookaheadIndices(nCheckpoints, carVelocity, config);
+    int lookaheadIndex = indices.speed;
+    int lookaheadMax = indices.max;
 
     if (lookaheadIndex == -1) {
         return 0.0;
@@ -131,9 +131,9 @@ float RacingAlgorithm_GetSteeringInput(const Vector3* checkpointPositions, int n
                                        const RacingAlgorithmConfig* config, double dt) {
 
     // Choose the lookahead index for throttle.
-    LookahaedIndicies LI = RacingAlgorithm_GetLookaheadIndices(nCheckpoints, carVelocity, config);
-    int lookaheadIndex = LI.steer;
-    int lookaheadMax = LI.max;
+    LookaheadIndices indices = RacingAlgorithm_GetLookaheadIndices(nCheckpoints, carVelocity, config);
+    int lookaheadIndex = indices.steer;
+    int lookaheadMax = indices.max;
 
     if (lookaheadIndex == -1) {
         return 0.0;

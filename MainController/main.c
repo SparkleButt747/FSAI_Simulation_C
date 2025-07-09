@@ -97,9 +97,9 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < controller.nLeftCones; i++) {
             if (i == 0) {
                 SDL_SetRenderDrawColor(g.renderer, 0, 255, 0, 255);
-            } else if (i == controller.LI.speed) {
+            } else if (i == controller.lookaheadIndices.speed) {
                 SDL_SetRenderDrawColor(g.renderer, 255, 255, 0, 255);
-            } else if (i == controller.LI.steer) {
+            } else if (i == controller.lookaheadIndices.steer) {
                 SDL_SetRenderDrawColor(g.renderer, 255, 0, 255, 255);
             } else {
                 SDL_SetRenderDrawColor(g.renderer, 120, 120, 120, 255);
@@ -111,9 +111,9 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < controller.nRightCones; i++) {
             if (i == 0) {
                 SDL_SetRenderDrawColor(g.renderer, 0, 255, 0, 255);
-            } else if (i == controller.LI.speed) {
+            } else if (i == controller.lookaheadIndices.speed) {
                 SDL_SetRenderDrawColor(g.renderer, 255, 255, 0, 255);
-            } else if (i == controller.LI.steer) {
+            } else if (i == controller.lookaheadIndices.steer) {
                 SDL_SetRenderDrawColor(g.renderer, 255, 0, 255, 255);
             } else {
                 SDL_SetRenderDrawColor(g.renderer, 80, 80, 80, 255);
