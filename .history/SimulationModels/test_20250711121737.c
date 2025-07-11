@@ -16,9 +16,6 @@ int main(void) {
     // Seed random number generator.
     srand((unsigned) time(NULL));
 
-    // Initialize keyboard input.
-    KeyboardInputHandler_Init();
-
     // Create instances of the dynamic bicycle model, state, and input.
     DynamicBicycle carModel;
     State carState;
@@ -26,7 +23,7 @@ int main(void) {
     
     // Simulation time settings.
     double totalTime = 0.0;
-    double dt = 0.001;  // 10ms timestep
+    double dt = 0.05;  // 10ms timestep
         
     // Initialize the dynamic bicycle model.
     DynamicBicycle_init(&carModel, "configDry.yaml");
@@ -50,6 +47,18 @@ int main(void) {
         fprintf(stderr, "Graphics_Init failed\n");
         exit(EXIT_FAILURE);
     }
+
+    // — test parameters (tweak these as you like) —
+    const double testDuration     = 10.0;   // seconds
+    const double logInterval      =  0.1;   // seconds
+    const double thAmp            =  1.0;   // throttle amplitude
+    const double thFreq           =  0.5;   // Hz
+    const double thPhase          =  0.0;   // radians
+    const double stAmp            =  1.0;   // steering amplitude
+    const double stFreq           =  0.2;   // Hz
+    const double stPhase          =  0.0;   // radians
+
+    double nextLog    = 0.0;
     
     // Simulation loop: run until 'c' is pressed.
     while (1) {
@@ -62,51 +71,38 @@ int main(void) {
             }
         }
 
-        // Read a key from the keyboard.
-        int key = KeyboardInputHandler_GetInput();
-        if (key == 'c' || key == 'C') {
-            printf("Exit key 'c' detected. Exiting simulation loop.\n");
+        // exit the loop.
+        if (totalTime > testDuration) {
+            printf("Simulation Complete. Exiting simulation loop.\n");
             break;
         }
+ 
+        carInput.acc   = thAmp * sin(2.0*M_PI*thFreq*totalTime + thPhase);
+        carInput.delta = stAmp * sin(2.0*M_PI*stFreq*totalTime + stPhase);
         
-        // Use keyboard input for control.
-        carInput.acc = 0.0;
-        carInput.delta = 0.0;
-        if (key != -1) {
-            if (key == 'w' || key == 'W') {
-                carInput.acc = 1.0;  // Accelerate
-            } else if (key == 's' || key == 'S') {
-                carInput.acc = -1.0; // Decelerate
-            }
-            if (key == 'a' || key == 'A') {
-                carInput.delta = -1.0; // Full left
-            } else if (key == 'd' || key == 'D') {
-                carInput.delta = 1.0;  // Full right
-            }
-        }
-        
-        // Update the car's state using the dynamic bicycle model.
+        // Update the car's state.
         DynamicBicycle_UpdateState(&carModel, &carState, &carInput, dt);
         
-        // Log state to CSV.
-        fprintf(csvFile, "%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
-                totalTime, carState.x, carState.y, carState.z, carState.yaw,
-                carState.v_x, carState.v_y, carState.v_z,
-                carState.r_x, carState.r_y, carState.r_z,
-                carState.a_x, carState.a_y, carState.a_z);
-        
-        totalTime += dt;
+        // 3) log at fixed intervals
+        if (totalTime >= nextLog) {
+            fprintf(csvFile,
+              "%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+              totalTime,
+              carState.x, carState.y, carState.z, carState.yaw,
+              carState.v_x, carState.v_y, carState.v_z,
+              carState.r_x, carState.r_y, carState.r_z,
+              carState.a_x, carState.a_y, carState.a_z
+            );
+            nextLog += logInterval;
+        }
         
         // --- Graphics Update ---
         Graphics_Clear(&g);
         Graphics_DrawGrid(&g, 50);  // Draw grid with spacing of 50 pixels.
-        // Map simulation coordinates to screen coordinates:
-        // For this example, we assume simulation (x,y) maps directly to screen (x,y)
-        // Adjust scaling/translation as needed.
+        // Here, adjust mapping as necessary. This example assumes simulation coordinates map directly.
         Graphics_DrawCar(&g, (float)carState.x, (float)carState.y, 10, (float)carState.yaw);
         Graphics_Present(&g);
         
-        // Delay to simulate dt (10ms).
         SDL_Delay((Uint32)(dt * 1000));
     }
     exit_loop:

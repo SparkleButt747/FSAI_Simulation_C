@@ -19,5 +19,8 @@
     "titleBar.inactiveForeground": "#e7e7e799"
   },
   "peacock.color": "#db337d",
-  "C_Cpp.errorSquiggles": "disabled"
+  "C_Cpp.errorSquiggles": "disabled",
+  "files.associations": {
+    "dynamicbicycle.h": "c"
+  }
 }
