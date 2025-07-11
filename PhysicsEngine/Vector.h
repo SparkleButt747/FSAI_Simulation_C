@@ -12,6 +12,15 @@ extern "C"
         float y;
     } Vector2;
 
+        // LookaheadIndices structure.
+    typedef struct
+    {
+        int steer;
+        int speed;
+        int max;
+
+    } LookaheadIndices;
+
     typedef struct
     {
         float x;

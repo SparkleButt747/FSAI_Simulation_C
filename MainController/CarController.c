@@ -10,36 +10,28 @@
 
 #include "track_generator.h"
 
+static void MoveNextCheckpointToLast(Vector3* checkpoints, Vector3* lefts, Vector3* rights,int n) {
+    Vector3 temp = checkpoints[0];
+    for (int i = 1; i < n; i ++) {
+        checkpoints[i-1] = checkpoints[i];
+    }
+    checkpoints[n-1] = temp;
+    
+    temp = lefts[0];
+    for (int i = 1; i < n; i ++) {
+        lefts[i-1] = lefts[i];
+    }
+    lefts[n-1] = temp;
+
+    temp = rights[0];
+    for (int i = 1; i < n; i ++) {
+        rights[i-1] = rights[i];
+    }
+    rights[n-1] = temp;
+};
+
 // Initialize CarController.
 void CarController_Init(CarController* controller, const char* yamlFilePath) {
-    // Initialize simulation variables.
-    controller->totalTime = 0.0;
-    controller->totalDistance = 0.0;
-    controller->lapCount = 0;
-    controller->deltaTime = 0.0;
-
-    // Set controller configuration.
-    controller->config.collisionThreshold = 1.0f;  // example threshold
-
-    // Use racing algorithm by default.
-    controller->useRacingAlgorithm = 1;
-
-    // Initialize RacingAlgorithm configuration.
-    controller->racingConfig.speedLookAheadSensitivity = 0.7f;
-    controller->racingConfig.steeringLookAheadSensitivity = 0.1f;
-    controller->racingConfig.accelerationFactor = 0.002f;
-
-    // Initialize car model, state, and input.
-    DynamicBicycle_init(&controller->carModel, yamlFilePath);
-    controller->carInput = Input_create(0.0, 0.0, 0.0);
-    controller->carState = State_create(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-
-    // Initialize car transform based on the state.
-    controller->carTransform.position.x = (float)controller->carState.x;
-    controller->carTransform.position.y = 0.5f;  // fixed height
-    controller->carTransform.position.z = (float)controller->carState.y;  // map state.y to z
-    controller->carTransform.yaw = (float)controller->carState.yaw;
-
 
     // Generate track data.
     PathConfig pathConfig;
@@ -53,6 +45,46 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
     controller->checkpointPositions = (Vector3*)malloc(sizeof(Vector3) * controller->nCheckpoints);
     for (int i = 0; i < controller->nCheckpoints; i++) {
         controller->checkpointPositions[i] = track.checkpoints[i].position;
+
+    // Initialize simulation variables.
+    controller->totalTime = 0.0;
+    controller->totalDistance = 0.0;
+    controller->lapCount = 0;
+    controller->deltaTime = 0.0;
+
+    // Set controller configuration.
+    controller->config.collisionThreshold = 2.5f;  // example threshold
+
+    // Use racing algorithm by default.
+    controller->useRacingAlgorithm = 1;
+
+    // Initialize RacingAlgorithm configuration.
+    controller->racingConfig.speedLookAheadSensitivity = 0.7f;
+    controller->racingConfig.steeringLookAheadSensitivity = 0.1f;
+    controller->racingConfig.accelerationFactor = 0.002f;
+
+    // Make sure the car starts on the track
+    float startX = controller->checkpointPositions[0].x;
+    float startZ = controller->checkpointPositions[0].z;
+
+    // Make sure the car is pointing in the right direction
+    Vector2 zeroVector = {0, 0};
+    float nextX = controller->checkpointPositions[10].x;
+    float nextZ = controller->checkpointPositions[10].z;
+    Vector2 startVector = {nextX - startX, nextZ - startZ};
+    float startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180;
+
+    // Initialize car model, state, and input.
+    DynamicBicycle_init(&controller->carModel, yamlFilePath);
+    controller->carInput = Input_create(0.0, 0.0, 0.0);
+    controller->carState = State_create(startX, startZ, 0, startYaw, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+    // Initialize car transform based on the state.
+    controller->carTransform.position.x = (float)controller->carState.x;
+    controller->carTransform.position.y = 0.5f;  // fixed height
+    controller->carTransform.position.z = (float)controller->carState.y;  // map state.y to z
+    controller->carTransform.yaw = (float)controller->carState.yaw;
+
     }
     // For lap detection, use the last checkpoint in the array.
     if (controller->nCheckpoints > 0) {
@@ -84,6 +116,15 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
     free(track.checkpoints);
 }
 
+int circle(int count) {
+    if (count % 2 == 0) {
+        return 'w';
+    } else {
+        return 'd';
+    }
+}
+int count;
+
 // Update simulation.
 void CarController_Update(CarController* controller, double dt) {
     // Update simulation time.
@@ -100,37 +141,52 @@ void CarController_Update(CarController* controller, double dt) {
     // Handle input.
     if (controller->useRacingAlgorithm) {
         printf("Racing algorithm mode. Using racing algorithm for control.\n");
+        Vector3 carVelocity = {controller->carState.v_x, controller->carState.v_y, controller->carState.v_z};
+        float carSpeed = Vector3_Magnitude(carVelocity);
+        controller->lookaheadIndices = RacingAlgorithm_GetLookaheadIndices(
+            controller->nCheckpoints,
+            carSpeed,
+            &controller->racingConfig);
         controller->throttleInput = RacingAlgorithm_GetThrottleInput(
             controller->checkpointPositions,
             controller->nCheckpoints,
-            controller->carState.v_x,
+            carSpeed,
             &controller->carTransform,
             &controller->racingConfig,
             dt);
         controller->steeringAngle = RacingAlgorithm_GetSteeringInput(
             controller->checkpointPositions,
             controller->nCheckpoints,
-            controller->carState.v_x,
+            carSpeed,
             &controller->carTransform,
             &controller->racingConfig,
             dt);
+        printf("THROTTLE: %f, ANGLE: %f\n", controller->throttleInput, controller->steeringAngle);
     } else {
         printf("Manual control mode. Use arrow keys to control the car.\n");
         // Read keyboard input.
-        int key = KeyboardInputHandler_GetInput();
+        // int key = KeyboardInputHandler_GetInput();
+        int key = circle(count);
+        count ++;
+        printf("%c", key);
         // Use keyboard input for control.
         if (key != -1) {
             if (key == 'w' || key == 'W') {
                 controller->throttleInput = 1.0;  // Accelerate
+                printf("Accelerating\n");
             } else if (key == 's' || key == 'S') {
                 controller->throttleInput = -1.0; // Decelerate
+                printf("Decelerating\n");
             }
             if (key == 'a' || key == 'A') {
                 controller->steeringAngle = -1.0; // Full left
+                printf("Turning left\n");
             } else if (key == 'd' || key == 'D') {
                 controller->steeringAngle= 1.0;  // Full right
+                printf("Turning right\n");
             }
         }
+        printf("Manual control mode END LOOP\n");
     }
 
     // Update car input.
@@ -148,9 +204,20 @@ void CarController_Update(CarController* controller, double dt) {
     // Update total distance traveled (using v_x).
     controller->totalDistance += controller->carState.v_x * dt;
 
+    // Checkpoint met detection: Check if car passes its next checkpoint.
+    float dx = controller->carTransform.position.x - controller->checkpointPositions[0].x;
+    float dz = controller->carTransform.position.z - controller->checkpointPositions[0].z;
+    float distToNext = sqrtf(dx * dx + dz * dz);
+    if (distToNext < controller->config.collisionThreshold) {
+        MoveNextCheckpointToLast(controller->checkpointPositions, controller->leftCones,
+            controller->rightCones, controller->nCheckpoints);
+    }
+    printf("Next Checkpoint: (%f, %f)\n", controller->checkpointPositions[0].x, controller->checkpointPositions[0].z);
+
+
     // Lap detection: Check if car "collides" with the last checkpoint.
-    float dx = controller->carTransform.position.x - controller->lastCheckpoint.x;
-    float dz = controller->carTransform.position.z - controller->lastCheckpoint.z;
+    dx = controller->carTransform.position.x - controller->lastCheckpoint.x;
+    dz = controller->carTransform.position.z - controller->lastCheckpoint.z;
     float distToLast = sqrtf(dx * dx + dz * dz);
     if (distToLast < controller->config.collisionThreshold) {
         // Lap completed.

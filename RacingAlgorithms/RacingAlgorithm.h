@@ -9,7 +9,10 @@ extern "C"
 #include "Vector.h"
 #include "Transform.h"
 
-#define MAX_SPEED 30.1964649875f
+#define MAX_SPEED   30.1964649875f
+#define MAX_ACC     3.4323432343f
+#define MAX_ANGLE   21.0f
+#define EPSILON     0.001f
 
     // Configuration parameters for the racing algorithm.
     typedef struct
@@ -30,6 +33,9 @@ extern "C"
     float RacingAlgorithm_GetSteeringInput(const Vector3 *checkpointPositions, int nCheckpoints,
                                            double carVelocity, const Transform *carTransform,
                                            const RacingAlgorithmConfig *config, double dt);
+
+    LookaheadIndices RacingAlgorithm_GetLookaheadIndices(int nCheckpoints, double carVelocity,
+                                                const RacingAlgorithmConfig* config);
 
 #ifdef __cplusplus
 }

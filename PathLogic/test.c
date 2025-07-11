@@ -70,7 +70,7 @@ int main(void) {
        This assumes a script named 'plot_track.py' exists in the same directory.
        If the script is not available or the system call fails, a message is printed.
     */
-    int ret = system("python plot_track.py");
+    int ret = system("python ../PathLogic/plot_track.py");
     if (ret != 0) {
         fprintf(stderr, "Graphing tool did not run successfully. Please run plot_track.py manually.\n");
     }
