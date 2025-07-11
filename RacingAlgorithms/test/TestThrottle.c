@@ -29,7 +29,7 @@ int main(void) {
     double dt = 0.1;
 
     float throttle1 = RacingAlgorithm_GetThrottleInput(
-        &checkpoints, nCheckpoints,
+        checkpoints, nCheckpoints,
         carVelocity, &transform,
         &config, dt
     );

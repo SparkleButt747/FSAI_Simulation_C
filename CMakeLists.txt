@@ -43,7 +43,7 @@ file(GLOB GRAPHICS_SOURCES "${CMAKE_SOURCE_DIR}/Graphics/*.c")
 file(GLOB GRAPHICS_H_SOURCES "${CMAKE_SOURCE_DIR}/Graphics/*.h")
 
 # The test driver for SimulationModels is at SimulationModels/test.c.
-set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/SimulationModels/test.c")
+set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/SimulationModels/test/TestDynamicBicycle.c")
 
 # Create the SimulationModels executable.
 add_executable(SimulationModelsTest ${SIMULATION_TEST_SOURCE} ${DYNAMIC_BICYCLE_SOURCES} ${KEY_SOURCES} ${GRAPHICS_SOURCES} ${GRAPHICS_H_SOURCES})
@@ -71,7 +71,7 @@ file(GLOB PATH_LOGIC_SOURCES
 )
 
 # The test driver for PathLogic is at PathLogic/test.c.
-set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/PathLogic/test.c")
+set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/PathLogic/test/TestTrackGeneration.c")
 
 # Create the PathLogic executable.
 add_executable(PathLogicTest ${PATH_LOGIC_TEST_SOURCE} ${PATH_LOGIC_SOURCES})
