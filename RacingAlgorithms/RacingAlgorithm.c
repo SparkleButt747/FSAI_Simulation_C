@@ -5,10 +5,12 @@
 
 // Helper function: Compute the car's forward direction (2D) from its yaw.
 // We assume the car's forward direction in the horizontal plane is (cos(yaw), sin(yaw)).
+
 static Vector2 GetCarForwardDirection(const Transform* transform) {
     Vector2 forward = { cosf(transform->yaw), sinf(transform->yaw) };
     return Vector2_Normalize(forward);
 }
+
 
 // Helper function: Clamp a float value between a minimum and maximum.
 static float clamp_float(float value, float min, float max) {
@@ -126,6 +128,9 @@ float RacingAlgorithm_GetThrottleInput(const Vector3* checkpointPositions, int n
 // This function uses the steering lookahead to determine the desired steering angle,
 // calculates the rate at which the angle should change (based on reaction time),
 // and returns the steering input (clamped between -1 and 1).
+
+/*
+Old Steering Input Function
 float RacingAlgorithm_GetSteeringInput(const Vector3* checkpointPositions, int nCheckpoints, 
                                        double carVelocity, const Transform* carTransform, 
                                        const RacingAlgorithmConfig* config, double dt) {
@@ -175,3 +180,67 @@ float RacingAlgorithm_GetSteeringInput(const Vector3* checkpointPositions, int n
     // float steeringInput = clamp_float(updatedAngle / MAX_ANGLE, -1.0f, 1.0f);
     // return -steeringInput;
 }
+
+*/
+
+float RacingAlgorithm_GetSteeringInput(
+    const Vector3* checkpointPositions, int nCheckpoints,
+    double carVelocity, const Transform* carTransform,
+    const RacingAlgorithmConfig* config, double dt)
+{
+    LookaheadIndices indices =
+        RacingAlgorithm_GetLookaheadIndices(nCheckpoints, carVelocity, config);
+    int lookaheadIndex = indices.steer;
+    int lookaheadMax   = indices.max;
+
+    if (lookaheadIndex == -1) {
+        return 0.0f;
+    }
+
+    // Cache directions & distances up to lookaheadMax
+    Vector2 cachedDirections[lookaheadMax + 1];
+    float cachedDistances[lookaheadMax + 1];
+
+    for (int i = 0; i <= lookaheadMax; i++) {
+        Vector3 diff = { checkpointPositions[i].x - carTransform->position.x,
+                         checkpointPositions[i].y - carTransform->position.y,
+                         checkpointPositions[i].z - carTransform->position.z };
+        Vector2 diff2D = { diff.x, diff.z };
+        float distance = Vector2_Magnitude(diff2D);
+        cachedDistances[i] = distance;
+        cachedDirections[i] = Vector2_Normalize(diff2D);
+    } 
+
+    Vector2 checkpointDir       = cachedDirections[lookaheadIndex];
+    float   distanceToCheckpoint = cachedDistances[lookaheadIndex];
+
+    // Current forward & signed angle to checkpoint
+    Vector2 carForward = GetCarForwardDirection(carTransform);
+    float   angle      = Vector2_SignedAngle(carForward, checkpointDir);
+    
+    // —— Reaction-time smoothing block —— 
+    float speed = (float)carVelocity;
+    if (fabsf(speed) < EPSILON) {
+        speed = 0.1f;  // avoid div0
+    }
+    float reactionTime = distanceToCheckpoint / speed;
+
+    // clamp reactionTime into [0.1…1.0]
+    if (reactionTime < 0.001f || speed < 0.01f) {
+        reactionTime = 0.1f;
+    }
+    if (reactionTime > 1.0f) {
+        reactionTime = 1.0f;
+    }
+
+    // compute how quickly we need to steer to zero the angle in that window
+    float angleChangeRate = -angle / reactionTime;
+    float updatedAngle    = angle + angleChangeRate * (float)dt;
+    
+
+    // map back into [-1…1] over the max-steer angle
+    float steeringInput = clamp_float(updatedAngle / MAX_ANGLE, -1.0f, 1.0f);
+
+    return steeringInput;
+}
+

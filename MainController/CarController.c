@@ -56,7 +56,7 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
     controller->config.collisionThreshold = 2.5f;  // example threshold
 
     // Use racing algorithm by default.
-    controller->useRacingAlgorithm = 1;
+    controller->useRacingAlgorithm = 0;
 
     // Initialize RacingAlgorithm configuration.
     controller->racingConfig.speedLookAheadSensitivity = 0.7f;
@@ -114,16 +114,10 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
     free(track.leftCones);
     free(track.rightCones);
     free(track.checkpoints);
-}
 
-int circle(int count) {
-    if (count % 2 == 0) {
-        return 'w';
-    } else {
-        return 'd';
-    }
+    // Initialize keyboard input.
+    KeyboardInputHandler_Init();
 }
-int count;
 
 // Update simulation.
 void CarController_Update(CarController* controller, double dt) {
@@ -163,13 +157,10 @@ void CarController_Update(CarController* controller, double dt) {
             dt);
         printf("THROTTLE: %f, ANGLE: %f\n", controller->throttleInput, controller->steeringAngle);
     } else {
-        printf("Manual control mode. Use arrow keys to control the car.\n");
+        printf("Manual control mode. Use WASD keys to control the car.\n");
         // Read keyboard input.
-        // int key = KeyboardInputHandler_GetInput();
-        int key = circle(count);
-        count ++;
+        int key = KeyboardInputHandler_GetInput();
         printf("%c", key);
-        // Use keyboard input for control.
         if (key != -1) {
             if (key == 'w' || key == 'W') {
                 controller->throttleInput = 1.0;  // Accelerate
@@ -186,7 +177,7 @@ void CarController_Update(CarController* controller, double dt) {
                 printf("Turning right\n");
             }
         }
-        printf("Manual control mode END LOOP\n");
+        printf("THROTTLE: %f, ANGLE: %f\n", controller->throttleInput, controller->steeringAngle);
     }
 
     // Update car input.

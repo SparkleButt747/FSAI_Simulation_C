@@ -1,5 +1,0 @@
-Finished implementing and testing the DynamicBicycleModel against the Unity counterpart, very similar but there are not the exact same; this may be due to the way C/C++ works; Unity with its own overhead and timing loops could be the cause.
-
-Finished implementing and testing the PathLogic, it's able to reliably generate tracks and checkpoints; visually checked, the high density of checkpoints is never a bad thing; the way the Racing algorithm controller syncs everything together may be the problem.
-
-Testing the Racing Algorithm, we need to give the Unity version and C/C++ version the same track and see whether the output are the same this could be done in the Main Controller

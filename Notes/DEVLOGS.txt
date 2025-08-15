@@ -2,7 +2,14 @@ Finished implementing and testing the DynamicBicycleModel against the Unity coun
 
 Finished implementing and testing the PathLogic, it's able to reliably generate tracks and checkpoints; visually checked, the high density of checkpoints is never a bad thing; the way the Racing algorithm controller syncs everything together may be the problem.
 
-Racing algorithm testing done by Goat Joshua\
+Racing algorithm testing done by Goat Joshua
     Fixed compiler warnings
+    Fixed reaction time steering logic
 
-Main Controller actually works with proper graphics, done by Goat Joshua
+Main Controller actually works with proper graphics
+NOTE: For the manual control to work you have to be on active on the terminal window not the SDL window
+
+    Fixed manual controller (Removed a controller that just drives the car in a circle)
+    Cone Collision detection broken
+    Lap detection broken
+    

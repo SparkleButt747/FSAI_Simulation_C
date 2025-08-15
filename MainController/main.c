@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
     printf("Using dt = %.4f seconds\n", dt);
 
     // Initialize keyboard input.
-    KeyboardInputHandler_Init();
+    //KeyboardInputHandler_Init();
 
     // Initialize the car controller.
     CarController controller;
@@ -65,6 +65,7 @@ int main(int argc, char* argv[]) {
             }
         }
         
+        /*
         // Read keyboard input.
         int key = KeyboardInputHandler_GetInput();
         // If 'c' or 'C' is pressed, exit the simulation loop.
@@ -72,6 +73,7 @@ int main(int argc, char* argv[]) {
             printf("Exit key 'c' detected. Exiting simulation loop.\n");
             break;
         }
+        */
 
         CarController_Update(&controller, dt);
         
