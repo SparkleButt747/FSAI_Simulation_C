@@ -27,6 +27,10 @@ int main(int argc, char* argv[]) {
     }
     printf("Using dt = %.4f seconds\n", dt);
 
+    // Control whether a new track is generated when restarting after a cone
+    // collision. Set to 1 for a new track, 0 to reuse the existing track.
+    int regenerateTrackOnRestart = 0;
+
     // Initialize keyboard input.
     //KeyboardInputHandler_Init();
 
@@ -75,7 +79,12 @@ int main(int argc, char* argv[]) {
         }
         */
 
-        CarController_Update(&controller, dt);
+        if (CarController_Update(&controller, dt)) {
+            printf("Restarting simulation\n");
+            CarController_Reset(&controller, regenerateTrackOnRestart);
+            totalTime = 0.0;
+            continue;
+        }
         
         // Log current state to CSV.
         fprintf(csvFile, "%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",

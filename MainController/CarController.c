@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
 // Assume track_generator.h defines:
 //   void init_default_path_config(PathConfig* config);
@@ -43,8 +44,11 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
     // Store checkpoint data.
     controller->nCheckpoints = track.nCheckpoints;
     controller->checkpointPositions = (Vector3*)malloc(sizeof(Vector3) * controller->nCheckpoints);
+    controller->initialCheckpointPositions = (Vector3*)malloc(sizeof(Vector3) * controller->nCheckpoints);
     for (int i = 0; i < controller->nCheckpoints; i++) {
         controller->checkpointPositions[i] = track.checkpoints[i].position;
+        controller->initialCheckpointPositions[i] = track.checkpoints[i].position;
+    }
 
     // Initialize simulation variables.
     controller->totalTime = 0.0;
@@ -84,27 +88,31 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
     controller->carTransform.position.y = 0.5f;  // fixed height
     controller->carTransform.position.z = (float)controller->carState.y;  // map state.y to z
     controller->carTransform.yaw = (float)controller->carState.yaw;
-
-    }
     // For lap detection, use the last checkpoint in the array.
     if (controller->nCheckpoints > 0) {
         controller->lastCheckpoint = track.checkpoints[controller->nCheckpoints - 1].position;
+        controller->initialLastCheckpoint = controller->lastCheckpoint;
     } else {
         controller->lastCheckpoint = (Vector3){0, 0, 0};
+        controller->initialLastCheckpoint = controller->lastCheckpoint;
     }
 
     // *** New: Store cone data ***
     // Left cones.
     controller->nLeftCones = track.nLeftCones;
     controller->leftCones = (Vector3*)malloc(sizeof(Vector3) * controller->nLeftCones);
+    controller->initialLeftCones = (Vector3*)malloc(sizeof(Vector3) * controller->nLeftCones);
     for (int i = 0; i < controller->nLeftCones; i++) {
         controller->leftCones[i] = track.leftCones[i].position;
+        controller->initialLeftCones[i] = track.leftCones[i].position;
     }
     // Right cones.
     controller->nRightCones = track.nRightCones;
     controller->rightCones = (Vector3*)malloc(sizeof(Vector3) * controller->nRightCones);
+    controller->initialRightCones = (Vector3*)malloc(sizeof(Vector3) * controller->nRightCones);
     for (int i = 0; i < controller->nRightCones; i++) {
         controller->rightCones[i] = track.rightCones[i].position;
+        controller->initialRightCones[i] = track.rightCones[i].position;
     }
 
     // Free temporary track data.
@@ -120,7 +128,7 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
 }
 
 // Update simulation.
-void CarController_Update(CarController* controller, double dt) {
+int CarController_Update(CarController* controller, double dt) {
     // Update simulation time.
     controller->deltaTime = dt;
     controller->totalTime += dt;
@@ -128,8 +136,8 @@ void CarController_Update(CarController* controller, double dt) {
     // Validate that there are checkpoints.
     if (controller->nCheckpoints <= 0) {
         printf("No checkpoints available. Resetting simulation.\n");
-        CarController_Reset(controller);
-        return;
+        CarController_Reset(controller, 1);
+        return 0;
     }
 
     // Handle input.
@@ -195,6 +203,26 @@ void CarController_Update(CarController* controller, double dt) {
     // Update total distance traveled (using v_x).
     controller->totalDistance += controller->carState.v_x * dt;
 
+    // Cone collision detection.
+    for (int i = 0; i < controller->nLeftCones; i++) {
+        float cdx = controller->carTransform.position.x - controller->leftCones[i].x;
+        float cdz = controller->carTransform.position.z - controller->leftCones[i].z;
+        float cdist = sqrtf(cdx * cdx + cdz * cdz);
+        if (cdist < controller->config.collisionThreshold) {
+            printf("Collision with a cone detected.\n");
+            return 1;
+        }
+    }
+    for (int i = 0; i < controller->nRightCones; i++) {
+        float cdx = controller->carTransform.position.x - controller->rightCones[i].x;
+        float cdz = controller->carTransform.position.z - controller->rightCones[i].z;
+        float cdist = sqrtf(cdx * cdx + cdz * cdz);
+        if (cdist < controller->config.collisionThreshold) {
+            printf("Collision with a cone detected.\n");
+            return 1;
+        }
+    }
+
     // Checkpoint met detection: Check if car passes its next checkpoint.
     float dx = controller->carTransform.position.x - controller->checkpointPositions[0].x;
     float dz = controller->carTransform.position.z - controller->checkpointPositions[0].z;
@@ -225,66 +253,107 @@ void CarController_Update(CarController* controller, double dt) {
     // Telemetry: Print current simulation state.
     Telemetry_Update(&controller->carState, &controller->carTransform,
                      controller->totalTime, controller->totalDistance, controller->lapCount);
+    return 0;
 }
 
-// Reset simulation: Reset car state and regenerate track.
-void CarController_Reset(CarController* controller) {
-    // Reset car state, input, and transform.
-    controller->carInput = Input_create(0.0, 0.0, 0.0);
-    controller->carState = State_create(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-    controller->carTransform.position.x = 0.0f;
-    controller->carTransform.position.y = 0.5f;
-    controller->carTransform.position.z = 0.0f;
-    controller->carTransform.yaw = 0.0f;
+// Reset simulation: Reset car state and optionally regenerate track.
+void CarController_Reset(CarController* controller, int regenerateTrack) {
+    // Reset car state, input, and transform based on current checkpoints.
+    float startX;
+    float startZ;
+    float startYaw;
 
-    // Regenerate track.
-    PathConfig pathConfig;
-    init_default_path_config(&pathConfig);
-    int nPoints = pathConfig.resolution;
-    PathResult path = generate_path_with_params(&pathConfig, nPoints);
-    TrackResult track = generate_track(&pathConfig, &path);
+    if (regenerateTrack) {
+        // Regenerate track.
+        PathConfig pathConfig;
+        init_default_path_config(&pathConfig);
+        int nPoints = pathConfig.resolution;
+        PathResult path = generate_path_with_params(&pathConfig, nPoints);
+        TrackResult track = generate_track(&pathConfig, &path);
 
-    // Free old checkpoint data.
-    if (controller->checkpointPositions != NULL) {
+        // Free old track data.
         free(controller->checkpointPositions);
-    }
-    controller->nCheckpoints = track.nCheckpoints;
-    controller->checkpointPositions = (Vector3*)malloc(sizeof(Vector3) * controller->nCheckpoints);
-    for (int i = 0; i < controller->nCheckpoints; i++) {
-        controller->checkpointPositions[i] = track.checkpoints[i].position;
-    }
-    if (controller->nCheckpoints > 0) {
-        controller->lastCheckpoint = track.checkpoints[controller->nCheckpoints - 1].position;
+        free(controller->leftCones);
+        free(controller->rightCones);
+        free(controller->initialCheckpointPositions);
+        free(controller->initialLeftCones);
+        free(controller->initialRightCones);
+
+        controller->nCheckpoints = track.nCheckpoints;
+        controller->checkpointPositions = (Vector3*)malloc(sizeof(Vector3) * controller->nCheckpoints);
+        controller->initialCheckpointPositions = (Vector3*)malloc(sizeof(Vector3) * controller->nCheckpoints);
+        for (int i = 0; i < controller->nCheckpoints; i++) {
+            controller->checkpointPositions[i] = track.checkpoints[i].position;
+            controller->initialCheckpointPositions[i] = track.checkpoints[i].position;
+        }
+        controller->nLeftCones = track.nLeftCones;
+        controller->leftCones = (Vector3*)malloc(sizeof(Vector3) * controller->nLeftCones);
+        controller->initialLeftCones = (Vector3*)malloc(sizeof(Vector3) * controller->nLeftCones);
+        for (int i = 0; i < controller->nLeftCones; i++) {
+            controller->leftCones[i] = track.leftCones[i].position;
+            controller->initialLeftCones[i] = track.leftCones[i].position;
+        }
+        controller->nRightCones = track.nRightCones;
+        controller->rightCones = (Vector3*)malloc(sizeof(Vector3) * controller->nRightCones);
+        controller->initialRightCones = (Vector3*)malloc(sizeof(Vector3) * controller->nRightCones);
+        for (int i = 0; i < controller->nRightCones; i++) {
+            controller->rightCones[i] = track.rightCones[i].position;
+            controller->initialRightCones[i] = track.rightCones[i].position;
+        }
+        if (controller->nCheckpoints > 0) {
+            controller->lastCheckpoint = track.checkpoints[controller->nCheckpoints - 1].position;
+            controller->initialLastCheckpoint = controller->lastCheckpoint;
+        } else {
+            controller->lastCheckpoint = (Vector3){0, 0, 0};
+            controller->initialLastCheckpoint = controller->lastCheckpoint;
+        }
+
+        // Prepare to compute start position from new track.
+        startX = controller->checkpointPositions[0].x;
+        startZ = controller->checkpointPositions[0].z;
+
+        free(path.points);
+        free(path.normals);
+        free(path.cornerRadii);
+        free(track.leftCones);
+        free(track.rightCones);
+        free(track.checkpoints);
     } else {
-        controller->lastCheckpoint = (Vector3){0, 0, 0};
+        // Restore track from initial data.
+        free(controller->checkpointPositions);
+        free(controller->leftCones);
+        free(controller->rightCones);
+
+        controller->checkpointPositions = (Vector3*)malloc(sizeof(Vector3) * controller->nCheckpoints);
+        memcpy(controller->checkpointPositions, controller->initialCheckpointPositions,
+               sizeof(Vector3) * controller->nCheckpoints);
+        controller->leftCones = (Vector3*)malloc(sizeof(Vector3) * controller->nLeftCones);
+        memcpy(controller->leftCones, controller->initialLeftCones,
+               sizeof(Vector3) * controller->nLeftCones);
+        controller->rightCones = (Vector3*)malloc(sizeof(Vector3) * controller->nRightCones);
+        memcpy(controller->rightCones, controller->initialRightCones,
+               sizeof(Vector3) * controller->nRightCones);
+        controller->lastCheckpoint = controller->initialLastCheckpoint;
+
+        startX = controller->checkpointPositions[0].x;
+        startZ = controller->checkpointPositions[0].z;
     }
 
-    // *** Update cone data as well ***
-    // Free old cone data if any.
-    if (controller->leftCones != NULL) {
-        free(controller->leftCones);
-    }
-    if (controller->rightCones != NULL) {
-        free(controller->rightCones);
-    }
-    controller->nLeftCones = track.nLeftCones;
-    controller->nRightCones = track.nRightCones;
-    controller->leftCones = (Vector3*)malloc(sizeof(Vector3) * controller->nLeftCones);
-    for (int i = 0; i < controller->nLeftCones; i++) {
-        controller->leftCones[i] = track.leftCones[i].position;
-    }
-    controller->rightCones = (Vector3*)malloc(sizeof(Vector3) * controller->nRightCones);
-    for (int i = 0; i < controller->nRightCones; i++) {
-        controller->rightCones[i] = track.rightCones[i].position;
-    }
+    // Compute starting yaw using next checkpoint for direction.
+    Vector2 zeroVector = {0, 0};
+    float nextX = controller->checkpointPositions[ (controller->nCheckpoints > 10) ? 10 : 0 ].x;
+    float nextZ = controller->checkpointPositions[ (controller->nCheckpoints > 10) ? 10 : 0 ].z;
+    Vector2 startVector = {nextX - startX, nextZ - startZ};
+    startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180;
+
+    controller->carInput = Input_create(0.0, 0.0, 0.0);
+    controller->carState = State_create(startX, startZ, 0, startYaw, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    controller->carTransform.position.x = startX;
+    controller->carTransform.position.y = 0.5f;
+    controller->carTransform.position.z = startZ;
+    controller->carTransform.yaw = startYaw;
 
     controller->totalTime = 0.0;
     controller->totalDistance = 0.0;
-
-    free(path.points);
-    free(path.normals);
-    free(path.cornerRadii);
-    free(track.leftCones);
-    free(track.rightCones);
-    free(track.checkpoints);
+    controller->lapCount = 0;
 }

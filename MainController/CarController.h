@@ -39,6 +39,9 @@ typedef struct
     int nCheckpoints;
     // For lap detection: when the car "collides" with this checkpoint, a lap is complete.
     Vector3 lastCheckpoint;
+    // Original track data for restarting without regeneration.
+    Vector3 *initialCheckpointPositions;
+    Vector3 initialLastCheckpoint;
 
     // *** New: Cone data ***
     // Arrays for left and right cones and their counts.
@@ -46,6 +49,9 @@ typedef struct
     int nLeftCones;
     Vector3 *rightCones;
     int nRightCones;
+    // Original cone data for restarting without regeneration.
+    Vector3 *initialLeftCones;
+    Vector3 *initialRightCones;
 
     // Simulation timing and distance tracking.
     double totalTime;
@@ -71,10 +77,12 @@ typedef struct
 void CarController_Init(CarController *controller, const char *yamlFilePath);
 
 // Update the simulation by dt seconds.
-void CarController_Update(CarController *controller, double dt);
+// Returns 1 if a cone collision occurred, 0 otherwise.
+int CarController_Update(CarController *controller, double dt);
 
-// Reset the car state and regenerate track.
-void CarController_Reset(CarController *controller);
+// Reset the car state. If regenerateTrack is non-zero a new track is
+// generated; otherwise the original track is restored.
+void CarController_Reset(CarController *controller, int regenerateTrack);
 
 #ifdef __cplusplus
 }
