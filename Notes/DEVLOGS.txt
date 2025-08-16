@@ -13,3 +13,8 @@ NOTE: For the manual control to work you have to be on active on the terminal wi
     Cone Collision detection broken
     Lap detection broken
     
+
+- Fixed Cone Collision Detection
+- Crude Lap Completion Detection (Distance based)
+- CODEX broke everything
+

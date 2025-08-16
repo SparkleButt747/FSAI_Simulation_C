@@ -18,6 +18,8 @@ extern "C"
 typedef struct
 {
     float collisionThreshold; // Distance threshold for collision detection.
+    float conecollisionThreshold; // Distance threshold for cone collision detection.
+    float lap_completion_collisionThreshold ; // Distance threshold for lap completion detection.
 } CarControllerConfig;
 
 // Main CarController structure.
@@ -62,6 +64,9 @@ typedef struct
 
     // Flag: use racing algorithm (1) or manual input (0).
     int useRacingAlgorithm;
+
+    // Flag: Regenerate Track (1) or Use Same Track (0).
+    int regenTrack;
 
     LookaheadIndices lookaheadIndices;
 
