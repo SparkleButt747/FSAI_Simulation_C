@@ -8,13 +8,14 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Include directories for headers.
-include_directories(${CMAKE_SOURCE_DIR}/Graphics)
+include_directories(${CMAKE_SOURCE_DIR}/tools/Graphics)
+include_directories(${CMAKE_SOURCE_DIR}/tools)
 include_directories(${CMAKE_SOURCE_DIR}/MainController)
-include_directories(${CMAKE_SOURCE_DIR}/PathLogic)
-include_directories(${CMAKE_SOURCE_DIR}/PhysicsEngine)
-include_directories(${CMAKE_SOURCE_DIR}/RacingAlgorithms)
-include_directories(${CMAKE_SOURCE_DIR}/SimulationModels/DynamicBicycle)
-include_directories(${CMAKE_SOURCE_DIR}/Telemetry)
+include_directories(${CMAKE_SOURCE_DIR}/sim/track)
+include_directories(${CMAKE_SOURCE_DIR}/common/math)
+include_directories(${CMAKE_SOURCE_DIR}/planning)
+include_directories(${CMAKE_SOURCE_DIR}/sim/vehicle)
+include_directories(${CMAKE_SOURCE_DIR}/common/telemetry)
 
 # Add system include directory for libyaml.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64" OR CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
@@ -37,13 +38,13 @@ include_directories(${SDL2_INCLUDE_DIRS})
 # ------------------------------------------------------------------------------
 
 # Gather all C source files from the DynamicBicycle folder.
-file(GLOB DYNAMIC_BICYCLE_SOURCES "${CMAKE_SOURCE_DIR}/SimulationModels/DynamicBicycle/*.c")
-file(GLOB KEY_SOURCES "${CMAKE_SOURCE_DIR}/MainController/KeyboardInputHandler.c")
-file(GLOB GRAPHICS_SOURCES "${CMAKE_SOURCE_DIR}/Graphics/*.c")
-file(GLOB GRAPHICS_H_SOURCES "${CMAKE_SOURCE_DIR}/Graphics/*.h")
+file(GLOB DYNAMIC_BICYCLE_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c")
+file(GLOB KEY_SOURCES "${CMAKE_SOURCE_DIR}/tools/KeyboardInputHandler.c")
+file(GLOB GRAPHICS_SOURCES "${CMAKE_SOURCE_DIR}/tools/Graphics/*.c")
+file(GLOB GRAPHICS_H_SOURCES "${CMAKE_SOURCE_DIR}/tools/Graphics/*.h")
 
 # The test driver for SimulationModels is at SimulationModels/test.c.
-set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/SimulationModels/test/TestDynamicBicycle.c")
+set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.c")
 
 # Create the SimulationModels executable.
 add_executable(SimulationModelsTest ${SIMULATION_TEST_SOURCE} ${DYNAMIC_BICYCLE_SOURCES} ${KEY_SOURCES} ${GRAPHICS_SOURCES} ${GRAPHICS_H_SOURCES})
@@ -67,11 +68,11 @@ target_link_libraries(SimulationModelsTest ${LINK_PATH}/libyaml.dylib ${SDL2_LIB
 
 # Gather all C source files from the PathLogic folder.
 file(GLOB PATH_LOGIC_SOURCES
-    "${CMAKE_SOURCE_DIR}/PathLogic/*.c"
+    "${CMAKE_SOURCE_DIR}/sim/track/*.c"
 )
 
 # The test driver for PathLogic is at PathLogic/test.c.
-set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/PathLogic/test/TestTrackGeneration.c")
+set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.c")
 
 # Create the PathLogic executable.
 add_executable(PathLogicTest ${PATH_LOGIC_TEST_SOURCE} ${PATH_LOGIC_SOURCES})
@@ -84,17 +85,17 @@ add_executable(PathLogicTest ${PATH_LOGIC_TEST_SOURCE} ${PATH_LOGIC_SOURCES})
 file(GLOB MAINCONTROLLER_SOURCES "${CMAKE_SOURCE_DIR}/MainController/*.c")
 
 #Remove test.c from the list of source files
-file(GLOB PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/PathLogic/*.c")
-list(REMOVE_ITEM PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/PathLogic/test.c")
+file(GLOB PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/*.c")
+list(REMOVE_ITEM PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.c")
 
-file(GLOB PHYSICS_SOURCES "${CMAKE_SOURCE_DIR}/PhysicsEngine/*.c")
-file(GLOB RACING_SOURCES "${CMAKE_SOURCE_DIR}/RacingAlgorithms/*.c")
+file(GLOB PHYSICS_SOURCES "${CMAKE_SOURCE_DIR}/common/math/*.c")
+file(GLOB RACING_SOURCES "${CMAKE_SOURCE_DIR}/planning/*.c")
 
 #Remove test.c from the list of source files
-file(GLOB SIMULATIONMODELS_SOURCES "${CMAKE_SOURCE_DIR}/SimulationModels/DynamicBicycle/*.c")
-list(REMOVE_ITEM SIMULATIONMODELS_SOURCES "${CMAKE_SOURCE_DIR}/SimulationModels/DynamicBicycle/test.c")
+file(GLOB SIMULATIONMODELS_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c")
+list(REMOVE_ITEM SIMULATIONMODELS_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.c")
 
-file(GLOB TELEMETRY_SOURCES "${CMAKE_SOURCE_DIR}/Telemetry/*.c")
+file(GLOB TELEMETRY_SOURCES "${CMAKE_SOURCE_DIR}/common/telemetry/*.c")
 
 set(SIMULATION_SOURCE_FINAL "${CMAKE_SOURCE_DIR}/MainController/main.c")
 
@@ -114,13 +115,13 @@ add_executable(MainController
 target_link_libraries(MainController ${LINK_PATH}/libyaml.dylib ${SDL2_LIBRARIES})
 
 
-set(THROTTLE_TEST_SOURCE "${CMAKE_SOURCE_DIR}/RacingAlgorithms/test/TestThrottle.c")
+set(THROTTLE_TEST_SOURCE "${CMAKE_SOURCE_DIR}/planning/test/TestThrottle.c")
 add_executable(ThrottleTest ${THROTTLE_TEST_SOURCE}
                 ${RACING_SOURCES}
                 ${PHYSICS_SOURCES}
             )
 
-set(STEERING_TEST_SOURCE "${CMAKE_SOURCE_DIR}/RacingAlgorithms/test/TestSteering.c")
+set(STEERING_TEST_SOURCE "${CMAKE_SOURCE_DIR}/planning/test/TestSteering.c")
 add_executable(SteeringTest ${STEERING_TEST_SOURCE}
                 ${RACING_SOURCES}
                 ${PHYSICS_SOURCES}
