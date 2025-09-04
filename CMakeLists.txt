@@ -12,10 +12,11 @@ include_directories(${CMAKE_SOURCE_DIR}/tools/Graphics)
 include_directories(${CMAKE_SOURCE_DIR}/tools)
 include_directories(${CMAKE_SOURCE_DIR}/MainController)
 include_directories(${CMAKE_SOURCE_DIR}/sim/track)
-include_directories(${CMAKE_SOURCE_DIR}/common/math)
+include_directories(${CMAKE_SOURCE_DIR}/common/physics)
 include_directories(${CMAKE_SOURCE_DIR}/planning)
 include_directories(${CMAKE_SOURCE_DIR}/sim/vehicle)
 include_directories(${CMAKE_SOURCE_DIR}/common/telemetry)
+include_directories(${CMAKE_SOURCE_DIR}/common/physics)
 
 # Add system include directory for libyaml.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64" OR CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
@@ -88,7 +89,7 @@ file(GLOB MAINCONTROLLER_SOURCES "${CMAKE_SOURCE_DIR}/MainController/*.c")
 file(GLOB PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/*.c")
 list(REMOVE_ITEM PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.c")
 
-file(GLOB PHYSICS_SOURCES "${CMAKE_SOURCE_DIR}/common/math/*.c")
+file(GLOB PHYSICS_SOURCES "${CMAKE_SOURCE_DIR}/common/physics/*.c")
 file(GLOB RACING_SOURCES "${CMAKE_SOURCE_DIR}/planning/*.c")
 
 #Remove test.c from the list of source files
