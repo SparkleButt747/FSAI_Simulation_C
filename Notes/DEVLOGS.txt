@@ -16,5 +16,14 @@ NOTE: For the manual control to work you have to be on active on the terminal wi
 
 - Fixed Cone Collision Detection
 - Crude Lap Completion Detection (Distance based)
-- CODEX broke everything
 
+TODO:
+    -Write Graphics for Telemetry
+    -Brainstorm Vision Pipeline Integration
+    -Work On Writing A Grid Search To Optimize Racing Algorithm
+    
+BUGS:
+    -Sometimes the car manages to take a wide line completely missing the checkpoint 
+    that is the middle of the track, we need to change the collision box of the checkpoint from a 
+    circle to a straight line across the track so no matter what line it takes it always hits the checkpoint
+    

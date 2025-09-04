@@ -4,8 +4,10 @@
 #include "path_config.h"
 #include "path_generator.h"
 #include <complex.h>
-#include "../PhysicsEngine/Transform.h"       // from PhysicsEngine
-#include "../PhysicsEngine/Vector.h"          // from PhysicsEngine
+
+#include "../common/physics/Transform.h"      // from PhysicsEngine
+#include "../common/physics/Vector.h"      // from PhysicsEngine
+
 
 #ifdef __cplusplus
 extern "C" {

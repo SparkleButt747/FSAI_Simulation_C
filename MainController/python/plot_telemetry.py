@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Load car telemetry CSV.
-df = pd.read_csv("../build/car_telemetry.csv")
+df = pd.read_csv("/Users/brndy.747/Projects/c_stuff/FSAI_Simulation_C/build/CarStateLog.csv")
 
 # Plot car trajectory: map x vs. z.
 plt.figure(figsize=(8,6))
