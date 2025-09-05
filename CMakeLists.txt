@@ -1,11 +1,13 @@
 cmake_minimum_required(VERSION 3.10)
 
-# Project name and language.
-project(FSAI_Simulation C)
+# Project name and languages.
+project(FSAI_Simulation C CXX)
 
-# Use C99 standard.
+# Use C99 and C++17 standards.
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Include directories for headers.
 include_directories(${CMAKE_SOURCE_DIR}/tools/Graphics)
@@ -17,6 +19,7 @@ include_directories(${CMAKE_SOURCE_DIR}/planning)
 include_directories(${CMAKE_SOURCE_DIR}/sim/vehicle)
 include_directories(${CMAKE_SOURCE_DIR}/common/telemetry)
 include_directories(${CMAKE_SOURCE_DIR}/common/physics)
+include_directories(/usr/include/eigen3)
 
 # Add system include directory for libyaml.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64" OR CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
@@ -38,30 +41,19 @@ include_directories(${SDL2_INCLUDE_DIRS})
 # Build the SimulationModels test executable.
 # ------------------------------------------------------------------------------
 
-# Gather all C source files from the DynamicBicycle folder.
-file(GLOB DYNAMIC_BICYCLE_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c")
+# Gather all C/C++ source files from the DynamicBicycle folder.
+file(GLOB DYNAMIC_BICYCLE_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c" "${CMAKE_SOURCE_DIR}/sim/vehicle/*.cpp")
 file(GLOB KEY_SOURCES "${CMAKE_SOURCE_DIR}/tools/KeyboardInputHandler.c")
 file(GLOB GRAPHICS_SOURCES "${CMAKE_SOURCE_DIR}/tools/Graphics/*.c")
 file(GLOB GRAPHICS_H_SOURCES "${CMAKE_SOURCE_DIR}/tools/Graphics/*.h")
 
-# The test driver for SimulationModels is at SimulationModels/test.c.
-set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.c")
+# The test driver for SimulationModels is at SimulationModels/test.cpp.
+set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.cpp")
 
 # Create the SimulationModels executable.
-add_executable(SimulationModelsTest ${SIMULATION_TEST_SOURCE} ${DYNAMIC_BICYCLE_SOURCES} ${KEY_SOURCES} ${GRAPHICS_SOURCES} ${GRAPHICS_H_SOURCES})
-       
-# Link the libyaml library. You can use either option 1 or 2. option 1 is works for me.
-# Option 1: Link using full path
-# target_link_libraries(SimulationModelsTest /usr/local/lib/libyaml.dylib)
-target_link_libraries(SimulationModelsTest ${LINK_PATH}/libyaml.dylib ${SDL2_LIBRARIES})
+add_executable(SimulationModelsTest ${SIMULATION_TEST_SOURCE} ${DYNAMIC_BICYCLE_SOURCES})
 
-# Option 2: Or use find_library
-# find_library(YAML_LIB NAMES yaml PATHS /usr/local/lib)
-# if(YAML_LIB)
-#     target_link_libraries(SimulationModelsTest ${YAML_LIB})
-# else()
-#     message(FATAL_ERROR "libyaml not found")
-# endif()
+target_link_libraries(SimulationModelsTest yaml)
 
 # ------------------------------------------------------------------------------
 # Build the PathLogic test executable.
@@ -93,8 +85,8 @@ file(GLOB PHYSICS_SOURCES "${CMAKE_SOURCE_DIR}/common/physics/*.c")
 file(GLOB RACING_SOURCES "${CMAKE_SOURCE_DIR}/planning/*.c")
 
 #Remove test.c from the list of source files
-file(GLOB SIMULATIONMODELS_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c")
-list(REMOVE_ITEM SIMULATIONMODELS_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.c")
+file(GLOB SIMULATIONMODELS_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c" "${CMAKE_SOURCE_DIR}/sim/vehicle/*.cpp")
+list(REMOVE_ITEM SIMULATIONMODELS_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.cpp")
 
 file(GLOB TELEMETRY_SOURCES "${CMAKE_SOURCE_DIR}/common/telemetry/*.c")
 
@@ -113,7 +105,7 @@ add_executable(MainController
     ${GRAPHICS_H_SOURCES}
 )
 
-target_link_libraries(MainController ${LINK_PATH}/libyaml.dylib ${SDL2_LIBRARIES})
+target_link_libraries(MainController yaml ${SDL2_LIBRARIES})
 
 
 set(THROTTLE_TEST_SOURCE "${CMAKE_SOURCE_DIR}/planning/test/TestThrottle.c")
