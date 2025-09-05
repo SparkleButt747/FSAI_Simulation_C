@@ -75,7 +75,7 @@ add_executable(PathLogicTest ${PATH_LOGIC_TEST_SOURCE} ${PATH_LOGIC_SOURCES})
 # ------------------------------------------------------------------------------
 
 # Collect source files.
-file(GLOB MAINCONTROLLER_SOURCES "${CMAKE_SOURCE_DIR}/MainController/*.c")
+file(GLOB MAINCONTROLLER_SOURCES "${CMAKE_SOURCE_DIR}/MainController/*.c" "${CMAKE_SOURCE_DIR}/MainController/*.cpp")
 
 #Remove test.c from the list of source files
 file(GLOB PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/*.c")
@@ -88,9 +88,9 @@ file(GLOB RACING_SOURCES "${CMAKE_SOURCE_DIR}/planning/*.c")
 file(GLOB SIMULATIONMODELS_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c" "${CMAKE_SOURCE_DIR}/sim/vehicle/*.cpp")
 list(REMOVE_ITEM SIMULATIONMODELS_SOURCES "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.cpp")
 
-file(GLOB TELEMETRY_SOURCES "${CMAKE_SOURCE_DIR}/common/telemetry/*.c")
+file(GLOB TELEMETRY_SOURCES "${CMAKE_SOURCE_DIR}/common/telemetry/*.c" "${CMAKE_SOURCE_DIR}/common/telemetry/*.cpp")
 
-set(SIMULATION_SOURCE_FINAL "${CMAKE_SOURCE_DIR}/MainController/main.c")
+set(SIMULATION_SOURCE_FINAL "${CMAKE_SOURCE_DIR}/MainController/main.cpp")
 
 add_executable(MainController
     ${SIMULATION_SOURCE_FINAL}

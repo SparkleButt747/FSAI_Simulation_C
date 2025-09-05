@@ -1,8 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#include <math.h>
-#include "CarController.h"
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <cmath>
+#include "CarController.hpp"
 #include "KeyboardInputHandler.h"
 #include "Graphics.h"
 
@@ -19,13 +19,13 @@ int main(int argc, char* argv[]) {
     // Parse dt from command line if provided; default to 0.01 seconds.
     double dt = 0.01;
     if (argc > 1) {
-        dt = atof(argv[1]);
+        dt = std::atof(argv[1]);
         if (dt <= 0) {
-            printf("Invalid dt value provided. Using default dt = 0.01\n");
+            std::printf("Invalid dt value provided. Using default dt = 0.01\n");
             dt = 0.01;
         }
     }
-    printf("Using dt = %.4f seconds\n", dt);
+    std::printf("Using dt = %.4f seconds\n", dt);
 
     // Initialize keyboard input.
     //KeyboardInputHandler_Init();
@@ -36,24 +36,24 @@ int main(int argc, char* argv[]) {
     // Open CSV file to record car state log.
     FILE* csvFile = fopen("CarStateLog.csv", "w");
     if (!csvFile) {
-        perror("Failed to open CarStateLog.csv");
-        exit(EXIT_FAILURE);
+        std::perror("Failed to open CarStateLog.csv");
+        std::exit(EXIT_FAILURE);
     }
-    fprintf(csvFile, "time,x,y,z,yaw,v_x,v_y,v_z\n");
+    std::fprintf(csvFile, "time,x,y,z,yaw,v_x,v_y,v_z\n");
 
     // Open CSV file to record car state log.
     FILE* csvFile_ra = fopen("RALog.csv", "w");
-    if (!csvFile) {
-        perror("Failed to open RALog.csv");
-        exit(EXIT_FAILURE);
+    if (!csvFile_ra) {
+        std::perror("Failed to open RALog.csv");
+        std::exit(EXIT_FAILURE);
     }
-    fprintf(csvFile_ra, "time,t,s\n");
+    std::fprintf(csvFile_ra, "time,t,s\n");
 
     // Initialize graphics.
     Graphics g;
     if (Graphics_Init(&g, "Car Simulation", 800, 600) != 0) {
-        fprintf(stderr, "Graphics_Init failed\n");
-        exit(EXIT_FAILURE);
+        std::fprintf(stderr, "Graphics_Init failed\n");
+        std::exit(EXIT_FAILURE);
     }
     double totalTime = 0.0;
     while (1) {
@@ -70,7 +70,7 @@ int main(int argc, char* argv[]) {
         int key = KeyboardInputHandler_GetInput();
         // If 'c' or 'C' is pressed, exit the simulation loop.
         if (key == 'c' || key == 'C') {
-            printf("Exit key 'c' detected. Exiting simulation loop.\n");
+            std::printf("Exit key 'c' detected. Exiting simulation loop.\n");
             break;
         }
         */
@@ -78,14 +78,14 @@ int main(int argc, char* argv[]) {
         CarController_Update(&controller, dt);
         
         // Log current state to CSV.
-        fprintf(csvFile, "%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
-                totalTime, controller.carState.x, controller.carState.y,
-                controller.carState.z, controller.carState.yaw,
-                controller.carState.v_x, controller.carState.v_y, controller.carState.v_z);
+        std::fprintf(csvFile, "%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+                     totalTime, controller.carState.position.x(), controller.carState.position.y(),
+                     controller.carState.position.z(), controller.carState.yaw,
+                     controller.carState.velocity.x(), controller.carState.velocity.y(), controller.carState.velocity.z());
                     
         // Log current state to CSV.
-        fprintf(csvFile_ra, "%.2f,%.6f,%.6f\n",
-        totalTime, controller.throttleInput, controller.steeringAngle);
+        std::fprintf(csvFile_ra, "%.2f,%.6f,%.6f\n",
+                     totalTime, controller.throttleInput, controller.steeringAngle);
 
         totalTime += dt;
         
@@ -126,10 +126,10 @@ int main(int argc, char* argv[]) {
         }
         
         // Map simulation coordinates to screen coordinates.
-        float carScreenX = (float)controller.carState.x*SCALE + g.width / 2.0f;
-        float carScreenY = (float)controller.carState.y*SCALE + g.height / 2.0f;
+        float carScreenX = static_cast<float>(controller.carState.position.x())*SCALE + g.width / 2.0f;
+        float carScreenY = static_cast<float>(controller.carState.position.y())*SCALE + g.height / 2.0f;
         float carRadius = 2.0f*SCALE;
-        float carYaw = (float)controller.carState.yaw;
+        float carYaw = static_cast<float>(controller.carState.yaw);
         // Draw the car using Graphics_DrawCar.
         Graphics_DrawCar(&g, carScreenX, carScreenY, carRadius, carYaw);
         Graphics_Present(&g);
@@ -143,6 +143,6 @@ exit_loop:
     KeyboardInputHandler_Restore();
     Graphics_Cleanup(&g);
     
-    printf("Simulation complete. Car state log saved to CarStateLog.csv\n");
+    std::printf("Simulation complete. Car state log saved to CarStateLog.csv\n");
     return EXIT_SUCCESS;
 }

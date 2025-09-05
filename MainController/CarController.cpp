@@ -1,14 +1,8 @@
-#include "CarController.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-
-// Assume track_generator.h defines:
-//   void init_default_path_config(PathConfig* config);
-//   PathResult generate_path_with_params(const PathConfig* config, int nPoints);
-//   TrackResult generate_track(const PathConfig* config, const PathResult* path);
-
-#include "track_generator.h"
+#include "CarController.hpp"
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <Eigen/Dense>
 
 static void MoveNextCheckpointToLast(Vector3* checkpoints, Vector3* lefts, Vector3* rights,int n) {
     Vector3 temp = checkpoints[0];
@@ -80,15 +74,18 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
     float startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180;
 
     // Initialize car model, state, and input.
-    DynamicBicycle_init(&controller->carModel, yamlFilePath);
-    controller->carInput = Input_create(0.0, 0.0, 0.0);
-    controller->carState = State_create(startX, startZ, 0, startYaw, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    VehicleParam vp = VehicleParam::loadFromFile(yamlFilePath);
+    controller->carModel = DynamicBicycle(vp);
+    controller->carInput = VehicleInput(0.0, 0.0, 0.0);
+    controller->carState = VehicleState(Eigen::Vector3d(startX, startZ, 0.0), startYaw,
+                                        Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+                                        Eigen::Vector3d::Zero());
 
     // Initialize car transform based on the state.
-    controller->carTransform.position.x = (float)controller->carState.x;
+    controller->carTransform.position.x = static_cast<float>(controller->carState.position.x());
     controller->carTransform.position.y = 0.5f;  // fixed height
-    controller->carTransform.position.z = (float)controller->carState.y;  // map state.y to z
-    controller->carTransform.yaw = (float)controller->carState.yaw;
+    controller->carTransform.position.z = static_cast<float>(controller->carState.position.y());  // map state.y to z
+    controller->carTransform.yaw = static_cast<float>(controller->carState.yaw);
 
     }
     // For lap detection, use the last checkpoint in the array.
@@ -132,15 +129,17 @@ void CarController_Update(CarController* controller, double dt) {
 
     // Validate that there are checkpoints.
     if (controller->nCheckpoints <= 0) {
-        printf("No checkpoints available. Resetting simulation.\n");
+        std::printf("No checkpoints available. Resetting simulation.\n");
         CarController_Reset(controller);
         return;
     }
 
     // Handle input.
     if (controller->useRacingAlgorithm) {
-        printf("Racing algorithm mode. Using racing algorithm for control.\n");
-        Vector3 carVelocity = {controller->carState.v_x, controller->carState.v_y, controller->carState.v_z};
+        std::printf("Racing algorithm mode. Using racing algorithm for control.\n");
+        Vector3 carVelocity = {static_cast<float>(controller->carState.velocity.x()),
+                               static_cast<float>(controller->carState.velocity.y()),
+                               static_cast<float>(controller->carState.velocity.z())};
         float carSpeed = Vector3_Magnitude(carVelocity);
         controller->lookaheadIndices = RacingAlgorithm_GetLookaheadIndices(
             controller->nCheckpoints,
@@ -160,29 +159,29 @@ void CarController_Update(CarController* controller, double dt) {
             &controller->carTransform,
             &controller->racingConfig,
             dt);
-        printf("THROTTLE: %f, ANGLE: %f\n", controller->throttleInput, controller->steeringAngle);
+        std::printf("THROTTLE: %f, ANGLE: %f\n", controller->throttleInput, controller->steeringAngle);
     } else {
-        printf("Manual control mode. Use WASD keys to control the car.\n");
+        std::printf("Manual control mode. Use WASD keys to control the car.\n");
         // Read keyboard input.
         int key = KeyboardInputHandler_GetInput();
-        printf("%c", key);
+        std::printf("%c", key);
         if (key != -1) {
             if (key == 'w' || key == 'W') {
                 controller->throttleInput = 1.0;  // Accelerate
-                printf("Accelerating\n");
+                std::printf("Accelerating\n");
             } else if (key == 's' || key == 'S') {
                 controller->throttleInput = -1.0; // Decelerate
-                printf("Decelerating\n");
+                std::printf("Decelerating\n");
             }
             if (key == 'a' || key == 'A') {
                 controller->steeringAngle = -1.0; // Full left
-                printf("Turning left\n");
+                std::printf("Turning left\n");
             } else if (key == 'd' || key == 'D') {
                 controller->steeringAngle= 1.0;  // Full right
-                printf("Turning right\n");
+                std::printf("Turning right\n");
             }
         }
-        printf("THROTTLE: %f, ANGLE: %f\n", controller->throttleInput, controller->steeringAngle);
+        std::printf("THROTTLE: %f, ANGLE: %f\n", controller->throttleInput, controller->steeringAngle);
     }
 
     // Update car input.
@@ -190,15 +189,15 @@ void CarController_Update(CarController* controller, double dt) {
     controller->carInput.delta = controller->steeringAngle;
 
     // Update car state.
-    DynamicBicycle_UpdateState(&controller->carModel, &controller->carState, &controller->carInput, dt);
+    controller->carModel.updateState(controller->carState, controller->carInput, dt);
 
     // Update transform from car state.
-    controller->carTransform.position.x = (float)controller->carState.x;
-    controller->carTransform.position.z = (float)controller->carState.y;  // map state.y to z coordinate
-    controller->carTransform.yaw = (float)controller->carState.yaw;
+    controller->carTransform.position.x = static_cast<float>(controller->carState.position.x());
+    controller->carTransform.position.z = static_cast<float>(controller->carState.position.y());  // map state.y to z coordinate
+    controller->carTransform.yaw = static_cast<float>(controller->carState.yaw);
 
     // Update total distance traveled (using v_x).
-    controller->totalDistance += controller->carState.v_x * dt;
+    controller->totalDistance += controller->carState.velocity.x() * dt;
 
     // Checkpoint met detection: Check if car passes its next checkpoint.
     float dx = controller->carTransform.position.x - controller->checkpointPositions[0].x;
@@ -208,7 +207,7 @@ void CarController_Update(CarController* controller, double dt) {
         MoveNextCheckpointToLast(controller->checkpointPositions, controller->leftCones,
             controller->rightCones, controller->nCheckpoints);
     }
-    printf("Next Checkpoint: (%f, %f)\n", controller->checkpointPositions[0].x, controller->checkpointPositions[0].z);
+    std::printf("Next Checkpoint: (%f, %f)\n", controller->checkpointPositions[0].x, controller->checkpointPositions[0].z);
 
 
     // Lap detection: Check if car "collides" with the last checkpoint.
@@ -218,8 +217,8 @@ void CarController_Update(CarController* controller, double dt) {
     if (distToLast < controller->config.lap_completion_collisionThreshold) {
         // Lap completed.
         if (controller->lapCount > 0) {
-            printf("Lap Completed. Time: %.2f s, Distance: %.2f, Lap: %d\n",
-                   controller->totalTime, controller->totalDistance, controller->lapCount);
+            std::printf("Lap Completed. Time: %.2f s, Distance: %.2f, Lap: %d\n",
+                       controller->totalTime, controller->totalDistance, controller->lapCount);
         }
         controller->lapCount++;
         // Reset timing and distance for next lap.
@@ -233,7 +232,7 @@ void CarController_Update(CarController* controller, double dt) {
         float cdz = controller->carTransform.position.z - controller->leftCones[i].z;
         float cdist = sqrtf(cdx * cdx + cdz * cdz);
         if (cdist < controller->config.conecollisionThreshold) {
-            printf("Collision with a cone detected.\n");
+            std::printf("Collision with a cone detected.\n");
             CarController_Reset(controller);
             return;
         }
@@ -243,14 +242,14 @@ void CarController_Update(CarController* controller, double dt) {
         float cdz = controller->carTransform.position.z - controller->rightCones[i].z;
         float cdist = sqrtf(cdx * cdx + cdz * cdz);
         if (cdist < controller->config.conecollisionThreshold) {
-            printf("Collision with a cone detected.\n");
+            std::printf("Collision with a cone detected.\n");
             CarController_Reset(controller);
             return;
         }
     }
 
     // Telemetry: Print current simulation state.
-    Telemetry_Update(&controller->carState, &controller->carTransform,
+    Telemetry_Update(controller->carState, controller->carTransform,
                      controller->totalTime, controller->totalDistance, controller->lapCount);
 }
 
@@ -262,7 +261,7 @@ void CarController_Reset(CarController* controller) {
         controller->totalTime = 0.0;
         controller->totalDistance = 0.0;
 
-        printf("Regenerating track due to cone collision.\n");
+        std::printf("Regenerating track due to cone collision.\n");
 
         // Regenerate track.
         PathConfig pathConfig;
@@ -306,7 +305,7 @@ void CarController_Reset(CarController* controller) {
         }
 
          // Reset car state, input, and transform.
-        controller->carInput = Input_create(0.0, 0.0, 0.0);
+        controller->carInput = VehicleInput(0.0, 0.0, 0.0);
 
         // Make sure the car starts on the track
         float startX = controller->checkpointPositions[0].x;
@@ -319,13 +318,15 @@ void CarController_Reset(CarController* controller) {
         Vector2 startVector = {nextX - startX, nextZ - startZ};
         float startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180;
 
-        controller->carState = State_create(startX, startZ, 0, startYaw, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        controller->carState = VehicleState(Eigen::Vector3d(startX, startZ, 0.0), startYaw,
+                                            Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+                                            Eigen::Vector3d::Zero());
 
         // Initialize car transform based on the state.
-        controller->carTransform.position.x = (float)controller->carState.x;
+        controller->carTransform.position.x = static_cast<float>(controller->carState.position.x());
         controller->carTransform.position.y = 0.5f;  // fixed height
-        controller->carTransform.position.z = (float)controller->carState.y;  // map state.y to z
-        controller->carTransform.yaw = (float)controller->carState.yaw;
+        controller->carTransform.position.z = static_cast<float>(controller->carState.position.y());  // map state.y to z
+        controller->carTransform.yaw = static_cast<float>(controller->carState.yaw);
 
         free(path.points);
         free(path.normals);
@@ -336,12 +337,12 @@ void CarController_Reset(CarController* controller) {
 
     } else {
         // Reset car state, input, and transform.
-        controller->carInput = Input_create(0.0, 0.0, 0.0);
+        controller->carInput = VehicleInput(0.0, 0.0, 0.0);
 
         controller->totalTime = 0.0;
         controller->totalDistance = 0.0;
 
-        printf("Resetting simulation without regenerating track.\n");
+        std::printf("Resetting simulation without regenerating track.\n");
 
         // Make sure the car starts on the track
         float startX = controller->checkpointPositions[0].x;
@@ -354,12 +355,14 @@ void CarController_Reset(CarController* controller) {
         Vector2 startVector = {nextX - startX, nextZ - startZ};
         float startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180;
 
-        controller->carState = State_create(startX, startZ, 0, startYaw, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        controller->carState = VehicleState(Eigen::Vector3d(startX, startZ, 0.0), startYaw,
+                                            Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+                                            Eigen::Vector3d::Zero());
 
         // Initialize car transform based on the state.
-        controller->carTransform.position.x = (float)controller->carState.x;
+        controller->carTransform.position.x = static_cast<float>(controller->carState.position.x());
         controller->carTransform.position.y = 0.5f;  // fixed height
-        controller->carTransform.position.z = (float)controller->carState.y;  // map state.y to z
-        controller->carTransform.yaw = (float)controller->carState.yaw;
+        controller->carTransform.position.z = static_cast<float>(controller->carState.position.y());  // map state.y to z
+        controller->carTransform.yaw = static_cast<float>(controller->carState.yaw);
     }
 }
