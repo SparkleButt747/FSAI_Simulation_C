@@ -19,7 +19,7 @@ include_directories(${CMAKE_SOURCE_DIR}/planning)
 include_directories(${CMAKE_SOURCE_DIR}/sim/vehicle)
 include_directories(${CMAKE_SOURCE_DIR}/common/telemetry)
 include_directories(${CMAKE_SOURCE_DIR}/common/physics)
-include_directories(/usr/include/eigen3)
+find_package(Eigen3 REQUIRED)
 
 # Add system include directory for libyaml.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64" OR CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
@@ -53,7 +53,7 @@ set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicy
 # Create the SimulationModels executable.
 add_executable(SimulationModelsTest ${SIMULATION_TEST_SOURCE} ${DYNAMIC_BICYCLE_SOURCES})
 
-target_link_libraries(SimulationModelsTest yaml)
+target_link_libraries(SimulationModelsTest Eigen3::Eigen yaml)
 
 # ------------------------------------------------------------------------------
 # Build the PathLogic test executable.
@@ -69,6 +69,7 @@ set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGenerati
 
 # Create the PathLogic executable.
 add_executable(PathLogicTest ${PATH_LOGIC_TEST_SOURCE} ${PATH_LOGIC_SOURCES})
+target_link_libraries(PathLogicTest Eigen3::Eigen)
 
 # ------------------------------------------------------------------------------
 # Build the Main simulation executable.
@@ -105,7 +106,7 @@ add_executable(MainController
     ${GRAPHICS_H_SOURCES}
 )
 
-target_link_libraries(MainController yaml ${SDL2_LIBRARIES})
+target_link_libraries(MainController Eigen3::Eigen yaml ${SDL2_LIBRARIES})
 
 
 set(THROTTLE_TEST_SOURCE "${CMAKE_SOURCE_DIR}/planning/test/TestThrottle.c")
@@ -113,10 +114,12 @@ add_executable(ThrottleTest ${THROTTLE_TEST_SOURCE}
                 ${RACING_SOURCES}
                 ${PHYSICS_SOURCES}
             )
+target_link_libraries(ThrottleTest Eigen3::Eigen)
 
 set(STEERING_TEST_SOURCE "${CMAKE_SOURCE_DIR}/planning/test/TestSteering.c")
 add_executable(SteeringTest ${STEERING_TEST_SOURCE}
                 ${RACING_SOURCES}
                 ${PHYSICS_SOURCES}
             )
+target_link_libraries(SteeringTest Eigen3::Eigen)
                      
