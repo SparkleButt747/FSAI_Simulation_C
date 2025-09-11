@@ -24,4 +24,10 @@ To build the project, follow these steps:
    cmake ..
    make
 
+   ```
+
 4. The CMakeLists.txt should now automatically detect architecture (only arm and not arm) and use the correct paths
+
+## Running the executables
+
+Make sure you run an executable from within the build folder so that `configDry.yaml` can be found.
