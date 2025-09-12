@@ -13,6 +13,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include_directories(${CMAKE_SOURCE_DIR}/tools/Graphics)
 include_directories(${CMAKE_SOURCE_DIR}/tools)
 include_directories(${CMAKE_SOURCE_DIR}/MainController)
+include_directories(${CMAKE_SOURCE_DIR}/sim)
 include_directories(${CMAKE_SOURCE_DIR}/sim/track)
 include_directories(${CMAKE_SOURCE_DIR}/common/physics)
 include_directories(${CMAKE_SOURCE_DIR}/planning)
@@ -77,6 +78,7 @@ target_link_libraries(PathLogicTest Eigen3::Eigen)
 
 # Collect source files.
 file(GLOB MAINCONTROLLER_SOURCES "${CMAKE_SOURCE_DIR}/MainController/*.c" "${CMAKE_SOURCE_DIR}/MainController/*.cpp")
+file(GLOB WORLD_SOURCES "${CMAKE_SOURCE_DIR}/sim/*.cpp")
 
 #Remove test.c from the list of source files
 file(GLOB PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/*.cpp")
@@ -96,6 +98,7 @@ set(SIMULATION_SOURCE_FINAL "${CMAKE_SOURCE_DIR}/MainController/main.cpp")
 add_executable(MainController
     ${SIMULATION_SOURCE_FINAL}
     ${MAINCONTROLLER_SOURCES}
+    ${WORLD_SOURCES}
     ${PATHLOGIC_SOURCES}
     ${PHYSICS_SOURCES}
     ${RACING_SOURCES}
@@ -114,12 +117,12 @@ add_executable(ThrottleTest ${THROTTLE_TEST_SOURCE}
                 ${RACING_SOURCES}
                 ${PHYSICS_SOURCES}
             )
-target_link_libraries(ThrottleTest Eigen3::Eigen)
+target_link_libraries(ThrottleTest Eigen3::Eigen m)
 
 set(STEERING_TEST_SOURCE "${CMAKE_SOURCE_DIR}/planning/test/TestSteering.c")
 add_executable(SteeringTest ${STEERING_TEST_SOURCE}
                 ${RACING_SOURCES}
                 ${PHYSICS_SOURCES}
             )
-target_link_libraries(SteeringTest Eigen3::Eigen)
+target_link_libraries(SteeringTest Eigen3::Eigen m)
                      
