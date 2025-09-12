@@ -5,7 +5,6 @@
 #include "VehicleInput.hpp"
 #include "Telemetry.hpp"
 #include "RacingAlgorithm.h" // from RacingAlgorithms
-#include "track_generator.h" // provides PathConfig, PathResult, TrackResult, and track generation functions
 #include "Transform.h"       // from PhysicsEngine
 #include "Vector.h"          // from PhysicsEngine
 #include "KeyboardInputHandler.h" // for keyboard input handling
