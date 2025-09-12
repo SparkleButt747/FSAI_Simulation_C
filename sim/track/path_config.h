@@ -1,7 +1,11 @@
 #ifndef PATH_CONFIG_H
 #define PATH_CONFIG_H
 
-/* 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*
  * Structure holding configuration parameters for track generation.
  * Note: Boolean values are represented as ints (0 for false, nonzero for true).
  */
@@ -30,5 +34,9 @@ void init_default_path_config(PathConfig* config);
 
 /* Calculates the resolution and length based on the current parameters */
 void calculate_resolution_and_length(PathConfig* config);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // PATH_CONFIG_H
