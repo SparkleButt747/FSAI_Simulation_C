@@ -61,11 +61,11 @@ target_link_libraries(SimulationModelsTest Eigen3::Eigen yaml)
 
 # Gather all C source files from the PathLogic folder.
 file(GLOB PATH_LOGIC_SOURCES
-    "${CMAKE_SOURCE_DIR}/sim/track/*.c"
+    "${CMAKE_SOURCE_DIR}/sim/track/*.cpp"
 )
 
 # The test driver for PathLogic is at PathLogic/test.c.
-set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.c")
+set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.cpp")
 
 # Create the PathLogic executable.
 add_executable(PathLogicTest ${PATH_LOGIC_TEST_SOURCE} ${PATH_LOGIC_SOURCES})
@@ -79,8 +79,8 @@ target_link_libraries(PathLogicTest Eigen3::Eigen)
 file(GLOB MAINCONTROLLER_SOURCES "${CMAKE_SOURCE_DIR}/MainController/*.c" "${CMAKE_SOURCE_DIR}/MainController/*.cpp")
 
 #Remove test.c from the list of source files
-file(GLOB PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/*.c")
-list(REMOVE_ITEM PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.c")
+file(GLOB PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/*.cpp")
+list(REMOVE_ITEM PATHLOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.cpp")
 
 file(GLOB PHYSICS_SOURCES "${CMAKE_SOURCE_DIR}/common/physics/*.c")
 file(GLOB RACING_SOURCES "${CMAKE_SOURCE_DIR}/planning/*.c")

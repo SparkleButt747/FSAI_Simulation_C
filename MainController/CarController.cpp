@@ -3,6 +3,9 @@
 #include <cstdlib>
 #include <cmath>
 #include <Eigen/Dense>
+#include "PathConfig.hpp"
+#include "PathGenerator.hpp"
+#include "TrackGenerator.hpp"
 
 static void MoveNextCheckpointToLast(Vector3* checkpoints, Vector3* lefts, Vector3* rights,int n) {
     Vector3 temp = checkpoints[0];
@@ -29,16 +32,18 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
 
     // Generate track data.
     PathConfig pathConfig;
-    init_default_path_config(&pathConfig);
     int nPoints = pathConfig.resolution;
-    PathResult path = generate_path_with_params(&pathConfig, nPoints);
-    TrackResult track = generate_track(&pathConfig, &path);
+    PathGenerator pathGen(pathConfig);
+    PathResult path = pathGen.generatePath(nPoints);
+    TrackGenerator trackGen;
+    TrackResult track = trackGen.generateTrack(pathConfig, path);
 
     // Store checkpoint data.
-    controller->nCheckpoints = track.nCheckpoints;
+    controller->nCheckpoints = track.checkpoints.size();
     controller->checkpointPositions = (Vector3*)malloc(sizeof(Vector3) * controller->nCheckpoints);
     for (int i = 0; i < controller->nCheckpoints; i++) {
         controller->checkpointPositions[i] = track.checkpoints[i].position;
+    }
 
     // Initialize simulation variables.
     controller->totalTime = 0.0;
@@ -86,36 +91,26 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
     controller->carTransform.position.y = 0.5f;  // fixed height
     controller->carTransform.position.z = static_cast<float>(controller->carState.position.y());  // map state.y to z
     controller->carTransform.yaw = static_cast<float>(controller->carState.yaw);
-
-    }
     // For lap detection, use the last checkpoint in the array.
     if (controller->nCheckpoints > 0) {
-        controller->lastCheckpoint = track.checkpoints[controller->nCheckpoints - 1].position;
+        controller->lastCheckpoint = track.checkpoints.back().position;
     } else {
         controller->lastCheckpoint = (Vector3){0, 0, 0};
     }
 
     // *** New: Store cone data ***
-    // Left cones.
-    controller->nLeftCones = track.nLeftCones;
+    controller->nLeftCones = track.leftCones.size();
     controller->leftCones = (Vector3*)malloc(sizeof(Vector3) * controller->nLeftCones);
     for (int i = 0; i < controller->nLeftCones; i++) {
         controller->leftCones[i] = track.leftCones[i].position;
     }
-    // Right cones.
-    controller->nRightCones = track.nRightCones;
+    controller->nRightCones = track.rightCones.size();
     controller->rightCones = (Vector3*)malloc(sizeof(Vector3) * controller->nRightCones);
     for (int i = 0; i < controller->nRightCones; i++) {
         controller->rightCones[i] = track.rightCones[i].position;
     }
 
-    // Free temporary track data.
-    free(path.points);
-    free(path.normals);
-    free(path.cornerRadii);
-    free(track.leftCones);
-    free(track.rightCones);
-    free(track.checkpoints);
+    // No need to free path/track vectors
 
     // Initialize keyboard input.
     KeyboardInputHandler_Init();
@@ -265,22 +260,23 @@ void CarController_Reset(CarController* controller) {
 
         // Regenerate track.
         PathConfig pathConfig;
-        init_default_path_config(&pathConfig);
         int nPoints = pathConfig.resolution;
-        PathResult path = generate_path_with_params(&pathConfig, nPoints);
-        TrackResult track = generate_track(&pathConfig, &path);
+        PathGenerator pathGen(pathConfig);
+        PathResult path = pathGen.generatePath(nPoints);
+        TrackGenerator trackGen;
+        TrackResult track = trackGen.generateTrack(pathConfig, path);
 
         // Free old checkpoint data.
         if (controller->checkpointPositions != NULL) {
             free(controller->checkpointPositions);
         }
-        controller->nCheckpoints = track.nCheckpoints;
+        controller->nCheckpoints = track.checkpoints.size();
         controller->checkpointPositions = (Vector3*)malloc(sizeof(Vector3) * controller->nCheckpoints);
         for (int i = 0; i < controller->nCheckpoints; i++) {
             controller->checkpointPositions[i] = track.checkpoints[i].position;
         }
         if (controller->nCheckpoints > 0) {
-            controller->lastCheckpoint = track.checkpoints[controller->nCheckpoints - 1].position;
+            controller->lastCheckpoint = track.checkpoints.back().position;
         } else {
             controller->lastCheckpoint = (Vector3){0, 0, 0};
         }
@@ -293,8 +289,8 @@ void CarController_Reset(CarController* controller) {
         if (controller->rightCones != NULL) {
             free(controller->rightCones);
         }
-        controller->nLeftCones = track.nLeftCones;
-        controller->nRightCones = track.nRightCones;
+        controller->nLeftCones = track.leftCones.size();
+        controller->nRightCones = track.rightCones.size();
         controller->leftCones = (Vector3*)malloc(sizeof(Vector3) * controller->nLeftCones);
         for (int i = 0; i < controller->nLeftCones; i++) {
             controller->leftCones[i] = track.leftCones[i].position;
@@ -327,13 +323,6 @@ void CarController_Reset(CarController* controller) {
         controller->carTransform.position.y = 0.5f;  // fixed height
         controller->carTransform.position.z = static_cast<float>(controller->carState.position.y());  // map state.y to z
         controller->carTransform.yaw = static_cast<float>(controller->carState.yaw);
-
-        free(path.points);
-        free(path.normals);
-        free(path.cornerRadii);
-        free(track.leftCones);
-        free(track.rightCones);
-        free(track.checkpoints);
 
     } else {
         // Reset car state, input, and transform.
