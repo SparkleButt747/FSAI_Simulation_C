@@ -1,6 +1,7 @@
 #include "PathConfig.hpp"
 #include <cmath>
 #include <cstdlib>
+#include <algorithm>
 
 namespace {
 static double random_double() {
