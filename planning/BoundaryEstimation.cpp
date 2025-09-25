@@ -23,7 +23,6 @@ int main()
     using std::chrono::duration_cast;
     using std::chrono::duration;
     using std::chrono::milliseconds;
-    int n = 50;
 
     PathConfig pathConfig;
     int nPoints = pathConfig.resolution;
@@ -32,13 +31,14 @@ int main()
     TrackGenerator trackGen;
     TrackResult track = trackGen.generateTrack(pathConfig, path);
 
-  Triangulation T;
+    Triangulation T;
+
     auto t1 = high_resolution_clock::now();
     for (int i = 0; i < track.leftCones.size(); i++) {
-      T.insert(Point(track.leftCones[i].position.x, track.leftCones[i].position.y));
+      T.insert(Point(track.leftCones[i].position.x, track.leftCones[i].position.z));
     }
     for (int i = 0; i < track.rightCones.size(); i++) {
-      T.insert(Point(track.rightCones[i].position.x, track.rightCones[i].position.y));
+      T.insert(Point(track.rightCones[i].position.x, track.rightCones[i].position.z));
     }
     auto t2 = high_resolution_clock::now();
 
