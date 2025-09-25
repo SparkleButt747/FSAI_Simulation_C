@@ -31,3 +31,17 @@ To build the project, follow these steps:
 ## Running the executables
 
 Make sure you run an executable from within the build folder so that `configDry.yaml` can be found.
+
+## Building BoundaryEstimation.cpp
+
+1. Make sure you have installed `cgal` and `qt6`.
+2. Create a directory at planning/build
+3. Run:
+
+```sh
+  cd build
+  cmake ..
+  make
+```
+
+or use the `build.sh`/`rebuild.sh` scripts.
