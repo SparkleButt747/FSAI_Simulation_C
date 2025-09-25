@@ -19,8 +19,14 @@ include_directories(${CMAKE_SOURCE_DIR}/common/physics)
 include_directories(${CMAKE_SOURCE_DIR}/planning)
 include_directories(${CMAKE_SOURCE_DIR}/sim/vehicle)
 include_directories(${CMAKE_SOURCE_DIR}/common/telemetry)
-include_directories(${CMAKE_SOURCE_DIR}/common/physics)
 find_package(Eigen3 REQUIRED)
+
+if ( NOT Eigen3_FOUND )
+
+  message(STATUS "This project requires the Eigen3 library, and will not be compiled.")
+
+
+endif()
 
 # Add system include directory for libyaml.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64" OR CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
@@ -125,4 +131,3 @@ add_executable(SteeringTest ${STEERING_TEST_SOURCE}
                 ${PHYSICS_SOURCES}
             )
 target_link_libraries(SteeringTest Eigen3::Eigen m)
-                     
