@@ -64,7 +64,7 @@ int main(int argc, char* argv[]) {
                 goto exit_loop;
             }
         }
-        
+
         /*
         // Read keyboard input.
         int key = KeyboardInputHandler_GetInput();
@@ -76,25 +76,25 @@ int main(int argc, char* argv[]) {
         */
 
         CarController_Update(&controller, dt);
-        
+
         // Log current state to CSV.
         std::fprintf(csvFile, "%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
                      totalTime, controller.carState.position.x(), controller.carState.position.y(),
                      controller.carState.position.z(), controller.carState.yaw,
                      controller.carState.velocity.x(), controller.carState.velocity.y(), controller.carState.velocity.z());
-                    
+
         // Log current state to CSV.
         std::fprintf(csvFile_ra, "%.2f,%.6f,%.6f\n",
                      totalTime, controller.throttleInput, controller.steeringAngle);
 
         totalTime += dt;
-        
+
         // --- Graphics Update ---
         Graphics_Clear(&g);
         Graphics_DrawGrid(&g, 50);  // Draw grid with 50-pixel spacing.
         SDL_SetRenderDrawColor(g.renderer, 200, 0, 200, 255);
         Graphics_DrawFilledCircle(&g, controller.checkpointPositions[0].x*SCALE + g.width/2, controller.checkpointPositions[0].z*SCALE + g.height/2, 1.5*SCALE);
-        
+
         // Draw cones as black circles.
         for (int i = 0; i < controller.nLeftCones; i++) {
             if (i == 0) {
@@ -124,7 +124,7 @@ int main(int argc, char* argv[]) {
             int coneY = (int)(controller.rightCones[i].z*SCALE + g.height/2);
             Graphics_DrawFilledCircle(&g, coneX, coneY, SCALE);
         }
-        
+
         // Map simulation coordinates to screen coordinates.
         float carScreenX = static_cast<float>(controller.carState.position.x())*SCALE + g.width / 2.0f;
         float carScreenY = static_cast<float>(controller.carState.position.y())*SCALE + g.height / 2.0f;
@@ -133,7 +133,7 @@ int main(int argc, char* argv[]) {
         // Draw the car using Graphics_DrawCar.
         Graphics_DrawCar(&g, carScreenX, carScreenY, carRadius, carYaw);
         Graphics_Present(&g);
-        
+
         SDL_Delay((Uint32)(dt * 1000));
     }
 
@@ -142,7 +142,7 @@ exit_loop:
     fclose(csvFile_ra);
     KeyboardInputHandler_Restore();
     Graphics_Cleanup(&g);
-    
+
     std::printf("Simulation complete. Car state log saved to CarStateLog.csv\n");
     return EXIT_SUCCESS;
 }
