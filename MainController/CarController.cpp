@@ -13,7 +13,7 @@ static void MoveNextCheckpointToLast(Vector3* checkpoints, Vector3* lefts, Vecto
         checkpoints[i-1] = checkpoints[i];
     }
     checkpoints[n-1] = temp;
-    
+
     temp = lefts[0];
     for (int i = 1; i < n; i ++) {
         lefts[i-1] = lefts[i];
@@ -52,8 +52,8 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
     controller->deltaTime = 0.0;
 
     // Set controller configuration.
-    controller->config.collisionThreshold = 2.5f;  //  
-    controller->config.conecollisionThreshold = 0.5f;  // 
+    controller->config.collisionThreshold = 2.5f;  //
+    controller->config.conecollisionThreshold = 0.5f;  //
     controller->config.lap_completion_collisionThreshold = 0.1f;  // crude implementation for now;
 
     // Use racing algorithm by default.
@@ -306,7 +306,7 @@ void CarController_Reset(CarController* controller) {
         // Make sure the car starts on the track
         float startX = controller->checkpointPositions[0].x;
         float startZ = controller->checkpointPositions[0].z;
-            
+
         // Make sure the car is pointing in the right direction
         Vector2 zeroVector = {0, 0};
         float nextX = controller->checkpointPositions[10].x;
@@ -336,7 +336,7 @@ void CarController_Reset(CarController* controller) {
         // Make sure the car starts on the track
         float startX = controller->checkpointPositions[0].x;
         float startZ = controller->checkpointPositions[0].z;
-            
+
         // Make sure the car is pointing in the right direction
         Vector2 zeroVector = {0, 0};
         float nextX = controller->checkpointPositions[10].x;

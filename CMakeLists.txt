@@ -59,8 +59,6 @@ pkg_check_modules(YAML REQUIRED IMPORTED_TARGET yaml-0.1)
 # Provides PkgConfig::YAML
 
 # ---- SDL2 include compatibility ---------------------------------------------
-# Many projects include <SDL2/SDL.h>. pkg-config typically emits -I.../include/SDL2.
-# That breaks <SDL2/SDL.h>. Add the *parent* include dir (…/include) as well.
 set(SDL2_ALL_INCLUDE_DIRS "")
 if(TARGET SDL2::SDL2)
   get_target_property(_sdl2_inc SDL2::SDL2 INTERFACE_INCLUDE_DIRECTORIES)
@@ -77,6 +75,7 @@ if(_sdl2_inc)
   endforeach()
   list(REMOVE_DUPLICATES SDL2_ALL_INCLUDE_DIRS)
 endif()
+
 # ------------------------------------------------------------------------------
 # Optionally silence SDL_main shenanigans if you ever link SDL2main (not used here).
 add_definitions(-DSDL_MAIN_HANDLED)
