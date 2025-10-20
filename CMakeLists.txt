@@ -54,27 +54,9 @@ if(NOT SDL2_FOUND)
   # Provides PkgConfig::SDL2
 endif()
 
-# libyaml (pkg-config name: yaml-0.1) via IMPORTED target
-pkg_check_modules(YAML REQUIRED IMPORTED_TARGET yaml-0.1)
-# Provides PkgConfig::YAML
+# yaml-cpp (C++ YAML library)
+find_package(yaml-cpp REQUIRED)  # provides yaml-cpp::yaml-cpp
 
-# ---- SDL2 include compatibility ---------------------------------------------
-set(SDL2_ALL_INCLUDE_DIRS "")
-if(TARGET SDL2::SDL2)
-  get_target_property(_sdl2_inc SDL2::SDL2 INTERFACE_INCLUDE_DIRECTORIES)
-elseif(TARGET PkgConfig::SDL2)
-  get_target_property(_sdl2_inc PkgConfig::SDL2 INTERFACE_INCLUDE_DIRECTORIES)
-endif()
-if(_sdl2_inc)
-  foreach(d IN LISTS _sdl2_inc)
-    if(d)
-      list(APPEND SDL2_ALL_INCLUDE_DIRS "${d}")
-      get_filename_component(_parent "${d}" DIRECTORY)
-      list(APPEND SDL2_ALL_INCLUDE_DIRS "${_parent}")
-    endif()
-  endforeach()
-  list(REMOVE_DUPLICATES SDL2_ALL_INCLUDE_DIRS)
-endif()
 
 # ------------------------------------------------------------------------------
 # Optionally silence SDL_main shenanigans if you ever link SDL2main (not used here).
@@ -152,7 +134,7 @@ target_include_directories(SimulationModelsTest PRIVATE ${PROJ_INCLUDE_DIRS})
 target_link_libraries(SimulationModelsTest
   PRIVATE
     Eigen3::Eigen
-    PkgConfig::YAML
+    yaml-cpp::yaml-cpp
 )
 
 # PathLogicTest
@@ -182,9 +164,9 @@ target_include_directories(MainController PRIVATE
   ${SDL2_ALL_INCLUDE_DIRS}   # <- adds both .../include/SDL2 and .../include
 )
 if(TARGET SDL2::SDL2)
-  target_link_libraries(MainController PRIVATE Eigen3::Eigen PkgConfig::YAML SDL2::SDL2)
+  target_link_libraries(MainController PRIVATE Eigen3::Eigen yaml-cpp::yaml-cpp SDL2::SDL2)
 else()
-  target_link_libraries(MainController PRIVATE Eigen3::Eigen PkgConfig::YAML PkgConfig::SDL2)
+  target_link_libraries(MainController PRIVATE Eigen3::Eigen yaml-cpp::yaml-cpp PkgConfig::SDL2)
 endif()
 
 # ThrottleTest
@@ -214,3 +196,4 @@ if(UNIX)
 else()
   target_link_libraries(SteeringTest PRIVATE Eigen3::Eigen)
 endif()
+

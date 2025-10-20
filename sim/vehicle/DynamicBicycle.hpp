@@ -3,6 +3,8 @@
 #include "VehicleInput.hpp"
 #include "VehicleParam.hpp"
 #include "WheelsInfo.h"
+#include "EVPowertrain.hpp"
+#include "BrakeController.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -26,7 +28,22 @@ class DynamicBicycle : public VehicleModel {
 public:
     using VehicleModel::VehicleModel;
     struct Forces { double Fx; double FyF; double FyR; };
-    Forces computeForces(const VehicleState& state, const VehicleInput& input) const;
+
     void updateState(VehicleState& state, const VehicleInput& input, double dt) override;
     static double calculateMagnitude(double x, double y);
+
+private:
+    // Actuator states (first-order lags)
+    mutable double thr_eff_{0.0};
+    mutable double brk_eff_{0.0};
+
+    // Runtime powertrain/brakes
+    mutable EVMotorPowertrain pt_;
+    mutable BrakeController   br_;
+
+    Forces computeForces(const VehicleState& state, const VehicleInput& input, double dt) const;
+
+    // helpers
+    static inline double clamp(double v, double lo, double hi){ return v<lo?lo:(v>hi?hi:v); }
+    static inline double clamp01(double v){ return v<0?0:(v>1?1:v); }
 };
