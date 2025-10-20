@@ -32,7 +32,7 @@ int main(int argc, char* argv[]) {
 
     // Initialize the car controller.
     CarController controller;
-    CarController_Init(&controller, "configDry.yaml");
+    CarController_Init(&controller, "../sim/vehicle/Configs/configDry.yaml");
     // Open CSV file to record car state log.
     FILE* csvFile = fopen("CarStateLog.csv", "w");
     if (!csvFile) {
