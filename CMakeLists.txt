@@ -66,6 +66,7 @@ add_definitions(-DSDL_MAIN_HANDLED)
 # Project headers (local)
 # ------------------------------------------------------------------------------
 set(PROJ_INCLUDE_DIRS
+  "${CMAKE_SOURCE_DIR}"
   "${CMAKE_SOURCE_DIR}/tools/Graphics"
   "${CMAKE_SOURCE_DIR}/tools"
   "${CMAKE_SOURCE_DIR}/MainController"

@@ -7,6 +7,7 @@
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
 #include "fsai_clock.h"
+#include "budget.h"
 
 static void MoveNextCheckpointToLast(Vector3* checkpoints, Vector3* lefts, Vector3* rights,int n) {
     Vector3 temp = checkpoints[0];
@@ -154,24 +155,27 @@ void CarController_Update(CarController* controller, double dt, uint64_t now_ns)
                                static_cast<float>(controller->carState.velocity.y()),
                                static_cast<float>(controller->carState.velocity.z())};
         float carSpeed = Vector3_Magnitude(carVelocity);
-        controller->lookaheadIndices = RacingAlgorithm_GetLookaheadIndices(
-            controller->nCheckpoints,
-            carSpeed,
-            &controller->racingConfig);
-        controller->throttleInput = RacingAlgorithm_GetThrottleInput(
-            controller->checkpointPositions,
-            controller->nCheckpoints,
-            carSpeed,
-            &controller->carTransform,
-            &controller->racingConfig,
-            controller->deltaTime);
-        controller->steeringAngle = RacingAlgorithm_GetSteeringInput(
-            controller->checkpointPositions,
-            controller->nCheckpoints,
-            carSpeed,
-            &controller->carTransform,
-            &controller->racingConfig,
-            controller->deltaTime);
+        {
+            fsai::time::ControlStageTimer planner_timer("planner");
+            controller->lookaheadIndices = RacingAlgorithm_GetLookaheadIndices(
+                controller->nCheckpoints,
+                carSpeed,
+                &controller->racingConfig);
+            controller->throttleInput = RacingAlgorithm_GetThrottleInput(
+                controller->checkpointPositions,
+                controller->nCheckpoints,
+                carSpeed,
+                &controller->carTransform,
+                &controller->racingConfig,
+                controller->deltaTime);
+            controller->steeringAngle = RacingAlgorithm_GetSteeringInput(
+                controller->checkpointPositions,
+                controller->nCheckpoints,
+                carSpeed,
+                &controller->carTransform,
+                &controller->racingConfig,
+                controller->deltaTime);
+        }
         std::printf("THROTTLE: %f, ANGLE: %f\n", controller->throttleInput, controller->steeringAngle);
     } else {
         std::printf("Manual control mode. Use WASD keys to control the car.\n");
@@ -202,7 +206,10 @@ void CarController_Update(CarController* controller, double dt, uint64_t now_ns)
     controller->carInput.delta = controller->steeringAngle;
 
     // Update car state.
-    controller->carModel.updateState(controller->carState, controller->carInput, controller->deltaTime);
+    {
+        fsai::time::ControlStageTimer model_timer("vehicle_model");
+        controller->carModel.updateState(controller->carState, controller->carInput, controller->deltaTime);
+    }
 
     // Update transform from car state.
     controller->carTransform.position.x = static_cast<float>(controller->carState.position.x());
