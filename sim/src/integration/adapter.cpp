@@ -20,6 +20,39 @@ float DistanceXZ(const Vector3& a, const Vector3& b) {
     return std::sqrt(dx * dx + dz * dz);
 }
 
+size_t FindForwardStartIndex(const std::vector<Vector3>& centerline,
+                             const Vector3& vehicle_position,
+                             float vehicle_yaw) {
+    if (centerline.empty()) {
+        return 0;
+    }
+
+    const float cos_yaw = std::cos(vehicle_yaw);
+    const float sin_yaw = std::sin(vehicle_yaw);
+
+    size_t best_index = 0;
+    float best_score = std::numeric_limits<float>::max();
+
+    for (size_t i = 0; i < centerline.size(); ++i) {
+        const Vector3& point = centerline[i];
+        const float dx = point.x - vehicle_position.x;
+        const float dz = point.z - vehicle_position.z;
+        const float dist2 = dx * dx + dz * dz;
+        const float forward = dx * cos_yaw + dz * sin_yaw;
+        float penalty = 0.0f;
+        if (forward < -0.5f) {
+            penalty = (std::fabs(forward) - 0.5f) * 100.0f;
+        }
+        const float score = dist2 + penalty;
+        if (score < best_score) {
+            best_score = score;
+            best_index = i;
+        }
+    }
+
+    return best_index;
+}
+
 AdapterOutput BuildFromPath(const PathMeta* path,
                             Vector3* checkpointPositions,
                             int maxN,
@@ -38,32 +71,35 @@ AdapterOutput BuildFromPath(const PathMeta* path,
 
     Vector3 start = path->vehicle_position;
 
-    // Find closest index ahead of the vehicle.
-    size_t closest = 0;
-    float best_dist = std::numeric_limits<float>::max();
-    for (size_t i = 0; i < centerline.size(); ++i) {
-        const float dist = DistanceXZ(centerline[i], start);
-        if (dist < best_dist) {
-            best_dist = dist;
-            closest = i;
-        }
-    }
+    const size_t start_index = FindForwardStartIndex(centerline, start, path->vehicle_yaw);
+    const size_t n = centerline.size();
 
     Vector3 prev = start;
     float traveled = 0.0f;
     float accumulated = 0.0f;
 
-    for (size_t idx = closest; idx < centerline.size() && out.count < maxN; ++idx) {
+    size_t steps = 0;
+    size_t idx = start_index;
+    while (out.count < maxN && steps < n) {
         const Vector3& point = centerline[idx];
         const float step = DistanceXZ(point, prev);
         traveled += step;
         accumulated += step;
+
         if (accumulated >= spacing || out.count == 0) {
             checkpointPositions[out.count++] = point;
             accumulated = 0.0f;
         }
+
         prev = point;
         if (traveled >= horizon) {
+            break;
+        }
+
+        idx = (idx + 1) % n;
+        ++steps;
+
+        if (idx == start_index) {
             break;
         }
     }

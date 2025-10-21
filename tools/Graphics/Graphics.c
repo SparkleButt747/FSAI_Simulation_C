@@ -5,7 +5,6 @@
 
 // Initializes SDL, creates a window and renderer.
 int Graphics_Init(Graphics* g, const char* title, int width, int height) {
-    printf("Initializing SDL...\n");
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
         return -1;
@@ -37,7 +36,6 @@ void Graphics_Clear(Graphics* g) {
 
 // Draws grid lines on the screen using the given spacing.
 void Graphics_DrawGrid(Graphics* g, int gridSize) {
-    printf("Drawing grid with spacing %d...\n", gridSize);
     SDL_SetRenderDrawColor(g->renderer, 200, 200, 200, 255); // light gray color
     for (int x = 0; x < g->width; x += gridSize) {
         SDL_RenderDrawLine(g->renderer, x, 0, x, g->height);
@@ -66,7 +64,6 @@ void Graphics_DrawFilledCircle(Graphics* g, int centreX, int centreY, int radius
 
 // Draws a filled circle representing the car with a heading line.
 void Graphics_DrawCar(Graphics* g, float x, float y, float radius, float yaw) {
-    printf("Drawing car at (%.2f,%.2f) with radius %.2f and yaw %.2f...\n", x, y, radius, yaw);
     // Draw the car (blue filled circle).
     SDL_SetRenderDrawColor(g->renderer, 0, 0, 255, 255);
     drawFilledCircle(g->renderer, (int)x, (int)y, (int)radius);

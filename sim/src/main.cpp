@@ -248,10 +248,10 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            float carScreenX = static_cast<float>(controller.carState.position.x()) * SCALE + g.width / 2.0f;
-            float carScreenY = static_cast<float>(controller.carState.position.y()) * SCALE + g.height / 2.0f;
+            float carScreenX = controller.carTransform.position.x * SCALE + g.width / 2.0f;
+            float carScreenY = controller.carTransform.position.z * SCALE + g.height / 2.0f;
             float carRadius = 2.0f * SCALE;
-            float carYaw = static_cast<float>(controller.carState.yaw);
+            float carYaw = controller.carTransform.yaw;
             Graphics_DrawCar(&g, carScreenX, carScreenY, carRadius, carYaw);
             Graphics_Present(&g);
         }

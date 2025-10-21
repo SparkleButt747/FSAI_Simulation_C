@@ -9,10 +9,11 @@ extern "C"
 #include "Vector.h"
 #include "Transform.h"
 
-#define MAX_SPEED   30.1964649875f
-#define MAX_ACC     3.4323432343f
-#define MAX_ANGLE   21.0f
-#define EPSILON     0.001f
+#define MAX_SPEED       30.1964649875f
+#define MAX_ACC         3.4323432343f
+#define MAX_STEER_DEG   21.0f
+#define MAX_STEER_RAD   (MAX_STEER_DEG * 0.01745329251994329577f)
+#define EPSILON         0.001f
 
     // Configuration parameters for the racing algorithm.
     typedef struct
