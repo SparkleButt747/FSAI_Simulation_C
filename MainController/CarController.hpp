@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include "DynamicBicycle.hpp"  // vehicle model
 #include "VehicleState.hpp"
 #include "VehicleInput.hpp"
@@ -43,6 +44,9 @@ struct CarController {
     // Simulation timing and distance tracking.
     double totalTime{0.0};
     double deltaTime{0.0};
+    uint64_t startTimeNs{0};
+    uint64_t lapStartTimeNs{0};
+    uint64_t lastTickNs{0};
     double totalDistance{0.0};
     int lapCount{0};
 
@@ -66,8 +70,8 @@ struct CarController {
 void CarController_Init(CarController* controller, const char* yamlFilePath);
 
 // Update the simulation by dt seconds.
-void CarController_Update(CarController* controller, double dt);
+void CarController_Update(CarController* controller, double dt, uint64_t now_ns);
 
 // Reset the car state and regenerate track.
-void CarController_Reset(CarController* controller);
+void CarController_Reset(CarController* controller, uint64_t now_ns);
 

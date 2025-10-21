@@ -66,12 +66,14 @@ add_definitions(-DSDL_MAIN_HANDLED)
 # Project headers (local)
 # ------------------------------------------------------------------------------
 set(PROJ_INCLUDE_DIRS
+  "${CMAKE_SOURCE_DIR}"
   "${CMAKE_SOURCE_DIR}/tools/Graphics"
   "${CMAKE_SOURCE_DIR}/tools"
   "${CMAKE_SOURCE_DIR}/MainController"
   "${CMAKE_SOURCE_DIR}/sim"
   "${CMAKE_SOURCE_DIR}/sim/track"
   "${CMAKE_SOURCE_DIR}/common/physics"
+  "${CMAKE_SOURCE_DIR}/common/time"
   "${CMAKE_SOURCE_DIR}/planning"
   "${CMAKE_SOURCE_DIR}/sim/vehicle"
   "${CMAKE_SOURCE_DIR}/common/telemetry"
@@ -112,6 +114,7 @@ file(GLOB TELEMETRY_SOURCES
   "${CMAKE_SOURCE_DIR}/common/telemetry/*.c"
   "${CMAKE_SOURCE_DIR}/common/telemetry/*.cpp"
 )
+file(GLOB TIME_SOURCES "${CMAKE_SOURCE_DIR}/common/time/*.cpp")
 
 # Remove test files from app builds
 list(REMOVE_ITEM PATH_LOGIC_SOURCES
@@ -155,6 +158,7 @@ add_executable(MainController
   ${RACING_SOURCES}
   ${SIMULATIONMODELS_SOURCES}
   ${TELEMETRY_SOURCES}
+  ${TIME_SOURCES}
   ${KEY_SOURCES}
   ${GRAPHICS_SOURCES}
   ${GRAPHICS_H_SOURCES}
