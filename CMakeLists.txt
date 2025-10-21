@@ -69,14 +69,20 @@ set(PROJ_INCLUDE_DIRS
   "${CMAKE_SOURCE_DIR}"
   "${CMAKE_SOURCE_DIR}/tools/Graphics"
   "${CMAKE_SOURCE_DIR}/tools"
-  "${CMAKE_SOURCE_DIR}/MainController"
-  "${CMAKE_SOURCE_DIR}/sim"
-  "${CMAKE_SOURCE_DIR}/sim/track"
   "${CMAKE_SOURCE_DIR}/common/physics"
   "${CMAKE_SOURCE_DIR}/common/time"
-  "${CMAKE_SOURCE_DIR}/planning"
-  "${CMAKE_SOURCE_DIR}/sim/vehicle"
   "${CMAKE_SOURCE_DIR}/common/telemetry"
+  "${CMAKE_SOURCE_DIR}/control/include"
+  "${CMAKE_SOURCE_DIR}/control/include/control"
+  "${CMAKE_SOURCE_DIR}/control/src"
+  "${CMAKE_SOURCE_DIR}/sim/include"
+  "${CMAKE_SOURCE_DIR}/sim/include/io"
+  "${CMAKE_SOURCE_DIR}/sim/include/sim"
+  "${CMAKE_SOURCE_DIR}/sim/include/sim/integration"
+  "${CMAKE_SOURCE_DIR}/sim/src"
+  "${CMAKE_SOURCE_DIR}/sim/src/track"
+  "${CMAKE_SOURCE_DIR}/sim/src/vehicle"
+  "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
 )
 
 # ------------------------------------------------------------------------------
@@ -85,30 +91,32 @@ set(PROJ_INCLUDE_DIRS
 
 # Vehicle models
 file(GLOB DYNAMIC_BICYCLE_SOURCES
-  "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c"
-  "${CMAKE_SOURCE_DIR}/sim/vehicle/*.cpp"
+  "${CMAKE_SOURCE_DIR}/sim/src/vehicle/*.c"
+  "${CMAKE_SOURCE_DIR}/sim/src/vehicle/*.cpp"
 )
 file(GLOB KEY_SOURCES        "${CMAKE_SOURCE_DIR}/tools/KeyboardInputHandler.c")
 file(GLOB GRAPHICS_SOURCES   "${CMAKE_SOURCE_DIR}/tools/Graphics/*.c")
 file(GLOB GRAPHICS_H_SOURCES "${CMAKE_SOURCE_DIR}/tools/Graphics/*.h")
 
-set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.cpp")
+set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/src/vehicle/test/TestDynamicBicycle.cpp")
 
 # Path/track logic
-file(GLOB PATH_LOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/*.cpp")
-set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.cpp")
+file(GLOB PATH_LOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/src/track/*.cpp")
+set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/src/track/test/TestTrackGeneration.cpp")
 
 # Main sim
-file(GLOB MAINCONTROLLER_SOURCES
-  "${CMAKE_SOURCE_DIR}/MainController/*.c"
-  "${CMAKE_SOURCE_DIR}/MainController/*.cpp"
-)
-file(GLOB WORLD_SOURCES "${CMAKE_SOURCE_DIR}/sim/*.cpp")
+file(GLOB SIM_MAIN_SOURCES "${CMAKE_SOURCE_DIR}/sim/src/*.cpp")
+file(GLOB SIM_INTEGRATION_SOURCES "${CMAKE_SOURCE_DIR}/sim/src/integration/*.cpp")
+file(GLOB WORLD_SOURCES "${CMAKE_SOURCE_DIR}/sim/src/*.c")
 file(GLOB PHYSICS_SOURCES "${CMAKE_SOURCE_DIR}/common/physics/*.c")
-file(GLOB RACING_SOURCES  "${CMAKE_SOURCE_DIR}/planning/*.c")
+file(GLOB_RECURSE CONTROL_CORE_SOURCES
+  "${CMAKE_SOURCE_DIR}/control/src/*.cpp"
+  "${CMAKE_SOURCE_DIR}/control/src/*.c"
+)
+set(CONTROL_ALGO_SOURCES "${CMAKE_SOURCE_DIR}/control/src/algorithms/racing_algorithm.c")
 file(GLOB SIMULATIONMODELS_SOURCES
-  "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c"
-  "${CMAKE_SOURCE_DIR}/sim/vehicle/*.cpp"
+  "${CMAKE_SOURCE_DIR}/sim/src/vehicle/*.c"
+  "${CMAKE_SOURCE_DIR}/sim/src/vehicle/*.cpp"
 )
 file(GLOB TELEMETRY_SOURCES
   "${CMAKE_SOURCE_DIR}/common/telemetry/*.c"
@@ -118,11 +126,12 @@ file(GLOB TIME_SOURCES "${CMAKE_SOURCE_DIR}/common/time/*.cpp")
 
 # Remove test files from app builds
 list(REMOVE_ITEM PATH_LOGIC_SOURCES
-  "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.cpp")
+  "${CMAKE_SOURCE_DIR}/sim/src/track/test/TestTrackGeneration.cpp")
 list(REMOVE_ITEM SIMULATIONMODELS_SOURCES
-  "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.cpp")
+  "${CMAKE_SOURCE_DIR}/sim/src/vehicle/test/TestDynamicBicycle.cpp")
 
-set(SIMULATION_SOURCE_FINAL "${CMAKE_SOURCE_DIR}/MainController/main.cpp")
+set(SIMULATION_SOURCE_FINAL "${CMAKE_SOURCE_DIR}/sim/src/main.cpp")
+list(REMOVE_ITEM SIM_MAIN_SOURCES "${SIMULATION_SOURCE_FINAL}")
 
 # ------------------------------------------------------------------------------
 # Executables
@@ -151,11 +160,12 @@ target_link_libraries(PathLogicTest PRIVATE Eigen3::Eigen)
 # MainController
 add_executable(MainController
   ${SIMULATION_SOURCE_FINAL}
-  ${MAINCONTROLLER_SOURCES}
+  ${SIM_MAIN_SOURCES}
+  ${SIM_INTEGRATION_SOURCES}
   ${WORLD_SOURCES}
   ${PATH_LOGIC_SOURCES}
   ${PHYSICS_SOURCES}
-  ${RACING_SOURCES}
+  ${CONTROL_CORE_SOURCES}
   ${SIMULATIONMODELS_SOURCES}
   ${TELEMETRY_SOURCES}
   ${TIME_SOURCES}
@@ -177,7 +187,7 @@ endif()
 set(THROTTLE_TEST_SOURCE "${CMAKE_SOURCE_DIR}/planning/test/TestThrottle.c")
 add_executable(ThrottleTest
   ${THROTTLE_TEST_SOURCE}
-  ${RACING_SOURCES}
+  ${CONTROL_ALGO_SOURCES}
   ${PHYSICS_SOURCES}
 )
 target_include_directories(ThrottleTest PRIVATE ${PROJ_INCLUDE_DIRS})
@@ -191,7 +201,7 @@ endif()
 set(STEERING_TEST_SOURCE "${CMAKE_SOURCE_DIR}/planning/test/TestSteering.c")
 add_executable(SteeringTest
   ${STEERING_TEST_SOURCE}
-  ${RACING_SOURCES}
+  ${CONTROL_ALGO_SOURCES}
   ${PHYSICS_SOURCES}
 )
 target_include_directories(SteeringTest PRIVATE ${PROJ_INCLUDE_DIRS})

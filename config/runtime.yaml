@@ -1,0 +1,16 @@
+providers:
+  vision: fake_from_sim
+  planner: fake_track
+  estimator: fake_truth
+  can: fake
+  mode: sim
+
+fake_vision:
+  position_noise_std: 0.05
+  dropout_probability: 0.08
+  min_conf: 0.80
+  max_conf: 0.95
+
+fake_planner:
+  sample_spacing_m: 0.75
+  horizon_m: 80.0

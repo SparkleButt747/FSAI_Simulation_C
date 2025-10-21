@@ -1,4 +1,4 @@
-#include "RacingAlgorithm.h"
+#include "control/racing_algorithm.h"
 #include "math.h"
 #include <stdlib.h>
 #include <stdio.h>
