@@ -6,6 +6,7 @@
 #include "PathConfig.hpp"
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
+#include "fsai_clock.h"
 
 static void MoveNextCheckpointToLast(Vector3* checkpoints, Vector3* lefts, Vector3* rights,int n) {
     Vector3 temp = checkpoints[0];
@@ -50,6 +51,9 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
     controller->totalDistance = 0.0;
     controller->lapCount = 0;
     controller->deltaTime = 0.0;
+    controller->startTimeNs = 0;
+    controller->lapStartTimeNs = 0;
+    controller->lastTickNs = 0;
 
     // Set controller configuration.
     controller->config.collisionThreshold = 2.5f;  //
@@ -86,6 +90,12 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
                                         Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
                                         Eigen::Vector3d::Zero());
 
+    const uint64_t now_ns = fsai_clock_now();
+    controller->startTimeNs = now_ns;
+    controller->lapStartTimeNs = now_ns;
+    controller->lastTickNs = now_ns;
+    controller->carState.timestampNs = now_ns;
+
     // Initialize car transform based on the state.
     controller->carTransform.position.x = static_cast<float>(controller->carState.position.x());
     controller->carTransform.position.y = 0.5f;  // fixed height
@@ -117,15 +127,23 @@ void CarController_Init(CarController* controller, const char* yamlFilePath) {
 }
 
 // Update simulation.
-void CarController_Update(CarController* controller, double dt) {
-    // Update simulation time.
-    controller->deltaTime = dt;
-    controller->totalTime += dt;
+void CarController_Update(CarController* controller, double dt, uint64_t now_ns) {
+    if (now_ns < controller->lapStartTimeNs) {
+        controller->lapStartTimeNs = now_ns;
+    }
+
+    const double dt_from_clock = (controller->lastTickNs > 0)
+        ? fsai_clock_to_seconds(now_ns - controller->lastTickNs)
+        : dt;
+    controller->deltaTime = dt_from_clock > 0.0 ? dt_from_clock : dt;
+    controller->totalTime = fsai_clock_to_seconds(now_ns - controller->lapStartTimeNs);
+    controller->lastTickNs = now_ns;
+    controller->carState.timestampNs = now_ns;
 
     // Validate that there are checkpoints.
     if (controller->nCheckpoints <= 0) {
         std::printf("No checkpoints available. Resetting simulation.\n");
-        CarController_Reset(controller);
+        CarController_Reset(controller, now_ns);
         return;
     }
 
@@ -146,14 +164,14 @@ void CarController_Update(CarController* controller, double dt) {
             carSpeed,
             &controller->carTransform,
             &controller->racingConfig,
-            dt);
+            controller->deltaTime);
         controller->steeringAngle = RacingAlgorithm_GetSteeringInput(
             controller->checkpointPositions,
             controller->nCheckpoints,
             carSpeed,
             &controller->carTransform,
             &controller->racingConfig,
-            dt);
+            controller->deltaTime);
         std::printf("THROTTLE: %f, ANGLE: %f\n", controller->throttleInput, controller->steeringAngle);
     } else {
         std::printf("Manual control mode. Use WASD keys to control the car.\n");
@@ -184,7 +202,7 @@ void CarController_Update(CarController* controller, double dt) {
     controller->carInput.delta = controller->steeringAngle;
 
     // Update car state.
-    controller->carModel.updateState(controller->carState, controller->carInput, dt);
+    controller->carModel.updateState(controller->carState, controller->carInput, controller->deltaTime);
 
     // Update transform from car state.
     controller->carTransform.position.x = static_cast<float>(controller->carState.position.x());
@@ -192,7 +210,7 @@ void CarController_Update(CarController* controller, double dt) {
     controller->carTransform.yaw = static_cast<float>(controller->carState.yaw);
 
     // Update total distance traveled (using v_x).
-    controller->totalDistance += controller->carState.velocity.x() * dt;
+    controller->totalDistance += controller->carState.velocity.x() * controller->deltaTime;
 
     // Checkpoint met detection: Check if car passes its next checkpoint.
     float dx = controller->carTransform.position.x - controller->checkpointPositions[0].x;
@@ -217,6 +235,7 @@ void CarController_Update(CarController* controller, double dt) {
         }
         controller->lapCount++;
         // Reset timing and distance for next lap.
+        controller->lapStartTimeNs = now_ns;
         controller->totalTime = 0.0;
         controller->totalDistance = 0.0;
     }
@@ -228,7 +247,7 @@ void CarController_Update(CarController* controller, double dt) {
         float cdist = sqrtf(cdx * cdx + cdz * cdz);
         if (cdist < controller->config.conecollisionThreshold) {
             std::printf("Collision with a cone detected.\n");
-            CarController_Reset(controller);
+            CarController_Reset(controller, now_ns);
             return;
         }
     }
@@ -238,23 +257,27 @@ void CarController_Update(CarController* controller, double dt) {
         float cdist = sqrtf(cdx * cdx + cdz * cdz);
         if (cdist < controller->config.conecollisionThreshold) {
             std::printf("Collision with a cone detected.\n");
-            CarController_Reset(controller);
+            CarController_Reset(controller, now_ns);
             return;
         }
     }
 
     // Telemetry: Print current simulation state.
     Telemetry_Update(controller->carState, controller->carTransform,
-                     controller->totalTime, controller->totalDistance, controller->lapCount);
+                     now_ns, controller->totalTime,
+                     controller->totalDistance, controller->lapCount);
 }
 
 // Reset simulation: Reset car state and regenerate track.
-void CarController_Reset(CarController* controller) {
+void CarController_Reset(CarController* controller, uint64_t now_ns) {
 
     if (controller->regenTrack) {
 
         controller->totalTime = 0.0;
         controller->totalDistance = 0.0;
+        controller->startTimeNs = now_ns;
+        controller->lapStartTimeNs = now_ns;
+        controller->lastTickNs = now_ns;
 
         std::printf("Regenerating track due to cone collision.\n");
 
@@ -323,6 +346,7 @@ void CarController_Reset(CarController* controller) {
         controller->carTransform.position.y = 0.5f;  // fixed height
         controller->carTransform.position.z = static_cast<float>(controller->carState.position.y());  // map state.y to z
         controller->carTransform.yaw = static_cast<float>(controller->carState.yaw);
+        controller->carState.timestampNs = now_ns;
 
     } else {
         // Reset car state, input, and transform.
@@ -330,6 +354,9 @@ void CarController_Reset(CarController* controller) {
 
         controller->totalTime = 0.0;
         controller->totalDistance = 0.0;
+        controller->startTimeNs = now_ns;
+        controller->lapStartTimeNs = now_ns;
+        controller->lastTickNs = now_ns;
 
         std::printf("Resetting simulation without regenerating track.\n");
 
@@ -353,5 +380,6 @@ void CarController_Reset(CarController* controller) {
         controller->carTransform.position.y = 0.5f;  // fixed height
         controller->carTransform.position.z = static_cast<float>(controller->carState.position.y());  // map state.y to z
         controller->carTransform.yaw = static_cast<float>(controller->carState.yaw);
+        controller->carState.timestampNs = now_ns;
     }
 }

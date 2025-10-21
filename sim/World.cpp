@@ -1,6 +1,7 @@
 #include "World.hpp"
 #include <cstdio>
 #include <cmath>
+#include "fsai_clock.h"
 
 static Vector3 transformToVector3(const Transform& t) {
     return {t.position.x, t.position.y, t.position.z};
@@ -169,7 +170,8 @@ bool World::detectCollisions() {
 }
 
 void World::telemetry() const {
-    Telemetry_Update(carState, carTransform, totalTime, totalDistance, lapCount);
+    Telemetry_Update(carState, carTransform,
+                     fsai_clock_now(), totalTime, totalDistance, lapCount);
 }
 
 void World::moveNextCheckpointToLast() {

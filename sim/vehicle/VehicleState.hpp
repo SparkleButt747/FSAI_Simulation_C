@@ -1,5 +1,8 @@
 #pragma once
 #include <Eigen/Dense>
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
 #include <string>
 
 /**
@@ -14,15 +17,17 @@ public:
     Eigen::Vector3d rotation{0.0,0.0,0.0};
     Eigen::Vector3d acceleration{0.0,0.0,0.0};
     double yaw{0.0};
+    uint64_t timestampNs{0};
 
     VehicleState() = default;
     VehicleState(const Eigen::Vector3d& pos,
                  double yawAngle,
                  const Eigen::Vector3d& vel,
                  const Eigen::Vector3d& rot,
-                 const Eigen::Vector3d& acc)
+                 const Eigen::Vector3d& acc,
+                 uint64_t t_ns = 0)
         : position(pos), velocity(vel), rotation(rot),
-          acceleration(acc), yaw(yawAngle) {}
+          acceleration(acc), yaw(yawAngle), timestampNs(t_ns) {}
 
     /// Scalar multiplication (state * dt).
     VehicleState operator*(double dt) const {
@@ -32,6 +37,7 @@ public:
         scaled.rotation = rotation * dt;
         scaled.acceleration = acceleration * dt;
         scaled.yaw = yaw * dt;
+        scaled.timestampNs = timestampNs;
         return scaled;
     }
 
@@ -43,6 +49,7 @@ public:
         result.rotation = rotation + other.rotation;
         result.acceleration = acceleration + other.acceleration;
         result.yaw = yaw + other.yaw;
+        result.timestampNs = std::max(timestampNs, other.timestampNs);
         return result;
     }
 
@@ -50,11 +57,12 @@ public:
     std::string toString() const {
         char buffer[256];
         std::snprintf(buffer, sizeof(buffer),
-                      "pos:(%f,%f,%f) yaw:%f vel:(%f,%f,%f) rot:(%f,%f,%f) acc:(%f,%f,%f)",
+                      "pos:(%f,%f,%f) yaw:%f vel:(%f,%f,%f) rot:(%f,%f,%f) acc:(%f,%f,%f) t_ns:%llu",
                       position.x(), position.y(), position.z(), yaw,
                       velocity.x(), velocity.y(), velocity.z(),
                       rotation.x(), rotation.y(), rotation.z(),
-                      acceleration.x(), acceleration.y(), acceleration.z());
+                      acceleration.x(), acceleration.y(), acceleration.z(),
+                      static_cast<unsigned long long>(timestampNs));
         return std::string(buffer);
     }
 };

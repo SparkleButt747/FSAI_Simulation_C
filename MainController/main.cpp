@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <cmath>
+#include "fsai_clock.h"
 #include "CarController.hpp"
 #include "KeyboardInputHandler.h"
 #include "Graphics.h"
@@ -30,6 +31,14 @@ int main(int argc, char* argv[]) {
     // Initialize keyboard input.
     //KeyboardInputHandler_Init();
 
+    fsai_clock_config clock_cfg{};
+    clock_cfg.mode = FSAI_CLOCK_MODE_SIMULATED;
+    clock_cfg.start_time_ns = 0;
+    fsai_clock_init(clock_cfg);
+
+    const uint64_t step_ns = fsai_clock_from_seconds(dt);
+    const double step_seconds = fsai_clock_to_seconds(step_ns);
+
     // Initialize the car controller.
     CarController controller;
     CarController_Init(&controller, "../sim/vehicle/Configs/configDry.yaml");
@@ -55,7 +64,6 @@ int main(int argc, char* argv[]) {
         std::fprintf(stderr, "Graphics_Init failed\n");
         std::exit(EXIT_FAILURE);
     }
-    double totalTime = 0.0;
     while (1) {
         // Poll SDL events to keep window responsive.
         SDL_Event event;
@@ -75,19 +83,19 @@ int main(int argc, char* argv[]) {
         }
         */
 
-        CarController_Update(&controller, dt);
+        const uint64_t now_ns = fsai_clock_advance(step_ns);
+        CarController_Update(&controller, step_seconds, now_ns);
+        const double sim_time_s = fsai_clock_to_seconds(now_ns - controller.startTimeNs);
 
         // Log current state to CSV.
-        std::fprintf(csvFile, "%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
-                     totalTime, controller.carState.position.x(), controller.carState.position.y(),
+        std::fprintf(csvFile, "%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+                     sim_time_s, controller.carState.position.x(), controller.carState.position.y(),
                      controller.carState.position.z(), controller.carState.yaw,
                      controller.carState.velocity.x(), controller.carState.velocity.y(), controller.carState.velocity.z());
 
         // Log current state to CSV.
-        std::fprintf(csvFile_ra, "%.2f,%.6f,%.6f\n",
-                     totalTime, controller.throttleInput, controller.steeringAngle);
-
-        totalTime += dt;
+        std::fprintf(csvFile_ra, "%.6f,%.6f,%.6f\n",
+                     sim_time_s, controller.throttleInput, controller.steeringAngle);
 
         // --- Graphics Update ---
         Graphics_Clear(&g);
@@ -134,7 +142,7 @@ int main(int argc, char* argv[]) {
         Graphics_DrawCar(&g, carScreenX, carScreenY, carRadius, carYaw);
         Graphics_Present(&g);
 
-        SDL_Delay((Uint32)(dt * 1000));
+        SDL_Delay((Uint32)(step_seconds * 1000.0));
     }
 
 exit_loop:
