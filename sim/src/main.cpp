@@ -10,7 +10,6 @@
 #include "common/types.h"
 #include "control/clc_controller.hpp"
 #include "Graphics.h"
-#include "sim/KeyboardInputHandler.h"
 #include "budget.h"
 #include "PathConfig.hpp"
 #include "sim/integration/adapter.hpp"
@@ -52,8 +51,6 @@ int main(int argc, char* argv[]) {
     }
     std::printf("Using dt = %.4f seconds (config: %s)\n", dt, config_path.c_str());
 
-    // Initialize keyboard input.
-    //KeyboardInputHandler_Init();
 
     fsai_clock_config clock_cfg{};
     clock_cfg.mode = FSAI_CLOCK_MODE_SIMULATED;
@@ -143,16 +140,6 @@ int main(int argc, char* argv[]) {
                 goto exit_loop;
             }
         }
-
-        /*
-        // Read keyboard input.
-        int key = KeyboardInputHandler_GetInput();
-        // If 'c' or 'C' is pressed, exit the simulation loop.
-        if (key == 'c' || key == 'C') {
-            std::printf("Exit key 'c' detected. Exiting simulation loop.\n");
-            break;
-        }
-        */
 
         const uint64_t now_ns = fsai_clock_advance(step_ns);
 
@@ -267,7 +254,6 @@ int main(int argc, char* argv[]) {
 exit_loop:
     fclose(csvFile);
     fclose(csvFile_ra);
-    KeyboardInputHandler_Restore();
     Graphics_Cleanup(&g);
 
     fsai_budget_report_all();

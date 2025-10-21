@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "RacingAlgorithm.h"
+#include "control/racing_algorithm.h"
 #include "Vector.h"
 
 int main(void) {

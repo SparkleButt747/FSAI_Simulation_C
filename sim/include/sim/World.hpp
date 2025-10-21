@@ -6,7 +6,7 @@
 #include "VehicleState.hpp"
 #include "VehicleInput.hpp"
 #include "Telemetry.hpp"
-#include "RacingAlgorithm.h"
+#include "control/racing_algorithm.h"
 #include "Transform.h"
 #include "Vector.h"
 #include "PathConfig.hpp"

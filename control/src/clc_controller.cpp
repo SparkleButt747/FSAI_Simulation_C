@@ -148,7 +148,11 @@ FsaiControlCmd CarController_Update(CarController* controller, double dt, uint64
     controller->carTransform.position.z = static_cast<float>(controller->carState.position.y());
     controller->carTransform.yaw = static_cast<float>(controller->carState.yaw);
 
-    controller->totalDistance += controller->carState.velocity.x() * controller->deltaTime;
+    const double vx = controller->carState.velocity.x();
+    const double vy = controller->carState.velocity.y();
+    const double vz = controller->carState.velocity.z();
+    const double speed = std::sqrt(vx * vx + vy * vy + vz * vz);
+    controller->totalDistance += speed * controller->deltaTime;
 
     Telemetry_Update(controller->carState, controller->carTransform,
                      now_ns, controller->totalTime,

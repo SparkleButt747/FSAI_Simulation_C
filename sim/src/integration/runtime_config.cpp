@@ -1,5 +1,6 @@
 #include "sim/integration/runtime_config.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <stdexcept>
 
@@ -40,17 +41,18 @@ RuntimeConfig LoadRuntimeConfig(const std::string& path) {
         cfg.providers.mode = ReadString(providers, "mode", cfg.providers.mode);
 
         const YAML::Node fake_vision = root["fake_vision"];
-        cfg.fake_vision.position_noise_std = ReadScalar(fake_vision, "position_noise_std", cfg.fake_vision.position_noise_std);
-        cfg.fake_vision.dropout_probability = ReadScalar(fake_vision, "dropout_probability", cfg.fake_vision.dropout_probability);
-        cfg.fake_vision.min_conf = ReadScalar(fake_vision, "min_conf", cfg.fake_vision.min_conf);
-        cfg.fake_vision.max_conf = ReadScalar(fake_vision, "max_conf", cfg.fake_vision.max_conf);
+        cfg.fake_vision.position_noise_std = std::max(0.0f, ReadScalar(fake_vision, "position_noise_std", cfg.fake_vision.position_noise_std));
+        cfg.fake_vision.dropout_probability = std::clamp(ReadScalar(fake_vision, "dropout_probability", cfg.fake_vision.dropout_probability), 0.0f, 1.0f);
+        cfg.fake_vision.min_conf = std::clamp(ReadScalar(fake_vision, "min_conf", cfg.fake_vision.min_conf), 0.0f, 1.0f);
+        cfg.fake_vision.max_conf = std::clamp(ReadScalar(fake_vision, "max_conf", cfg.fake_vision.max_conf), 0.0f, 1.0f);
         if (cfg.fake_vision.max_conf < cfg.fake_vision.min_conf) {
             cfg.fake_vision.max_conf = cfg.fake_vision.min_conf;
         }
 
         const YAML::Node fake_planner = root["fake_planner"];
-        cfg.fake_planner.sample_spacing_m = ReadScalar(fake_planner, "sample_spacing_m", cfg.fake_planner.sample_spacing_m);
-        cfg.fake_planner.horizon_m = ReadScalar(fake_planner, "horizon_m", cfg.fake_planner.horizon_m);
+        cfg.fake_planner.sample_spacing_m = std::max(0.1f, ReadScalar(fake_planner, "sample_spacing_m", cfg.fake_planner.sample_spacing_m));
+        cfg.fake_planner.horizon_m = std::max(cfg.fake_planner.sample_spacing_m,
+                                              ReadScalar(fake_planner, "horizon_m", cfg.fake_planner.horizon_m));
     } catch (const std::exception& ex) {
         throw std::runtime_error(std::string("Failed to load runtime config from ") + path + ": " + ex.what());
     }
