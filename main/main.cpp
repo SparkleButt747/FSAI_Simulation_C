@@ -13,7 +13,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-#define SCALE 3
+#define SCALE 5
 
 int main(int argc, char* argv[]) {
     // Seed random number generator.
