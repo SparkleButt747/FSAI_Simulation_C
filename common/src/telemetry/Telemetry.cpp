@@ -1,6 +1,6 @@
 #include "Telemetry.hpp"
-#include <cstdio>
 #include "fsai_clock.h"
+#include <cstdio>
 
 void Telemetry_Update(const VehicleState& carState, const Transform& carTransform,
                       uint64_t simTimeNs, double lapTimeSeconds,

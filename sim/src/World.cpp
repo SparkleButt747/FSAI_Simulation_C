@@ -1,7 +1,7 @@
-#include "World.hpp"
 #include <cstdio>
 #include <cmath>
 #include "fsai_clock.h"
+#include "World.hpp"
 
 static Vector3 transformToVector3(const Transform& t) {
     return {t.position.x, t.position.y, t.position.z};

@@ -1,8 +1,8 @@
-#include "CarController.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
 #include <Eigen/Dense>
+#include "CarController.hpp"
 #include "PathConfig.hpp"
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"

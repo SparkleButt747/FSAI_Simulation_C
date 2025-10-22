@@ -1,18 +1,16 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.20)
+project(FSAI_Simulation_C LANGUAGES C CXX)
 
 # ------------------------------------------------------------------------------
-# Project
-# ------------------------------------------------------------------------------
-project(FSAI_Simulation LANGUAGES C CXX)
-
 # Standards
+# ------------------------------------------------------------------------------
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ------------------------------------------------------------------------------
-# Host / toolchain defaults (don’t hard-code compilers)
+# Architecture / Homebrew / Paths
 # ------------------------------------------------------------------------------
 if(APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
@@ -22,17 +20,16 @@ if(APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
   endif()
 endif()
 
-# Help CMake find Homebrew-installed packages on both ARM (/opt/homebrew) and Intel (/usr/local).
 if(APPLE)
-  find_program(BREW brew PATHS /opt/homebrew/bin /usr/local/bin /usr/bin NO_DEFAULT_PATH)
+  find_program(BREW brew PATHS /opt/homebrew/bin /usr/local/bin NO_DEFAULT_PATH)
   if(BREW)
     execute_process(COMMAND "${BREW}" --prefix
-      OUTPUT_VARIABLE HOMEBREW_PREFIX
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(HOMEBREW_PREFIX AND EXISTS "${HOMEBREW_PREFIX}")
+                    OUTPUT_VARIABLE HOMEBREW_PREFIX
+                    OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(EXISTS "${HOMEBREW_PREFIX}")
       list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}")
-      # Also hint pkg-config (helps some setups)
-      set(ENV{PKG_CONFIG_PATH} "${HOMEBREW_PREFIX}/lib/pkgconfig:${HOMEBREW_PREFIX}/share/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+      set(ENV{PKG_CONFIG_PATH}
+          "${HOMEBREW_PREFIX}/lib/pkgconfig:${HOMEBREW_PREFIX}/share/pkgconfig:$ENV{PKG_CONFIG_PATH}")
     endif()
   endif()
 endif()
@@ -40,164 +37,114 @@ endif()
 # ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
-
-# Eigen3
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
-
-# pkg-config for SDL2 and libyaml
 find_package(PkgConfig REQUIRED)
-
-# SDL2: prefer CMake package, fall back to pkg-config IMPORTED target
 find_package(SDL2 QUIET CONFIG)
 if(NOT SDL2_FOUND)
   pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
-  # Provides PkgConfig::SDL2
 endif()
+find_package(yaml-cpp REQUIRED)
 
-# yaml-cpp (C++ YAML library)
-find_package(yaml-cpp REQUIRED)  # provides yaml-cpp::yaml-cpp
-
-
-# ------------------------------------------------------------------------------
-# Optionally silence SDL_main shenanigans if you ever link SDL2main (not used here).
 add_definitions(-DSDL_MAIN_HANDLED)
 
 # ------------------------------------------------------------------------------
-# Project headers (local)
+# Collect sources/headers (exclude build tree)
 # ------------------------------------------------------------------------------
-set(PROJ_INCLUDE_DIRS
-  "${CMAKE_SOURCE_DIR}"
-  "${CMAKE_SOURCE_DIR}/tools/Graphics"
-  "${CMAKE_SOURCE_DIR}/tools"
-  "${CMAKE_SOURCE_DIR}/main"
-  "${CMAKE_SOURCE_DIR}/sim"
-  "${CMAKE_SOURCE_DIR}/sim/track"
-  "${CMAKE_SOURCE_DIR}/common/physics"
-  "${CMAKE_SOURCE_DIR}/common/time"
-  "${CMAKE_SOURCE_DIR}/control"
-  "${CMAKE_SOURCE_DIR}/sim/vehicle"
-  "${CMAKE_SOURCE_DIR}/common/telemetry"
-)
+file(GLOB_RECURSE ALL_C_SOURCES   CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/*.c")
+file(GLOB_RECURSE ALL_CPP_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/*.cpp")
+file(GLOB_RECURSE ALL_HEADERS     CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/*.h" "${CMAKE_SOURCE_DIR}/*.hpp")
 
-# ------------------------------------------------------------------------------
-# Sources
-# ------------------------------------------------------------------------------
+list(FILTER ALL_C_SOURCES   EXCLUDE REGEX "^${CMAKE_BINARY_DIR}/")
+list(FILTER ALL_CPP_SOURCES EXCLUDE REGEX "^${CMAKE_BINARY_DIR}/")
+list(FILTER ALL_HEADERS     EXCLUDE REGEX "^${CMAKE_BINARY_DIR}/")
 
-# Vehicle models
-file(GLOB DYNAMIC_BICYCLE_SOURCES
-  "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c"
-  "${CMAKE_SOURCE_DIR}/sim/vehicle/*.cpp"
-)
-file(GLOB KEY_SOURCES        "${CMAKE_SOURCE_DIR}/tools/KeyboardInputHandler.c")
-file(GLOB GRAPHICS_SOURCES   "${CMAKE_SOURCE_DIR}/tools/Graphics/*.c")
-file(GLOB GRAPHICS_H_SOURCES "${CMAKE_SOURCE_DIR}/tools/Graphics/*.h")
-
-set(SIMULATION_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.cpp")
-
-# Path/track logic
-file(GLOB PATH_LOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/*.cpp")
-set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.cpp")
-
-# Main sim
-file(GLOB MAIN_SOURCES
-  "${CMAKE_SOURCE_DIR}/main/*.c"
-  "${CMAKE_SOURCE_DIR}/main/*.cpp"
-)
-file(GLOB WORLD_SOURCES "${CMAKE_SOURCE_DIR}/sim/*.cpp")
-file(GLOB PHYSICS_SOURCES "${CMAKE_SOURCE_DIR}/common/physics/*.c")
-file(GLOB RACING_SOURCES  "${CMAKE_SOURCE_DIR}/control/*.c")
-file(GLOB SIMULATIONMODELS_SOURCES
-  "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c"
-  "${CMAKE_SOURCE_DIR}/sim/vehicle/*.cpp"
-)
-file(GLOB TELEMETRY_SOURCES
-  "${CMAKE_SOURCE_DIR}/common/telemetry/*.c"
-  "${CMAKE_SOURCE_DIR}/common/telemetry/*.cpp"
-)
-file(GLOB TIME_SOURCES "${CMAKE_SOURCE_DIR}/common/time/*.cpp")
-
-# Remove test files from app builds
-list(REMOVE_ITEM PATH_LOGIC_SOURCES
-  "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.cpp")
-list(REMOVE_ITEM SIMULATIONMODELS_SOURCES
-  "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.cpp")
-
-set(SIMULATION_SOURCE_FINAL "${CMAKE_SOURCE_DIR}/main/main.cpp")
+# Build a list of header parent dirs so bare #include "X.h" works
+set(HEADER_DIRS "")
+foreach(h ${ALL_HEADERS})
+  get_filename_component(hdir "${h}" DIRECTORY)
+  if(NOT hdir MATCHES "^${CMAKE_BINARY_DIR}(/|$)")
+    list(APPEND HEADER_DIRS "${hdir}")
+  endif()
+endforeach()
+list(REMOVE_DUPLICATES HEADER_DIRS)
 
 # ------------------------------------------------------------------------------
-# Executables
+# Split into core library (no main/, no tests) + main app
 # ------------------------------------------------------------------------------
+set(CORE_C_SOURCES   ${ALL_C_SOURCES})
+set(CORE_CPP_SOURCES ${ALL_CPP_SOURCES})
 
-# SimulationModelsTest
-add_executable(SimulationModelsTest
-  ${SIMULATION_TEST_SOURCE}
-  ${DYNAMIC_BICYCLE_SOURCES}
+# drop main/ from core
+list(FILTER CORE_C_SOURCES   EXCLUDE REGEX ".*/main/.*")
+list(FILTER CORE_CPP_SOURCES EXCLUDE REGEX ".*/main/.*")
+
+# drop tests from core
+list(FILTER CORE_C_SOURCES   EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(c)$")
+list(FILTER CORE_CPP_SOURCES EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(cpp)$")
+
+# main sources = everything in main/
+file(GLOB_RECURSE MAIN_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/main/*.c" "${CMAKE_SOURCE_DIR}/main/*.cpp")
+
+# ------------------------------------------------------------------------------
+# Core library
+# ------------------------------------------------------------------------------
+add_library(fsai_core STATIC
+  ${CORE_C_SOURCES}
+  ${CORE_CPP_SOURCES}
+  ${ALL_HEADERS}         # for IDEs; headers aren’t compiled
 )
-target_include_directories(SimulationModelsTest PRIVATE ${PROJ_INCLUDE_DIRS})
-target_link_libraries(SimulationModelsTest
-  PRIVATE
+
+# Every header dir is an include path so bare filenames resolve
+target_include_directories(fsai_core
+  PUBLIC
+    ${HEADER_DIRS}
+)
+
+target_link_libraries(fsai_core
+  PUBLIC
     Eigen3::Eigen
     yaml-cpp::yaml-cpp
+    m
 )
 
-# PathLogicTest
-add_executable(PathLogicTest
-  ${PATH_LOGIC_TEST_SOURCE}
-  ${PATH_LOGIC_SOURCES}
-)
-target_include_directories(PathLogicTest PRIVATE ${PROJ_INCLUDE_DIRS})
-target_link_libraries(PathLogicTest PRIVATE Eigen3::Eigen)
+# ------------------------------------------------------------------------------
+# Main executable
+# ------------------------------------------------------------------------------
+add_executable(FSAI_Sim ${MAIN_SOURCES})
+target_link_libraries(FSAI_Sim PRIVATE fsai_core)
 
-# main
-add_executable(main
-  ${SIMULATION_SOURCE_FINAL}
-  ${MAIN_SOURCES}
-  ${WORLD_SOURCES}
-  ${PATH_LOGIC_SOURCES}
-  ${PHYSICS_SOURCES}
-  ${RACING_SOURCES}
-  ${SIMULATIONMODELS_SOURCES}
-  ${TELEMETRY_SOURCES}
-  ${TIME_SOURCES}
-  ${KEY_SOURCES}
-  ${GRAPHICS_SOURCES}
-  ${GRAPHICS_H_SOURCES}
-)
-target_include_directories(main PRIVATE
-  ${PROJ_INCLUDE_DIRS}
-  ${SDL2_ALL_INCLUDE_DIRS}   # <- adds both .../include/SDL2 and .../include
-)
 if(TARGET SDL2::SDL2)
-  target_link_libraries(main PRIVATE Eigen3::Eigen yaml-cpp::yaml-cpp SDL2::SDL2)
+  target_link_libraries(FSAI_Sim PRIVATE SDL2::SDL2)
 else()
-  target_link_libraries(main PRIVATE Eigen3::Eigen yaml-cpp::yaml-cpp PkgConfig::SDL2)
+  target_link_libraries(FSAI_Sim PRIVATE PkgConfig::SDL2)
 endif()
 
-# ThrottleTest
-set(THROTTLE_TEST_SOURCE "${CMAKE_SOURCE_DIR}/control/test/TestThrottle.c")
-add_executable(ThrottleTest
-  ${THROTTLE_TEST_SOURCE}
-  ${RACING_SOURCES}
-  ${PHYSICS_SOURCES}
-)
-target_include_directories(ThrottleTest PRIVATE ${PROJ_INCLUDE_DIRS})
-if(UNIX)
-  target_link_libraries(ThrottleTest PRIVATE Eigen3::Eigen m)
-else()
-  target_link_libraries(ThrottleTest PRIVATE Eigen3::Eigen)
+# ------------------------------------------------------------------------------
+# Tests
+# ------------------------------------------------------------------------------
+option(BUILD_TESTS "Build test executables automatically" ON)
+if(BUILD_TESTS)
+  file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/*Test*.c"
+    "${CMAKE_SOURCE_DIR}/*Test*.cpp"
+  )
+  foreach(TEST_FILE ${TEST_SOURCES})
+    get_filename_component(TEST_NAME ${TEST_FILE} NAME_WE)
+    add_executable(${TEST_NAME} ${TEST_FILE})
+    target_link_libraries(${TEST_NAME} PRIVATE fsai_core)
+    if(TARGET SDL2::SDL2)
+      target_link_libraries(${TEST_NAME} PRIVATE SDL2::SDL2)
+    else()
+      target_link_libraries(${TEST_NAME} PRIVATE PkgConfig::SDL2)
+    endif()
+    message(STATUS "Added test: ${TEST_NAME}")
+  endforeach()
 endif()
 
-# SteeringTest
-set(STEERING_TEST_SOURCE "${CMAKE_SOURCE_DIR}/control/test/TestSteering.c")
-add_executable(SteeringTest
-  ${STEERING_TEST_SOURCE}
-  ${RACING_SOURCES}
-  ${PHYSICS_SOURCES}
-)
-target_include_directories(SteeringTest PRIVATE ${PROJ_INCLUDE_DIRS})
-if(UNIX)
-  target_link_libraries(SteeringTest PRIVATE Eigen3::Eigen m)
-else()
-  target_link_libraries(SteeringTest PRIVATE Eigen3::Eigen)
-endif()
-
+# ------------------------------------------------------------------------------
+# Diagnostics
+# ------------------------------------------------------------------------------
+message(STATUS "CMake Generator: ${CMAKE_GENERATOR}")
+message(STATUS "Architecture: ${CMAKE_OSX_ARCHITECTURES}")
+message(STATUS "Eigen include: ${EIGEN3_INCLUDE_DIRS}")
+message(STATUS "Header include dirs count: ${HEADER_DIRS}")

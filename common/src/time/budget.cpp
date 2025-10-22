@@ -1,9 +1,9 @@
 #include "budget.h"
+#include "fsai_clock.h"
 
 #include <stdio.h>
 #include <string.h>
 
-#include "fsai_clock.h"
 
 typedef struct fsai_budget_entry {
     const char* name;

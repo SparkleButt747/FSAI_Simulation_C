@@ -3,7 +3,7 @@
 
 int main() {
     try {
-        VehicleParam params = VehicleParam::loadFromFile("../sim/vehicle/Configs/configDry.yaml");
+        VehicleParam params = VehicleParam::loadFromFile("../../../../configs/vehicle/configDry.yaml");
         DynamicBicycle model(params);
         VehicleState state; // default zeros
         VehicleInput input(0.0,0.0,0.0);
