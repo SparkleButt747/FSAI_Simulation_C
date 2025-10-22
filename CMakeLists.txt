@@ -44,6 +44,7 @@ if(NOT SDL2_FOUND)
   pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 endif()
 find_package(yaml-cpp REQUIRED)
+find_package(OpenGL REQUIRED)
 
 add_definitions(-DSDL_MAIN_HANDLED)
 
@@ -104,8 +105,15 @@ target_link_libraries(fsai_core
   PUBLIC
     Eigen3::Eigen
     yaml-cpp::yaml-cpp
+    OpenGL::GL
     m
 )
+
+if(TARGET SDL2::SDL2)
+  target_link_libraries(fsai_core PUBLIC SDL2::SDL2)
+else()
+  target_link_libraries(fsai_core PUBLIC PkgConfig::SDL2)
+endif()
 
 # ------------------------------------------------------------------------------
 # Main executable

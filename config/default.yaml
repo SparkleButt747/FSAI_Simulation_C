@@ -1,0 +1,10 @@
+providers:
+  vision:
+    name: fake_from_sim
+    camera: sim_stereo
+cameras:
+  sim_stereo:
+    width: 640
+    height: 480
+    noise_stddev: 0.0
+    baseline_m: 0.2
