@@ -1,33 +1,45 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <vector>
-
-#include "io/camera/sim_stereo/shader_program.hpp"
 
 namespace fsai::io::camera::sim_stereo {
 
 struct ConeVertex {
-  float position[3];
-  float color[3];
+  std::array<float, 3> position;
+  std::array<float, 3> color;
 };
 
-// CPU representation of a low resolution cone mesh.  The geometry is static and
-// only the instance transforms change when the vehicle updates the cone list.
 class ConeMesh {
  public:
   ConeMesh();
+  ConeMesh(const ConeMesh&) = delete;
+  ConeMesh& operator=(const ConeMesh&) = delete;
+  ConeMesh(ConeMesh&& other) noexcept;
+  ConeMesh& operator=(ConeMesh&& other) noexcept;
+  ~ConeMesh();
 
-  const std::vector<ConeVertex>& vertices() const { return vertices_; }
-  const std::vector<uint32_t>& indices() const { return indices_; }
-  const std::vector<float>& instanceMatrices() const { return instance_mats_; }
+  void initializeGl();
+  void draw() const;
 
   void setInstances(const std::vector<float>& matrices4x4);
-  size_t instanceCount() const { return instance_mats_.size() / 16; }
+  std::size_t instanceCount() const { return instance_count_; }
 
  private:
+  void uploadGeometry();
+  void destroyGl();
+
   std::vector<ConeVertex> vertices_;
   std::vector<uint32_t> indices_;
   std::vector<float> instance_mats_;
+  std::size_t instance_count_ = 0;
+
+  unsigned int vao_ = 0;
+  unsigned int vbo_ = 0;
+  unsigned int ebo_ = 0;
+  unsigned int instance_vbo_ = 0;
 };
 
 }  // namespace fsai::io::camera::sim_stereo

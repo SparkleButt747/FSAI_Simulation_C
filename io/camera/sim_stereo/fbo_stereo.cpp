@@ -1,137 +1,139 @@
-#include "io/camera/sim_stereo/fbo_stereo.hpp"
+#include "fbo_stereo.hpp"
 
-#include <algorithm>
-#include <cmath>
+#include <stdexcept>
+#include <utility>
+
+#include <glad/glad.h>
 
 namespace fsai::io::camera::sim_stereo {
 
-namespace {
-void drawDisk(EyeBuffer& eye, int cx, int cy, int radius, uint8_t r, uint8_t g,
-              uint8_t b) {
-  if (eye.width <= 0 || eye.height <= 0) {
-    return;
+FboStereo::FboStereo() = default;
+
+FboStereo::FboStereo(FboStereo&& other) noexcept { *this = std::move(other); }
+
+FboStereo& FboStereo::operator=(FboStereo&& other) noexcept {
+  if (this != &other) {
+    destroyEye(left_);
+    destroyEye(right_);
+    left_ = other.left_;
+    right_ = other.right_;
+    width_ = other.width_;
+    height_ = other.height_;
+    other.left_ = {};
+    other.right_ = {};
+    other.width_ = other.height_ = 0;
   }
-  int r2 = radius * radius;
-  for (int y = cy - radius; y <= cy + radius; ++y) {
-    if (y < 0 || y >= eye.height) continue;
-    for (int x = cx - radius; x <= cx + radius; ++x) {
-      if (x < 0 || x >= eye.width) continue;
-      int dx = x - cx;
-      int dy = y - cy;
-      if (dx * dx + dy * dy > r2) continue;
-      size_t idx = static_cast<size_t>(y) * static_cast<size_t>(eye.width) * 4 +
-                   static_cast<size_t>(x) * 4;
-      eye.rgba[idx + 0] = r;
-      eye.rgba[idx + 1] = g;
-      eye.rgba[idx + 2] = b;
-      eye.rgba[idx + 3] = 255;
-    }
+  return *this;
+}
+
+FboStereo::~FboStereo() {
+  destroyEye(left_);
+  destroyEye(right_);
+}
+
+void FboStereo::destroyEye(EyeTarget& eye) {
+  if (eye.depth != 0) {
+    glDeleteRenderbuffers(1, &eye.depth);
+    eye.depth = 0;
+  }
+  if (eye.color != 0) {
+    glDeleteTextures(1, &eye.color);
+    eye.color = 0;
+  }
+  if (eye.fbo != 0) {
+    glDeleteFramebuffers(1, &eye.fbo);
+    eye.fbo = 0;
   }
 }
-}  // namespace
 
-FboStereo::FboStereo() { resize(640, 480); }
+void FboStereo::ensureEye(EyeTarget& eye) {
+  if (eye.fbo != 0 && eye.color != 0 && eye.depth != 0) {
+    return;
+  }
+
+  glGenFramebuffers(1, &eye.fbo);
+  glBindFramebuffer(GL_FRAMEBUFFER, eye.fbo);
+
+  glGenTextures(1, &eye.color);
+  glBindTexture(GL_TEXTURE_2D, eye.color);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width_, height_, 0, GL_RGBA,
+               GL_UNSIGNED_BYTE, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                         eye.color, 0);
+
+  glGenRenderbuffers(1, &eye.depth);
+  glBindRenderbuffer(GL_RENDERBUFFER, eye.depth);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width_, height_);
+  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                            GL_RENDERBUFFER, eye.depth);
+
+  GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+  if (status != GL_FRAMEBUFFER_COMPLETE) {
+    throw std::runtime_error("Failed to create stereo framebuffer");
+  }
+
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
 
 void FboStereo::resize(int width, int height) {
-  auto ensure = [&](EyeBuffer& eye) {
-    if (eye.width != width || eye.height != height) {
-      eye.width = width;
-      eye.height = height;
-      eye.rgba.assign(static_cast<size_t>(width) * static_cast<size_t>(height) *
-                          4,
-                      0);
-    }
-  };
-  ensure(left_);
-  ensure(right_);
-}
-
-void FboStereo::clear(EyeBuffer& eye, uint8_t r, uint8_t g, uint8_t b) {
-  if (eye.width <= 0 || eye.height <= 0) {
+  if (width == width_ && height == height_) {
     return;
   }
-  for (int y = 0; y < eye.height; ++y) {
-    float t = static_cast<float>(y) / static_cast<float>(std::max(1, eye.height - 1));
-    uint8_t rr = static_cast<uint8_t>(std::clamp(r * (1.0f - 0.3f * t), 0.0f, 255.0f));
-    uint8_t gg = static_cast<uint8_t>(std::clamp(g * (1.0f - 0.3f * t), 0.0f, 255.0f));
-    uint8_t bb = static_cast<uint8_t>(std::clamp(b * (1.0f - 0.3f * t), 0.0f, 255.0f));
-    for (int x = 0; x < eye.width; ++x) {
-      size_t idx = static_cast<size_t>(y) * static_cast<size_t>(eye.width) * 4 +
-                   static_cast<size_t>(x) * 4;
-      eye.rgba[idx + 0] = rr;
-      eye.rgba[idx + 1] = gg;
-      eye.rgba[idx + 2] = bb;
-      eye.rgba[idx + 3] = 255;
-    }
+  width_ = width;
+  height_ = height;
+
+  destroyEye(left_);
+  destroyEye(right_);
+
+  if (width_ > 0 && height_ > 0) {
+    ensureEye(left_);
+    ensureEye(right_);
   }
 }
 
-std::array<float, 4> FboStereo::mul(const std::array<float, 16>& m,
-                                    const std::array<float, 4>& v) {
-  std::array<float, 4> out{};
-  for (int row = 0; row < 4; ++row) {
-    out[row] = m[row * 4 + 0] * v[0] + m[row * 4 + 1] * v[1] +
-               m[row * 4 + 2] * v[2] + m[row * 4 + 3] * v[3];
-  }
-  return out;
+void FboStereo::renderEye(EyeTarget& eye, const std::array<float, 16>& view,
+                          const std::array<float, 16>& proj,
+                          ShaderProgram& cone_shader,
+                          ShaderProgram& ground_shader, const ConeMesh& cones,
+                          const GroundPlane& ground) {
+  glBindFramebuffer(GL_FRAMEBUFFER, eye.fbo);
+  glViewport(0, 0, width_, height_);
+  glEnable(GL_DEPTH_TEST);
+  glClearColor(0.55f, 0.65f, 0.75f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+  ground_shader.use();
+  ground_shader.setMat4("u_view", view);
+  ground_shader.setMat4("u_proj", proj);
+  ground.draw();
+
+  cone_shader.use();
+  cone_shader.setMat4("u_view", view);
+  cone_shader.setMat4("u_proj", proj);
+  cones.draw();
 }
 
-void FboStereo::renderScene(const ConeMesh& cones, const GroundPlane& /*ground*/,
+void FboStereo::renderScene(const ConeMesh& cones, const GroundPlane& ground,
+                            ShaderProgram& cone_shader,
+                            ShaderProgram& ground_shader,
                             const std::array<float, 16>& view_left,
                             const std::array<float, 16>& proj_left,
                             const std::array<float, 16>& view_right,
                             const std::array<float, 16>& proj_right) {
-  clear(left_, 180, 200, 220);
-  clear(right_, 180, 200, 220);
-
-  const auto& instances = cones.instanceMatrices();
-  const size_t num_instances = cones.instanceCount();
-
-  auto drawWith = [&](EyeBuffer& eye, const std::array<float, 16>& view,
-                      const std::array<float, 16>& proj) {
-    for (size_t i = 0; i < num_instances; ++i) {
-      std::array<float, 16> model{};
-      for (int j = 0; j < 16; ++j) {
-        model[j] = instances[i * 16 + j];
-      }
-      auto p = mul(model, {0.0f, 0.0f, 0.0f, 1.0f});
-      auto v = mul(view, {p[0], p[1], p[2], 1.0f});
-      auto clip = mul(proj, {v[0], v[1], v[2], 1.0f});
-      if (clip[3] <= 0.0f) {
-        continue;
-      }
-      float invw = 1.0f / clip[3];
-      float ndc_x = clip[0] * invw;
-      float ndc_y = clip[1] * invw;
-      if (ndc_x < -1.2f || ndc_x > 1.2f || ndc_y < -1.2f || ndc_y > 1.2f) {
-        continue;
-      }
-      int px = static_cast<int>((ndc_x * 0.5f + 0.5f) * static_cast<float>(eye.width));
-      int py = static_cast<int>((-ndc_y * 0.5f + 0.5f) * static_cast<float>(eye.height));
-      drawDisk(eye, px, py, 6, 255, 180, 60);
-    }
-  };
-
-  drawWith(left_, view_left, proj_left);
-  drawWith(right_, view_right, proj_right);
-}
-
-void FboStereo::applyNoise(float stddev, std::mt19937& rng) {
-  if (stddev <= 0.0f) {
+  if (width_ <= 0 || height_ <= 0) {
     return;
   }
-  std::normal_distribution<float> dist(0.0f, stddev);
-  auto apply = [&](EyeBuffer& eye) {
-    for (size_t i = 0; i + 3 < eye.rgba.size(); i += 4) {
-      for (int c = 0; c < 3; ++c) {
-        float val = static_cast<float>(eye.rgba[i + c]) + dist(rng);
-        val = std::clamp(val, 0.0f, 255.0f);
-        eye.rgba[i + c] = static_cast<uint8_t>(val);
-      }
-    }
-  };
-  apply(left_);
-  apply(right_);
+  ensureEye(left_);
+  ensureEye(right_);
+
+  renderEye(left_, view_left, proj_left, cone_shader, ground_shader, cones,
+            ground);
+  renderEye(right_, view_right, proj_right, cone_shader, ground_shader, cones,
+            ground);
+
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 }  // namespace fsai::io::camera::sim_stereo

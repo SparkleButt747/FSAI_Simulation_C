@@ -1,10 +1,9 @@
-#include "io/camera/sim_stereo/gl_context_sdl.hpp"
+#include "gl_context_sdl.hpp"
 
 #include <stdexcept>
 #include <utility>
 
 namespace fsai::io::camera::sim_stereo {
-
 namespace {
 void setGlAttributes() {
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -48,10 +47,7 @@ GlContextSdl::GlContextSdl() {
   SDL_GL_SetSwapInterval(0);
 }
 
-GlContextSdl::GlContextSdl(GlContextSdl&& other) noexcept {
-  std::swap(window_, other.window_);
-  std::swap(context_, other.context_);
-}
+GlContextSdl::GlContextSdl(GlContextSdl&& other) noexcept { *this = std::move(other); }
 
 GlContextSdl& GlContextSdl::operator=(GlContextSdl&& other) noexcept {
   if (this != &other) {

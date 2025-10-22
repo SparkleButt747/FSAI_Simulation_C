@@ -1,37 +1,38 @@
 #pragma once
 
+#include <array>
 #include <string>
-#include <vector>
+#include <unordered_map>
 
 namespace fsai::io::camera::sim_stereo {
 
-// Lightweight shader wrapper that stores GLSL sources.  In the headless
-// renderer we do not depend on a specific GL loader, so the compilation step is
-// deferred until the runtime binds a context.  For the CPU based fallback used
-// in the tests we simply keep the sources so higher level systems can be aware
-// of what would have been uploaded.
 class ShaderProgram {
  public:
   ShaderProgram() = default;
   ShaderProgram(std::string vertex_src, std::string fragment_src);
+  ShaderProgram(const ShaderProgram&) = delete;
+  ShaderProgram& operator=(const ShaderProgram&) = delete;
+  ShaderProgram(ShaderProgram&& other) noexcept;
+  ShaderProgram& operator=(ShaderProgram&& other) noexcept;
+  ~ShaderProgram();
 
   void setVertexSource(const std::string& src);
   void setFragmentSource(const std::string& src);
 
-  const std::string& vertexSource() const { return vertex_src_; }
-  const std::string& fragmentSource() const { return fragment_src_; }
-
-  // Pretend to compile the program.  In a full OpenGL build this would create
-  // shader objects and link them.  Returning true signals that the sources are
-  // non-empty and could be uploaded.
   bool compile();
+  void use() const;
+  void setMat4(const char* name, const std::array<float, 16>& matrix) const;
 
-  bool compiled() const { return compiled_; }
+  unsigned int id() const { return program_; }
 
  private:
+  int uniformLocation(const char* name) const;
+  void destroy();
+
   std::string vertex_src_;
   std::string fragment_src_;
-  bool compiled_ = false;
+  unsigned int program_ = 0;
+  mutable std::unordered_map<std::string, int> uniform_cache_;
 };
 
 ShaderProgram buildDefaultConeShader();

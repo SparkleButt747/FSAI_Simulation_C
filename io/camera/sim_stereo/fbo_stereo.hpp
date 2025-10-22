@@ -1,44 +1,53 @@
 #pragma once
 
 #include <array>
-#include <cstdint>
-#include <random>
-#include <vector>
 
-#include "io/camera/sim_stereo/cone_mesh.hpp"
-#include "io/camera/sim_stereo/ground_plane.hpp"
-#include "io/camera/sim_stereo/shader_program.hpp"
+#include "cone_mesh.hpp"
+#include "ground_plane.hpp"
+#include "shader_program.hpp"
 
 namespace fsai::io::camera::sim_stereo {
-
-struct EyeBuffer {
-  int width = 0;
-  int height = 0;
-  std::vector<uint8_t> rgba;
-};
 
 class FboStereo {
  public:
   FboStereo();
+  FboStereo(const FboStereo&) = delete;
+  FboStereo& operator=(const FboStereo&) = delete;
+  FboStereo(FboStereo&& other) noexcept;
+  FboStereo& operator=(FboStereo&& other) noexcept;
+  ~FboStereo();
 
   void resize(int width, int height);
   void renderScene(const ConeMesh& cones, const GroundPlane& ground,
+                   ShaderProgram& cone_shader, ShaderProgram& ground_shader,
                    const std::array<float, 16>& view_left,
                    const std::array<float, 16>& proj_left,
                    const std::array<float, 16>& view_right,
                    const std::array<float, 16>& proj_right);
-  void applyNoise(float stddev, std::mt19937& rng);
 
-  const EyeBuffer& left() const { return left_; }
-  const EyeBuffer& right() const { return right_; }
+  unsigned int leftFbo() const { return left_.fbo; }
+  unsigned int rightFbo() const { return right_.fbo; }
+  int width() const { return width_; }
+  int height() const { return height_; }
 
  private:
-  void clear(EyeBuffer& eye, uint8_t r, uint8_t g, uint8_t b);
-  static std::array<float, 4> mul(const std::array<float, 16>& m,
-                                  const std::array<float, 4>& v);
+  struct EyeTarget {
+    unsigned int fbo = 0;
+    unsigned int color = 0;
+    unsigned int depth = 0;
+  };
 
-  EyeBuffer left_;
-  EyeBuffer right_;
+  void ensureEye(EyeTarget& eye);
+  void destroyEye(EyeTarget& eye);
+  void renderEye(EyeTarget& eye, const std::array<float, 16>& view,
+                 const std::array<float, 16>& proj, ShaderProgram& cone_shader,
+                 ShaderProgram& ground_shader, const ConeMesh& cones,
+                 const GroundPlane& ground);
+
+  EyeTarget left_;
+  EyeTarget right_;
+  int width_ = 0;
+  int height_ = 0;
 };
 
 }  // namespace fsai::io::camera::sim_stereo

@@ -1,35 +1,39 @@
-#include "io/camera/sim_stereo/sim_stereo_source.hpp"
+#include "sim_stereo_source.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <random>
+#include <stdexcept>
+
+#include <Eigen/Dense>
+#include <SDL.h>
+#include <glad/glad.h>
 
 namespace fsai::io::camera::sim_stereo {
-
 namespace {
-std::array<float, 16> identityMatrix() {
-  std::array<float, 16> m{};
-  m[0] = m[5] = m[10] = m[15] = 1.0f;
-  return m;
+std::array<float, 16> eigenToArray(const Eigen::Matrix4f& m) {
+  std::array<float, 16> out{};
+  std::copy(m.data(), m.data() + 16, out.begin());
+  return out;
 }
-
-std::array<float, 16> translationMatrix(float x, float y, float z) {
-  auto m = identityMatrix();
-  m[3] = x;
-  m[7] = y;
-  m[11] = z;
-  return m;
 }
-
-}  // namespace
 
 SimStereoSource::SimStereoSource(const SimStereoConfig& config)
-    : config_(config),
-      cone_shader_(buildDefaultConeShader()),
-      ground_shader_(buildDefaultGroundShader()) {
+    : config_(config) {
   rng_.seed(std::random_device{}());
+  ensureGl();
+
+  cone_shader_ = buildDefaultConeShader();
+  ground_shader_ = buildDefaultGroundShader();
+
+  cone_mesh_.initializeGl();
+  ground_.initializeGl();
+
   updateProjection();
   updateViews();
+
+  fbo_.resize(config_.width, config_.height);
 
   stereo_frame_.left.fmt = FSAI_PIXEL_RGB888;
   stereo_frame_.right.fmt = FSAI_PIXEL_RGB888;
@@ -39,6 +43,41 @@ SimStereoSource::SimStereoSource(const SimStereoConfig& config)
   stereo_frame_.right.T_bw = config_.right_extrinsics;
 }
 
+void SimStereoSource::ensureGl() {
+  gl_context_.makeCurrent();
+  static bool glad_loaded = false;
+  if (!glad_loaded) {
+    if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(SDL_GL_GetProcAddress))) {
+      throw std::runtime_error("Failed to load OpenGL functions");
+    }
+    glad_loaded = true;
+  }
+}
+
+void SimStereoSource::setCones(
+    const std::vector<std::array<float, 3>>& cones_world) {
+  gl_context_.makeCurrent();
+  std::vector<float> matrices;
+  matrices.reserve(cones_world.size() * 16);
+  for (const auto& p : cones_world) {
+    Eigen::Matrix4f model = Eigen::Matrix4f::Identity();
+    model(0, 3) = p[0];
+    model(1, 3) = p[1];
+    model(2, 3) = p[2];
+    auto arr = eigenToArray(model);
+    matrices.insert(matrices.end(), arr.begin(), arr.end());
+  }
+  cone_mesh_.setInstances(matrices);
+}
+
+void SimStereoSource::setBodyPose(float x, float y, float z, float yaw) {
+  body_position_[0] = x;
+  body_position_[1] = y;
+  body_position_[2] = z;
+  body_yaw_ = yaw;
+  updateViews();
+}
+
 void SimStereoSource::updateProjection() {
   proj_left_ = projectionFromIntrinsics(config_.width, config_.height,
                                         config_.near_plane, config_.far_plane,
@@ -46,113 +85,88 @@ void SimStereoSource::updateProjection() {
   proj_right_ = proj_left_;
 }
 
-void SimStereoSource::updateViews() {
-  view_left_ = cameraMatrixFromExtrinsics(config_.left_extrinsics);
-  view_right_ = cameraMatrixFromExtrinsics(config_.right_extrinsics);
+void SimStereoSource::updateViewForEye(const FsaiCameraExtrinsics& extr,
+                                       std::array<float, 16>& out_view) {
+  Eigen::Matrix3f R_bc;
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      R_bc(r, c) = extr.R[r * 3 + c];
+    }
+  }
+
+  Eigen::Matrix3f R_wb =
+      Eigen::AngleAxisf(body_yaw_, Eigen::Vector3f::UnitY()).toRotationMatrix();
+  Eigen::Matrix3f R_wc = R_wb * R_bc;
+
+  Eigen::Vector3f t_bc(extr.t[0], extr.t[1], extr.t[2]);
+  Eigen::Vector3f t_wb(body_position_[0], body_position_[1], body_position_[2]);
+  Eigen::Vector3f t_wc = R_wb * t_bc + t_wb;
+
+  Eigen::Matrix4f world_from_camera = Eigen::Matrix4f::Identity();
+  world_from_camera.block<3, 3>(0, 0) = R_wc;
+  world_from_camera.block<3, 1>(0, 3) = t_wc;
+
+  Eigen::Matrix4f view = world_from_camera.inverse();
+  out_view = eigenToArray(view);
 }
 
-std::array<float, 16> SimStereoSource::cameraMatrixFromExtrinsics(
-    const FsaiCameraExtrinsics& extr) {
-  std::array<float, 9> R{};
-  for (int i = 0; i < 9; ++i) {
-    R[i] = extr.R[i];
-  }
-  // R_bc is row-major rotation body <- camera.  For a view matrix we need
-  // camera <- body, which is the transpose.
-  std::array<float, 9> R_cb{};
-  R_cb[0] = R[0];
-  R_cb[1] = R[3];
-  R_cb[2] = R[6];
-  R_cb[3] = R[1];
-  R_cb[4] = R[4];
-  R_cb[5] = R[7];
-  R_cb[6] = R[2];
-  R_cb[7] = R[5];
-  R_cb[8] = R[8];
-
-  std::array<float, 16> view = identityMatrix();
-  view[0] = R_cb[0];
-  view[1] = R_cb[1];
-  view[2] = R_cb[2];
-  view[4] = R_cb[3];
-  view[5] = R_cb[4];
-  view[6] = R_cb[5];
-  view[8] = R_cb[6];
-  view[9] = R_cb[7];
-  view[10] = R_cb[8];
-
-  float tx = extr.t[0];
-  float ty = extr.t[1];
-  float tz = extr.t[2];
-  view[3] = -(R_cb[0] * tx + R_cb[1] * ty + R_cb[2] * tz);
-  view[7] = -(R_cb[3] * tx + R_cb[4] * ty + R_cb[5] * tz);
-  view[11] = -(R_cb[6] * tx + R_cb[7] * ty + R_cb[8] * tz);
-
-  return view;
+void SimStereoSource::updateViews() {
+  updateViewForEye(config_.left_extrinsics, view_left_);
+  updateViewForEye(config_.right_extrinsics, view_right_);
 }
 
 std::array<float, 16> SimStereoSource::projectionFromIntrinsics(
     int width, int height, float near_plane, float far_plane,
     const FsaiCameraIntrinsics& K) {
-  std::array<float, 16> proj{};
-  proj[15] = 0.0f;
+  float aspect = static_cast<float>(width) / static_cast<float>(height);
+  float fy = K.fy != 0.0f ? K.fy : static_cast<float>(height);
+  float fovy = 2.0f * std::atan(static_cast<float>(height) / (2.0f * fy));
+  float f = 1.0f / std::tan(fovy / 2.0f);
 
-  float w = static_cast<float>(width);
-  float h = static_cast<float>(height);
+  Eigen::Matrix4f proj = Eigen::Matrix4f::Zero();
+  proj(0, 0) = f / aspect;
+  proj(1, 1) = f;
+  proj(2, 2) = (far_plane + near_plane) / (near_plane - far_plane);
+  proj(2, 3) = (2.0f * far_plane * near_plane) / (near_plane - far_plane);
+  proj(3, 2) = -1.0f;
 
-  proj[0] = 2.0f * K.fx / w;
-  proj[1] = 0.0f;
-  proj[2] = 2.0f * K.cx / w - 1.0f;
-  proj[3] = 0.0f;
+  proj(0, 2) = 2.0f * (K.cx / static_cast<float>(width)) - 1.0f;
+  proj(1, 2) = 1.0f - 2.0f * (K.cy / static_cast<float>(height));
 
-  proj[4] = 0.0f;
-  proj[5] = -2.0f * K.fy / h;
-  proj[6] = 1.0f - 2.0f * K.cy / h;
-  proj[7] = 0.0f;
-
-  proj[8] = 0.0f;
-  proj[9] = 0.0f;
-  if (std::abs(far_plane - near_plane) > 1e-5f) {
-    proj[10] = (far_plane + near_plane) / (near_plane - far_plane);
-    proj[11] = (2.0f * far_plane * near_plane) / (near_plane - far_plane);
-  } else {
-    proj[10] = 1.0f;
-    proj[11] = 0.0f;
-  }
-
-  proj[12] = 0.0f;
-  proj[13] = 0.0f;
-  proj[14] = 1.0f;
-  proj[15] = 0.0f;
-
-  return proj;
+  return eigenToArray(proj);
 }
 
-void SimStereoSource::setCones(
-    const std::vector<std::array<float, 3>>& cones_world) {
-  std::vector<float> matrices;
-  matrices.reserve(cones_world.size() * 16);
-  for (const auto& p : cones_world) {
-    auto model = translationMatrix(p[0], p[1], p[2]);
-    matrices.insert(matrices.end(), model.begin(), model.end());
+void SimStereoSource::applyNoise(std::vector<uint8_t>& rgba) {
+  if (config_.noise_stddev <= 0.0f) {
+    return;
   }
-  cone_mesh_.setInstances(matrices);
+  std::normal_distribution<float> dist(0.0f, config_.noise_stddev);
+  for (std::size_t i = 0; i + 3 < rgba.size(); i += 4) {
+    for (int c = 0; c < 3; ++c) {
+      float value = static_cast<float>(rgba[i + c]) + dist(rng_);
+      value = std::clamp(value, 0.0f, 255.0f);
+      rgba[i + c] = static_cast<uint8_t>(value);
+    }
+  }
 }
 
 const FsaiStereoFrame& SimStereoSource::capture(uint64_t timestamp_ns) {
+  ensureGl();
   fbo_.resize(config_.width, config_.height);
-  fbo_.renderScene(cone_mesh_, ground_, view_left_, proj_left_, view_right_,
-                   proj_right_);
-  fbo_.applyNoise(config_.noise_stddev, rng_);
+  fbo_.renderScene(cone_mesh_, ground_, cone_shader_, ground_shader_, view_left_,
+                   proj_left_, view_right_, proj_right_);
 
-  pbo_left_.read(fbo_.left(), left_rgba_);
-  pbo_right_.read(fbo_.right(), right_rgba_);
+  pbo_left_.read(fbo_.leftFbo(), config_.width, config_.height, left_rgba_);
+  pbo_right_.read(fbo_.rightFbo(), config_.width, config_.height, right_rgba_);
 
-  size_t pixel_count = static_cast<size_t>(config_.width) *
-                       static_cast<size_t>(config_.height);
+  applyNoise(left_rgba_);
+  applyNoise(right_rgba_);
+
+  std::size_t pixel_count = static_cast<std::size_t>(config_.width) *
+                            static_cast<std::size_t>(config_.height);
   left_pixels_.resize(pixel_count * 3);
   right_pixels_.resize(pixel_count * 3);
-  for (size_t i = 0; i < pixel_count; ++i) {
+  for (std::size_t i = 0; i < pixel_count; ++i) {
     left_pixels_[i * 3 + 0] = left_rgba_[i * 4 + 0];
     left_pixels_[i * 3 + 1] = left_rgba_[i * 4 + 1];
     left_pixels_[i * 3 + 2] = left_rgba_[i * 4 + 2];

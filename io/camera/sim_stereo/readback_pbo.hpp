@@ -1,23 +1,27 @@
 #pragma once
 
+#include <cstddef>
 #include <vector>
-
-#include "io/camera/sim_stereo/fbo_stereo.hpp"
+#include <cstdint>
 
 namespace fsai::io::camera::sim_stereo {
 
-// CPU implementation of a Pixel Buffer Object helper.  The class mimics the
-// interface of an asynchronous readback but simply copies into an internal
-// staging buffer before exposing the data to the caller.
 class ReadbackPbo {
  public:
-  ReadbackPbo() = default;
+  ReadbackPbo();
+  ReadbackPbo(const ReadbackPbo&) = delete;
+  ReadbackPbo& operator=(const ReadbackPbo&) = delete;
+  ReadbackPbo(ReadbackPbo&& other) noexcept;
+  ReadbackPbo& operator=(ReadbackPbo&& other) noexcept;
+  ~ReadbackPbo();
 
-  void resize(size_t bytes);
-  void read(const EyeBuffer& eye, std::vector<uint8_t>& out);
+  void read(unsigned int fbo, int width, int height, std::vector<uint8_t>& out);
 
  private:
-  std::vector<uint8_t> staging_;
+  void ensureCapacity(std::size_t bytes);
+
+  unsigned int pbo_ = 0;
+  std::size_t capacity_ = 0;
 };
 
 }  // namespace fsai::io::camera::sim_stereo
