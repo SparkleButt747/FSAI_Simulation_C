@@ -16,10 +16,14 @@ GroundPlane::GroundPlane() {
   vertices_.reserve(4);
   indices_.reserve(6);
 
-  vertices_.push_back(makeGroundVertex(-20.0f, 0.0f, -20.0f, 0.25f, 0.25f, 0.25f));
-  vertices_.push_back(makeGroundVertex(20.0f, 0.0f, -20.0f, 0.3f, 0.3f, 0.3f));
-  vertices_.push_back(makeGroundVertex(20.0f, 0.0f, 20.0f, 0.35f, 0.35f, 0.35f));
-  vertices_.push_back(makeGroundVertex(-20.0f, 0.0f, 20.0f, 0.3f, 0.3f, 0.3f));
+  constexpr float kExtent = 300.0f;
+  vertices_.push_back(
+      makeGroundVertex(-kExtent, 0.0f, -kExtent, 0.25f, 0.25f, 0.25f));
+  vertices_.push_back(
+      makeGroundVertex(kExtent, 0.0f, -kExtent, 0.3f, 0.3f, 0.3f));
+  vertices_.push_back(makeGroundVertex(kExtent, 0.0f, kExtent, 0.35f, 0.35f, 0.35f));
+  vertices_.push_back(
+      makeGroundVertex(-kExtent, 0.0f, kExtent, 0.3f, 0.3f, 0.3f));
 
   indices_.insert(indices_.end(), {0, 1, 2, 0, 2, 3});
 }

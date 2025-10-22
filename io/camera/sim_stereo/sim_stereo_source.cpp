@@ -162,18 +162,29 @@ const FsaiStereoFrame& SimStereoSource::capture(uint64_t timestamp_ns) {
   applyNoise(left_rgba_);
   applyNoise(right_rgba_);
 
-  std::size_t pixel_count = static_cast<std::size_t>(config_.width) *
-                            static_cast<std::size_t>(config_.height);
+  const int width = config_.width;
+  const int height = config_.height;
+  const std::size_t pixel_count = static_cast<std::size_t>(width) *
+                                  static_cast<std::size_t>(height);
   left_pixels_.resize(pixel_count * 3);
   right_pixels_.resize(pixel_count * 3);
-  for (std::size_t i = 0; i < pixel_count; ++i) {
-    left_pixels_[i * 3 + 0] = left_rgba_[i * 4 + 0];
-    left_pixels_[i * 3 + 1] = left_rgba_[i * 4 + 1];
-    left_pixels_[i * 3 + 2] = left_rgba_[i * 4 + 2];
+  for (int y = 0; y < height; ++y) {
+    const int src_y = height - 1 - y;
+    for (int x = 0; x < width; ++x) {
+      const std::size_t src_idx =
+          (static_cast<std::size_t>(src_y) * width + static_cast<std::size_t>(x)) *
+          4u;
+      const std::size_t dst_idx =
+          (static_cast<std::size_t>(y) * width + static_cast<std::size_t>(x)) * 3u;
 
-    right_pixels_[i * 3 + 0] = right_rgba_[i * 4 + 0];
-    right_pixels_[i * 3 + 1] = right_rgba_[i * 4 + 1];
-    right_pixels_[i * 3 + 2] = right_rgba_[i * 4 + 2];
+      left_pixels_[dst_idx + 0] = left_rgba_[src_idx + 0];
+      left_pixels_[dst_idx + 1] = left_rgba_[src_idx + 1];
+      left_pixels_[dst_idx + 2] = left_rgba_[src_idx + 2];
+
+      right_pixels_[dst_idx + 0] = right_rgba_[src_idx + 0];
+      right_pixels_[dst_idx + 1] = right_rgba_[src_idx + 1];
+      right_pixels_[dst_idx + 2] = right_rgba_[src_idx + 2];
+    }
   }
 
   stereo_frame_.t_sync_ns = timestamp_ns;
