@@ -44,6 +44,7 @@ if(NOT SDL2_FOUND)
   pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 endif()
 find_package(yaml-cpp REQUIRED)
+find_package(OpenGL REQUIRED)
 
 add_definitions(-DSDL_MAIN_HANDLED)
 
@@ -66,6 +67,7 @@ foreach(h ${ALL_HEADERS})
     list(APPEND HEADER_DIRS "${hdir}")
   endif()
 endforeach()
+list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
 # ------------------------------------------------------------------------------
@@ -81,6 +83,7 @@ list(FILTER CORE_CPP_SOURCES EXCLUDE REGEX ".*/main/.*")
 # drop tests from core
 list(FILTER CORE_C_SOURCES   EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(c)$")
 list(FILTER CORE_CPP_SOURCES EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(cpp)$")
+list(FILTER CORE_CPP_SOURCES EXCLUDE REGEX ".*/control/BoundaryEstimation.cpp$")
 
 # main sources = everything in main/
 file(GLOB_RECURSE MAIN_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/main/*.c" "${CMAKE_SOURCE_DIR}/main/*.cpp")
@@ -104,8 +107,15 @@ target_link_libraries(fsai_core
   PUBLIC
     Eigen3::Eigen
     yaml-cpp::yaml-cpp
+    OpenGL::GL
     m
 )
+
+if(TARGET SDL2::SDL2)
+  target_link_libraries(fsai_core PUBLIC SDL2::SDL2)
+else()
+  target_link_libraries(fsai_core PUBLIC PkgConfig::SDL2)
+endif()
 
 # ------------------------------------------------------------------------------
 # Main executable
