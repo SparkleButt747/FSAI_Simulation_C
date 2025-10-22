@@ -4,4 +4,4 @@
 
 cmake ..
 make clean
-make
+make -j
