@@ -94,8 +94,14 @@ void SimStereoSource::updateViewForEye(const FsaiCameraExtrinsics& extr,
     }
   }
 
+  // The legacy 2D simulation defines positive yaw as a clockwise rotation when
+  // looking down onto the track (screen-space +y points downward). The OpenGL
+  // renderer uses a conventional right-handed coordinate system where positive
+  // rotations about the world-up axis (Y) are counter-clockwise. Negate the yaw
+  // when forming the body orientation so both renderers turn in the same
+  // direction.
   Eigen::Matrix3f R_wb =
-      Eigen::AngleAxisf(body_yaw_, Eigen::Vector3f::UnitY()).toRotationMatrix();
+      Eigen::AngleAxisf(-body_yaw_, Eigen::Vector3f::UnitY()).toRotationMatrix();
   Eigen::Matrix3f R_wc = R_wb * R_bc;
 
   Eigen::Vector3f t_bc(extr.t[0], extr.t[1], extr.t[2]);
