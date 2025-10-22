@@ -17,6 +17,28 @@ std::array<float, 16> eigenToArray(const Eigen::Matrix4f& m) {
   std::copy(m.data(), m.data() + 16, out.begin());
   return out;
 }
+
+Eigen::Matrix3f rotationFromExtr(const FsaiCameraExtrinsics& extr) {
+  return Eigen::Map<const Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(extr.R);
+}
+
+void storeRotation(const Eigen::Matrix3f& R, FsaiCameraExtrinsics& extr) {
+  Eigen::Map<Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(extr.R) = R;
+}
+
+// The 2D simulator treats +X as forward on the track, whereas the OpenGL camera
+// convention looks down its -Z axis. Rotate the camera frame by -90 degrees
+// about the up axis so that a zero yaw points down-track in both renderers.
+FsaiCameraExtrinsics applyBodyAlignment(const FsaiCameraExtrinsics& extr) {
+  static const Eigen::Matrix3f kCameraAlignment =
+      Eigen::AngleAxisf(-1.5707963267948966f, Eigen::Vector3f::UnitY())
+          .toRotationMatrix();
+
+  FsaiCameraExtrinsics corrected = extr;
+  const Eigen::Matrix3f R_bc = rotationFromExtr(extr) * kCameraAlignment;
+  storeRotation(R_bc, corrected);
+  return corrected;
+}
 }
 
 SimStereoSource::SimStereoSource(const SimStereoConfig& config)
@@ -29,6 +51,9 @@ SimStereoSource::SimStereoSource(const SimStereoConfig& config)
 
   cone_mesh_.initializeGl();
   ground_.initializeGl();
+
+  config_.left_extrinsics = applyBodyAlignment(config_.left_extrinsics);
+  config_.right_extrinsics = applyBodyAlignment(config_.right_extrinsics);
 
   updateProjection();
   updateViews();
@@ -87,12 +112,7 @@ void SimStereoSource::updateProjection() {
 
 void SimStereoSource::updateViewForEye(const FsaiCameraExtrinsics& extr,
                                        std::array<float, 16>& out_view) {
-  Eigen::Matrix3f R_bc;
-  for (int r = 0; r < 3; ++r) {
-    for (int c = 0; c < 3; ++c) {
-      R_bc(r, c) = extr.R[r * 3 + c];
-    }
-  }
+  const Eigen::Matrix3f R_bc = rotationFromExtr(extr);
 
   // The legacy 2D simulation defines positive yaw as a clockwise rotation when
   // looking down onto the track (screen-space +y points downward). The OpenGL
