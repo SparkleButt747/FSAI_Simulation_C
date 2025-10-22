@@ -28,6 +28,25 @@ PathConfig::PathConfig() {
     calculateResolutionAndLength();
 }
 
+PathConfig::PathConfig(int spacing) {
+    seed = random_double();
+    minCornerRadius = 3.0;
+    maxFrequency = 6;
+    amplitude = 1.0 / 3.0;
+    checkSelfIntersection = true;
+    startingAmplitude = 0.4;
+    relativeAccuracy = 0.005;
+    margin = 0.0;
+    startingStraightLength = 6.0;
+    startingStraightDownsample = 2;
+    minConeSpacing = spacing;
+    maxConeSpacing = spacing;
+    trackWidth = 5.0;
+    coneSpacingBias = 1.0;
+    startingConeSpacing = 2.5;
+    calculateResolutionAndLength();
+}
+
 void PathConfig::calculateResolutionAndLength() {
     double t = amplitude * maxFrequency;
     double lengthCalc = ((0.6387 * t + 43.86) * t + 123.1) * t + 35.9;

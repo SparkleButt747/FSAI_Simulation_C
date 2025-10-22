@@ -22,6 +22,8 @@ public:
 
     PathConfig();
 
+    PathConfig(int spacing);
+
     void calculateResolutionAndLength();
 };
 
