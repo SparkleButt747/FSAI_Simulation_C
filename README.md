@@ -45,3 +45,5 @@ Make sure you run an executable from within the build folder so that `configDry.
 ```
 
 or use the `build.sh`/`rebuild.sh` scripts.
+
+Note on inlcuding headers, just use the file name and ensure there are no duplicate file names, cmake will grab the correct file...
