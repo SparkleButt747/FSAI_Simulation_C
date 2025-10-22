@@ -69,12 +69,12 @@ set(PROJ_INCLUDE_DIRS
   "${CMAKE_SOURCE_DIR}"
   "${CMAKE_SOURCE_DIR}/tools/Graphics"
   "${CMAKE_SOURCE_DIR}/tools"
-  "${CMAKE_SOURCE_DIR}/MainController"
+  "${CMAKE_SOURCE_DIR}/main"
   "${CMAKE_SOURCE_DIR}/sim"
   "${CMAKE_SOURCE_DIR}/sim/track"
   "${CMAKE_SOURCE_DIR}/common/physics"
   "${CMAKE_SOURCE_DIR}/common/time"
-  "${CMAKE_SOURCE_DIR}/planning"
+  "${CMAKE_SOURCE_DIR}/control"
   "${CMAKE_SOURCE_DIR}/sim/vehicle"
   "${CMAKE_SOURCE_DIR}/common/telemetry"
 )
@@ -99,13 +99,13 @@ file(GLOB PATH_LOGIC_SOURCES "${CMAKE_SOURCE_DIR}/sim/track/*.cpp")
 set(PATH_LOGIC_TEST_SOURCE "${CMAKE_SOURCE_DIR}/sim/track/test/TestTrackGeneration.cpp")
 
 # Main sim
-file(GLOB MAINCONTROLLER_SOURCES
-  "${CMAKE_SOURCE_DIR}/MainController/*.c"
-  "${CMAKE_SOURCE_DIR}/MainController/*.cpp"
+file(GLOB MAIN_SOURCES
+  "${CMAKE_SOURCE_DIR}/main/*.c"
+  "${CMAKE_SOURCE_DIR}/main/*.cpp"
 )
 file(GLOB WORLD_SOURCES "${CMAKE_SOURCE_DIR}/sim/*.cpp")
 file(GLOB PHYSICS_SOURCES "${CMAKE_SOURCE_DIR}/common/physics/*.c")
-file(GLOB RACING_SOURCES  "${CMAKE_SOURCE_DIR}/planning/*.c")
+file(GLOB RACING_SOURCES  "${CMAKE_SOURCE_DIR}/control/*.c")
 file(GLOB SIMULATIONMODELS_SOURCES
   "${CMAKE_SOURCE_DIR}/sim/vehicle/*.c"
   "${CMAKE_SOURCE_DIR}/sim/vehicle/*.cpp"
@@ -122,7 +122,7 @@ list(REMOVE_ITEM PATH_LOGIC_SOURCES
 list(REMOVE_ITEM SIMULATIONMODELS_SOURCES
   "${CMAKE_SOURCE_DIR}/sim/vehicle/test/TestDynamicBicycle.cpp")
 
-set(SIMULATION_SOURCE_FINAL "${CMAKE_SOURCE_DIR}/MainController/main.cpp")
+set(SIMULATION_SOURCE_FINAL "${CMAKE_SOURCE_DIR}/main/main.cpp")
 
 # ------------------------------------------------------------------------------
 # Executables
@@ -148,10 +148,10 @@ add_executable(PathLogicTest
 target_include_directories(PathLogicTest PRIVATE ${PROJ_INCLUDE_DIRS})
 target_link_libraries(PathLogicTest PRIVATE Eigen3::Eigen)
 
-# MainController
-add_executable(MainController
+# main
+add_executable(main
   ${SIMULATION_SOURCE_FINAL}
-  ${MAINCONTROLLER_SOURCES}
+  ${MAIN_SOURCES}
   ${WORLD_SOURCES}
   ${PATH_LOGIC_SOURCES}
   ${PHYSICS_SOURCES}
@@ -163,18 +163,18 @@ add_executable(MainController
   ${GRAPHICS_SOURCES}
   ${GRAPHICS_H_SOURCES}
 )
-target_include_directories(MainController PRIVATE
+target_include_directories(main PRIVATE
   ${PROJ_INCLUDE_DIRS}
   ${SDL2_ALL_INCLUDE_DIRS}   # <- adds both .../include/SDL2 and .../include
 )
 if(TARGET SDL2::SDL2)
-  target_link_libraries(MainController PRIVATE Eigen3::Eigen yaml-cpp::yaml-cpp SDL2::SDL2)
+  target_link_libraries(main PRIVATE Eigen3::Eigen yaml-cpp::yaml-cpp SDL2::SDL2)
 else()
-  target_link_libraries(MainController PRIVATE Eigen3::Eigen yaml-cpp::yaml-cpp PkgConfig::SDL2)
+  target_link_libraries(main PRIVATE Eigen3::Eigen yaml-cpp::yaml-cpp PkgConfig::SDL2)
 endif()
 
 # ThrottleTest
-set(THROTTLE_TEST_SOURCE "${CMAKE_SOURCE_DIR}/planning/test/TestThrottle.c")
+set(THROTTLE_TEST_SOURCE "${CMAKE_SOURCE_DIR}/control/test/TestThrottle.c")
 add_executable(ThrottleTest
   ${THROTTLE_TEST_SOURCE}
   ${RACING_SOURCES}
@@ -188,7 +188,7 @@ else()
 endif()
 
 # SteeringTest
-set(STEERING_TEST_SOURCE "${CMAKE_SOURCE_DIR}/planning/test/TestSteering.c")
+set(STEERING_TEST_SOURCE "${CMAKE_SOURCE_DIR}/control/test/TestSteering.c")
 add_executable(SteeringTest
   ${STEERING_TEST_SOURCE}
   ${RACING_SOURCES}
