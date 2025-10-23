@@ -1,26 +1,25 @@
 #pragma once
 
-#include <linux/can.h>
-#include <linux/can/raw.h>
+#include "can_link.hpp"
 
 #include <optional>
 #include <string>
 
 namespace fsai::sim::svcu {
 
-class SocketCan {
+class SocketCanLink : public ICanLink {
  public:
-  SocketCan();
-  ~SocketCan();
+  SocketCanLink();
+  ~SocketCanLink() override;
 
-  SocketCan(const SocketCan&) = delete;
-  SocketCan& operator=(const SocketCan&) = delete;
+  SocketCanLink(const SocketCanLink&) = delete;
+  SocketCanLink& operator=(const SocketCanLink&) = delete;
 
-  bool open(const std::string& iface, bool enable_loopback = false);
-  void close();
+  bool open(const std::string& iface, bool enable_loopback = false) override;
+  void close() override;
 
-  bool send(const can_frame& frame) const;
-  std::optional<can_frame> receive() const;
+  bool send(const can_frame& frame) override;
+  std::optional<can_frame> receive() override;
 
   bool valid() const { return fd_ >= 0; }
 
@@ -29,3 +28,4 @@ class SocketCan {
 };
 
 }  // namespace fsai::sim::svcu
+

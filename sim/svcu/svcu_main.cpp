@@ -3,13 +3,14 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <thread>
 
 #include "adsdv_dbc.hpp"
 #include "link.hpp"
-#include "socketcan.hpp"
+#include "can_link.hpp"
 #include "VehicleParam.hpp"
 
 namespace {
@@ -219,7 +220,7 @@ int main(int argc, char** argv) {
   std::signal(SIGTERM, handle_signal);
 
   std::string vehicle_config = "../configs/vehicle/configDry.yaml";
-  std::string can_iface = "vcan0";
+  std::string can_iface = fsai::sim::svcu::default_can_endpoint();
   uint16_t command_port = fsai::sim::svcu::kDefaultCommandPort;
   uint16_t telemetry_port = fsai::sim::svcu::kDefaultTelemetryPort;
 
@@ -234,11 +235,14 @@ int main(int argc, char** argv) {
     } else if (arg == "--state-port" && i + 1 < argc) {
       telemetry_port = parse_u16(argv[++i], telemetry_port);
     } else if (arg == "--help") {
-      std::cout << "Usage: svcu_run [--vehicle path] [--can-if iface] "
+      std::cout << "Usage: svcu_run [--vehicle path] [--can-if iface|udp:port] "
                    "[--cmd-port port] [--state-port port]\n";
       return 0;
     }
   }
+
+  can_iface = fsai::sim::svcu::canonicalize_can_endpoint(can_iface);
+  const bool can_is_udp = fsai::sim::svcu::is_udp_endpoint(can_iface);
 
   VehicleParam params;
   try {
@@ -250,9 +254,9 @@ int main(int argc, char** argv) {
 
   CommandAggregator aggregator(params);
 
-  fsai::sim::svcu::SocketCan can_bus;
-  if (!can_bus.open(can_iface)) {
-    std::cerr << "Failed to open CAN interface " << can_iface << "\n";
+  auto can_link = fsai::sim::svcu::make_can_link(can_iface);
+  if (!can_link || !can_link->open(can_iface, false)) {
+    std::cerr << "Failed to open CAN endpoint " << can_iface << "\n";
     return 1;
   }
 
@@ -268,15 +272,17 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  std::cout << "S-VCU listening on CAN " << can_iface << ", command port "
-            << command_port << ", telemetry port " << telemetry_port << "\n";
+  std::cout << "S-VCU listening on CAN " << can_iface << " ("
+            << (can_is_udp ? "udp" : "socketcan")
+            << "), command port " << command_port << ", telemetry port "
+            << telemetry_port << "\n";
 
   fsai::sim::svcu::CommandPacket cmd_packet{};
   fsai::sim::svcu::TelemetryPacket telemetry{};
 
   while (g_running.load()) {
     // Consume CAN frames from AI/Control stack.
-    while (auto frame_opt = can_bus.receive()) {
+    while (auto frame_opt = can_link->receive()) {
       const auto& frame = *frame_opt;
       switch (frame.can_id) {
         case fsai::sim::svcu::dbc::kMsgIdAi2VcuStatus: {
@@ -372,7 +378,7 @@ int main(int argc, char** argv) {
       status_msg.shutdown_cause = estop ? 1 : 0;
       status_msg.bms_fault = false;
       status_msg.brake_plausibility_fault = false;
-      can_bus.send(fsai::sim::svcu::dbc::encode_vcu2ai_status(status_msg));
+      can_link->send(fsai::sim::svcu::dbc::encode_vcu2ai_status(status_msg));
 
       fsai::sim::svcu::dbc::Vcu2AiSteer steer_msg{};
       steer_msg.angle_deg = telemetry.steer_angle_rad * fsai::sim::svcu::dbc::kRadToDeg;
@@ -381,25 +387,25 @@ int main(int argc, char** argv) {
                    fsai::sim::svcu::dbc::kRadToDeg),
           0.0f, fsai::sim::svcu::dbc::kMaxSteerDeg);
       steer_msg.angle_request_deg = cmd.steer_rad * fsai::sim::svcu::dbc::kRadToDeg;
-      can_bus.send(fsai::sim::svcu::dbc::encode_vcu2ai_steer(steer_msg));
+      can_link->send(fsai::sim::svcu::dbc::encode_vcu2ai_steer(steer_msg));
 
       fsai::sim::svcu::dbc::Vcu2AiDrive front_drive{};
       front_drive.axle_trq_nm = telemetry.front_axle_torque_nm;
       front_drive.axle_trq_request_nm = cmd.front_torque_request_nm;
       front_drive.axle_trq_max_nm = fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
-      can_bus.send(fsai::sim::svcu::dbc::encode_vcu2ai_drive_front(front_drive));
+      can_link->send(fsai::sim::svcu::dbc::encode_vcu2ai_drive_front(front_drive));
 
       fsai::sim::svcu::dbc::Vcu2AiDrive rear_drive{};
       rear_drive.axle_trq_nm = telemetry.rear_axle_torque_nm;
       rear_drive.axle_trq_request_nm = cmd.rear_torque_request_nm;
       rear_drive.axle_trq_max_nm = fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
-      can_bus.send(fsai::sim::svcu::dbc::encode_vcu2ai_drive_rear(rear_drive));
+      can_link->send(fsai::sim::svcu::dbc::encode_vcu2ai_drive_rear(rear_drive));
 
       fsai::sim::svcu::dbc::Vcu2AiSpeeds speed_msg{};
       for (int i = 0; i < 4; ++i) {
         speed_msg.wheel_rpm[i] = telemetry.wheel_speed_rpm[i];
       }
-      can_bus.send(fsai::sim::svcu::dbc::encode_vcu2ai_speeds(speed_msg));
+      can_link->send(fsai::sim::svcu::dbc::encode_vcu2ai_speeds(speed_msg));
 
       const double front_bias = std::max(0.0f, aggregator.brake_front_bias());
       const double rear_bias = std::max(0.0f, aggregator.brake_rear_bias());
@@ -428,7 +434,7 @@ int main(int argc, char** argv) {
                                  : (handshake
                                         ? fsai::sim::svcu::dbc::EbsStatus::kArmed
                                         : fsai::sim::svcu::dbc::EbsStatus::kUnavailable);
-      can_bus.send(fsai::sim::svcu::dbc::encode_vcu2ai_brake(brake_msg));
+      can_link->send(fsai::sim::svcu::dbc::encode_vcu2ai_brake(brake_msg));
 
       fsai::sim::svcu::dbc::Vcu2LogDynamics1 dyn{};
       dyn.speed_actual_kph = telemetry.gps_speed_mps * 3.6f;
@@ -447,13 +453,13 @@ int main(int argc, char** argv) {
                              100.0f),
           0.0f, 100.0f);
       dyn.drive_trq_target_pct = std::clamp(cmd.throttle * 100.0f, 0.0f, 100.0f);
-      can_bus.send(fsai::sim::svcu::dbc::encode_vcu2log_dynamics1(dyn));
+      can_link->send(fsai::sim::svcu::dbc::encode_vcu2log_dynamics1(dyn));
 
       fsai::sim::svcu::dbc::Ai2LogDynamics2 imu{};
       imu.accel_longitudinal_mps2 = telemetry.imu_ax_mps2;
       imu.accel_lateral_mps2 = telemetry.imu_ay_mps2;
       imu.yaw_rate_degps = telemetry.imu_yaw_rate_rps * fsai::sim::svcu::dbc::kRadToDeg;
-      can_bus.send(fsai::sim::svcu::dbc::encode_ai2log_dynamics2(imu));
+      can_link->send(fsai::sim::svcu::dbc::encode_ai2log_dynamics2(imu));
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1));

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <linux/can.h>
+#include "can_defs.hpp"
 
 #include <cstdint>
 

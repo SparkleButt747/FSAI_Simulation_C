@@ -25,7 +25,7 @@
 #include "World.hpp"
 #include "adsdv_dbc.hpp"
 #include "link.hpp"
-#include "socketcan.hpp"
+#include "can_link.hpp"
 
 namespace {
 constexpr double kDefaultDt = 0.01;
@@ -33,7 +33,6 @@ constexpr int kWindowWidth = 800;
 constexpr int kWindowHeight = 600;
 constexpr int kReportIntervalFrames = 120;
 constexpr float kRenderScale = 5.0f;
-constexpr const char* kDefaultCanIface = "vcan0";
 constexpr uint16_t kDefaultCommandPort = fsai::sim::svcu::kDefaultCommandPort;
 constexpr uint16_t kDefaultTelemetryPort = fsai::sim::svcu::kDefaultTelemetryPort;
 constexpr double kCommandStaleSeconds = 0.1;
@@ -67,7 +66,7 @@ int main(int argc, char* argv[]) {
   };
 
   double dt = kDefaultDt;
-  std::string can_iface = kDefaultCanIface;
+  std::string can_iface = fsai::sim::svcu::default_can_endpoint();
   uint16_t command_port = kDefaultCommandPort;
   uint16_t telemetry_port = kDefaultTelemetryPort;
 
@@ -83,7 +82,7 @@ int main(int argc, char* argv[]) {
       telemetry_port = parse_port(argv[++i], telemetry_port);
     } else if (arg == "--help") {
       std::printf(
-          "Usage: fsai_run [--dt seconds] [--can-if iface] [--cmd-port p] "
+          "Usage: fsai_run [--dt seconds] [--can-if iface|udp:port] [--cmd-port p] "
           "[--state-port p]\n");
       return EXIT_SUCCESS;
     } else if (i == 1 && argc == 2) {
@@ -98,8 +97,12 @@ int main(int argc, char* argv[]) {
                 kDefaultDt);
     dt = kDefaultDt;
   }
-  std::printf("Using dt = %.4f seconds, CAN %s, cmd-port %u, state-port %u\n",
-              dt, can_iface.c_str(), command_port, telemetry_port);
+  can_iface = fsai::sim::svcu::canonicalize_can_endpoint(can_iface);
+  const bool can_is_udp = fsai::sim::svcu::is_udp_endpoint(can_iface);
+  std::printf(
+      "Using dt = %.4f seconds, CAN %s (%s), cmd-port %u, state-port %u\n",
+      dt, can_iface.c_str(), can_is_udp ? "udp" : "socketcan", command_port,
+      telemetry_port);
 
   fsai_clock_config clock_cfg{};
   clock_cfg.mode = FSAI_CLOCK_MODE_SIMULATED;
@@ -156,9 +159,9 @@ int main(int argc, char* argv[]) {
   bool running = true;
   size_t frame_counter = 0;
 
-  fsai::sim::svcu::SocketCan can_bus;
-  if (!can_bus.open(can_iface, true)) {
-    std::fprintf(stderr, "Failed to open CAN interface %s\n", can_iface.c_str());
+  auto can_link = fsai::sim::svcu::make_can_link(can_iface);
+  if (!can_link || !can_link->open(can_iface, true)) {
+    std::fprintf(stderr, "Failed to open CAN endpoint %s\n", can_iface.c_str());
     return EXIT_FAILURE;
   }
 
@@ -281,7 +284,7 @@ int main(int argc, char* argv[]) {
     status_msg.cones_count_all = 0;
     status_msg.veh_speed_actual_kph = speed_kph;
     status_msg.veh_speed_demand_kph = target_speed_kph;
-    can_bus.send(fsai::sim::svcu::dbc::encode_ai2vcu_status(status_msg));
+    can_link->send(fsai::sim::svcu::dbc::encode_ai2vcu_status(status_msg));
 
     const float total_torque_nm = throttle_cmd *
                                   2.0f * fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
@@ -296,17 +299,17 @@ int main(int argc, char* argv[]) {
     steer_msg.steer_deg = std::clamp(autopSteer * fsai::sim::svcu::dbc::kRadToDeg,
                                      -fsai::sim::svcu::dbc::kMaxSteerDeg,
                                      fsai::sim::svcu::dbc::kMaxSteerDeg);
-    can_bus.send(fsai::sim::svcu::dbc::encode_ai2vcu_steer(steer_msg));
+    can_link->send(fsai::sim::svcu::dbc::encode_ai2vcu_steer(steer_msg));
 
     fsai::sim::svcu::dbc::Ai2VcuDrive front_drive{};
     front_drive.axle_torque_request_nm = front_torque_request_nm;
     front_drive.motor_speed_max_rpm = 4000.0f;
-    can_bus.send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_front(front_drive));
+    can_link->send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_front(front_drive));
 
     fsai::sim::svcu::dbc::Ai2VcuDrive rear_drive{};
     rear_drive.axle_torque_request_nm = rear_torque_request_nm;
     rear_drive.motor_speed_max_rpm = 4000.0f;
-    can_bus.send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_rear(rear_drive));
+    can_link->send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_rear(rear_drive));
 
     fsai::sim::svcu::dbc::Ai2VcuBrake brake_msg{};
     const float brake_pct_total = brake_cmd * 100.0f;
@@ -314,7 +317,7 @@ int main(int argc, char* argv[]) {
                                      fsai::sim::svcu::dbc::kMaxBrakePercent);
     brake_msg.rear_pct = std::clamp(brake_pct_total * brake_rear_bias, 0.0f,
                                     fsai::sim::svcu::dbc::kMaxBrakePercent);
-    can_bus.send(fsai::sim::svcu::dbc::encode_ai2vcu_brake(brake_msg));
+    can_link->send(fsai::sim::svcu::dbc::encode_ai2vcu_brake(brake_msg));
 
     fsai::sim::svcu::CommandPacket command_packet{};
     while (auto bytes = command_rx.receive(&command_packet, sizeof(command_packet))) {

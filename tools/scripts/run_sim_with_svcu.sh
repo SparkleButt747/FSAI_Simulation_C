@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CAN_IFACE=${CAN_IFACE:-vcan0}
+OS_NAME=$(uname -s)
+DEFAULT_UDP_PORT=${CAN_UDP_PORT:-47000}
+
+if [[ "$OS_NAME" == "Darwin" ]]; then
+  CAN_IFACE=${CAN_IFACE:-udp:$DEFAULT_UDP_PORT}
+else
+  CAN_IFACE=${CAN_IFACE:-vcan0}
+fi
+
 BUILD_DIR=${BUILD_DIR:-build}
 CMD_PORT=${CMD_PORT:-47001}
 STATE_PORT=${STATE_PORT:-47002}
@@ -20,7 +28,9 @@ function ensure_vcan() {
   sudo ip link set up "$CAN_IFACE"
 }
 
-ensure_vcan
+if [[ "$OS_NAME" != "Darwin" ]]; then
+  ensure_vcan
+fi
 
 FSAI_RUN="$BUILD_DIR/fsai_run"
 SVCU_RUN="$BUILD_DIR/svcu_run"
