@@ -35,6 +35,19 @@ public:
     int useRacingAlgorithm{1};
     int regenTrack{1};
 
+    const VehicleState& vehicleState() const { return carState; }
+    const Transform& vehicleTransform() const { return carTransform; }
+    const std::vector<Vector3>& checkpointPositionsWorld() const {
+        return checkpointPositions;
+    }
+    const std::vector<Vector3>& leftConePositions() const { return leftCones; }
+    const std::vector<Vector3>& rightConePositions() const { return rightCones; }
+    const LookaheadIndices& lookahead() const { return lookaheadIndices; }
+    double lapTimeSeconds() const { return totalTime; }
+    double totalDistanceMeters() const { return totalDistance; }
+    double timeStepSeconds() const { return deltaTime; }
+    int completedLaps() const { return lapCount; }
+
 private:
     void moveNextCheckpointToLast();
     void reset();

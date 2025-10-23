@@ -71,39 +71,35 @@ list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
 # ------------------------------------------------------------------------------
-# Split into core library (no main/, no tests) + main app
+# Simulation libraries
 # ------------------------------------------------------------------------------
-set(CORE_C_SOURCES   ${ALL_C_SOURCES})
-set(CORE_CPP_SOURCES ${ALL_CPP_SOURCES})
+set(SIM_C_SOURCES   ${ALL_C_SOURCES})
+set(SIM_CPP_SOURCES ${ALL_CPP_SOURCES})
 
-# drop main/ from core
-list(FILTER CORE_C_SOURCES   EXCLUDE REGEX ".*/main/.*")
-list(FILTER CORE_CPP_SOURCES EXCLUDE REGEX ".*/main/.*")
+list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(main|simulation)/.*")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(main|simulation)/.*")
+list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(c)$")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(cpp)$")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/BoundaryEstimation.cpp$")
+list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/control/.*")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/.*")
+list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/tools/Graphics/.*")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/tools/Graphics/.*")
 
-# drop tests from core
-list(FILTER CORE_C_SOURCES   EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(c)$")
-list(FILTER CORE_CPP_SOURCES EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(cpp)$")
-list(FILTER CORE_CPP_SOURCES EXCLUDE REGEX ".*/control/BoundaryEstimation.cpp$")
+list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/RacingAlgorithm.c")
 
-# main sources = everything in main/
-file(GLOB_RECURSE MAIN_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/main/*.c" "${CMAKE_SOURCE_DIR}/main/*.cpp")
-
-# ------------------------------------------------------------------------------
-# Core library
-# ------------------------------------------------------------------------------
-add_library(fsai_core STATIC
-  ${CORE_C_SOURCES}
-  ${CORE_CPP_SOURCES}
-  ${ALL_HEADERS}         # for IDEs; headers aren’t compiled
+add_library(fsai_sim STATIC
+  ${SIM_C_SOURCES}
+  ${SIM_CPP_SOURCES}
+  ${ALL_HEADERS}         # for IDEs
 )
 
-# Every header dir is an include path so bare filenames resolve
-target_include_directories(fsai_core
+target_include_directories(fsai_sim
   PUBLIC
     ${HEADER_DIRS}
 )
 
-target_link_libraries(fsai_core
+target_link_libraries(fsai_sim
   PUBLIC
     Eigen3::Eigen
     yaml-cpp::yaml-cpp
@@ -112,22 +108,31 @@ target_link_libraries(fsai_core
 )
 
 if(TARGET SDL2::SDL2)
-  target_link_libraries(fsai_core PUBLIC SDL2::SDL2)
+  target_link_libraries(fsai_sim PUBLIC SDL2::SDL2)
 else()
-  target_link_libraries(fsai_core PUBLIC PkgConfig::SDL2)
+  target_link_libraries(fsai_sim PUBLIC PkgConfig::SDL2)
 endif()
 
-# ------------------------------------------------------------------------------
-# Main executable
-# ------------------------------------------------------------------------------
-add_executable(FSAI_Sim ${MAIN_SOURCES})
-target_link_libraries(FSAI_Sim PRIVATE fsai_core)
+file(GLOB RENDERING_C_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tools/Graphics/*.c")
+add_library(fsai_rendering STATIC ${RENDERING_C_SOURCES})
+target_include_directories(fsai_rendering PUBLIC ${HEADER_DIRS})
 
 if(TARGET SDL2::SDL2)
-  target_link_libraries(FSAI_Sim PRIVATE SDL2::SDL2)
+  target_link_libraries(fsai_rendering PUBLIC SDL2::SDL2)
 else()
-  target_link_libraries(FSAI_Sim PRIVATE PkgConfig::SDL2)
+  target_link_libraries(fsai_rendering PUBLIC PkgConfig::SDL2)
 endif()
+
+# ------------------------------------------------------------------------------
+# Simulation executable
+# ------------------------------------------------------------------------------
+file(GLOB_RECURSE SIMULATION_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/simulation/*.c"
+  "${CMAKE_SOURCE_DIR}/simulation/*.cpp"
+)
+
+add_executable(fsai_run ${SIMULATION_SOURCES})
+target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering)
 
 # ------------------------------------------------------------------------------
 # Tests
@@ -138,17 +143,17 @@ if(BUILD_TESTS)
     "${CMAKE_SOURCE_DIR}/*Test*.c"
     "${CMAKE_SOURCE_DIR}/*Test*.cpp"
   )
-  foreach(TEST_FILE ${TEST_SOURCES})
-    get_filename_component(TEST_NAME ${TEST_FILE} NAME_WE)
-    add_executable(${TEST_NAME} ${TEST_FILE})
-    target_link_libraries(${TEST_NAME} PRIVATE fsai_core)
-    if(TARGET SDL2::SDL2)
-      target_link_libraries(${TEST_NAME} PRIVATE SDL2::SDL2)
-    else()
-      target_link_libraries(${TEST_NAME} PRIVATE PkgConfig::SDL2)
-    endif()
-    message(STATUS "Added test: ${TEST_NAME}")
-  endforeach()
+    foreach(TEST_FILE ${TEST_SOURCES})
+      get_filename_component(TEST_NAME ${TEST_FILE} NAME_WE)
+      add_executable(${TEST_NAME} ${TEST_FILE})
+      target_link_libraries(${TEST_NAME} PRIVATE fsai_sim fsai_rendering)
+      if(TARGET SDL2::SDL2)
+        target_link_libraries(${TEST_NAME} PRIVATE SDL2::SDL2)
+      else()
+        target_link_libraries(${TEST_NAME} PRIVATE PkgConfig::SDL2)
+      endif()
+      message(STATUS "Added test: ${TEST_NAME}")
+    endforeach()
 endif()
 
 # ------------------------------------------------------------------------------
