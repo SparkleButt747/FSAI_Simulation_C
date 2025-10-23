@@ -19,11 +19,13 @@
 namespace fsai::sim::svcu {
 namespace {
 
+#pragma pack(push, 1)
 struct PackedCanFrame {
   uint32_t id_be;
   uint8_t dlc;
   uint8_t data[CAN_MAX_DLEN];
 };
+#pragma pack(pop)
 static_assert(sizeof(PackedCanFrame) == 13, "PackedCanFrame must be 13 bytes");
 
 bool starts_with_ignore_case(const std::string& value, const char* prefix) {
