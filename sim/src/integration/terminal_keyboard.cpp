@@ -1,4 +1,4 @@
-#include "sim/integration/terminal_keyboard.hpp"
+#include "terminal_keyboard.hpp"
 
 #include "KeyboardInputHandler.h"
 

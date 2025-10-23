@@ -1,4 +1,4 @@
-#include "sim/integration/stereo_display.hpp"
+#include "stereo_display.hpp"
 
 #include <cstdio>
 

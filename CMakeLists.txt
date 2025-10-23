@@ -76,8 +76,8 @@ list(REMOVE_DUPLICATES HEADER_DIRS)
 set(SIM_C_SOURCES   ${ALL_C_SOURCES})
 set(SIM_CPP_SOURCES ${ALL_CPP_SOURCES})
 
-list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(main|simulation)/.*")
-list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(main|simulation)/.*")
+list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(main|sim/app)/.*")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(main|sim/app)/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(c)$")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(cpp)$")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/BoundaryEstimation.cpp$")
@@ -126,12 +126,12 @@ endif()
 # ------------------------------------------------------------------------------
 # Simulation executable
 # ------------------------------------------------------------------------------
-file(GLOB_RECURSE SIMULATION_SOURCES CONFIGURE_DEPENDS
-  "${CMAKE_SOURCE_DIR}/simulation/*.c"
-  "${CMAKE_SOURCE_DIR}/simulation/*.cpp"
+file(GLOB_RECURSE SIM_APP_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/sim/app/*.c"
+  "${CMAKE_SOURCE_DIR}/sim/app/*.cpp"
 )
 
-add_executable(fsai_run ${SIMULATION_SOURCES})
+add_executable(fsai_run ${SIM_APP_SOURCES})
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering)
 
 # ------------------------------------------------------------------------------
