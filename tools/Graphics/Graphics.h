@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#include <SDL2/SDL.h>
+#include <SDL.h>
 
 typedef struct {
     SDL_Window* window;
