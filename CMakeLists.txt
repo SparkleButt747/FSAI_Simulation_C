@@ -150,6 +150,9 @@ file(GLOB_RECURSE SIM_APP_SOURCES CONFIGURE_DEPENDS
 add_executable(fsai_run ${SIM_APP_SOURCES})
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering)
 
+add_executable(svcu_run sim/svcu/svcu_main.cpp)
+target_link_libraries(svcu_run PRIVATE fsai_sim)
+
 # ------------------------------------------------------------------------------
 # Tests
 # ------------------------------------------------------------------------------
