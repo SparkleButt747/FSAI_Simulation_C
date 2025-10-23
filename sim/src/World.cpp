@@ -1,10 +1,38 @@
-#include <cstdio>
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include "fsai_clock.h"
 #include "World.hpp"
 
 static Vector3 transformToVector3(const Transform& t) {
     return {t.position.x, t.position.y, t.position.z};
+}
+
+bool World::computeRacingControl(double dt, float& throttle_out, float& steering_out) {
+    if (!useRacingAlgorithm || checkpointPositions.empty()) {
+        return false;
+    }
+
+    Vector3 carVelocity{static_cast<float>(carState.velocity.x()),
+                        static_cast<float>(carState.velocity.y()),
+                        static_cast<float>(carState.velocity.z())};
+    const float carSpeed = Vector3_Magnitude(carVelocity);
+    lookaheadIndices = RacingAlgorithm_GetLookaheadIndices(
+        static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
+    throttle_out = RacingAlgorithm_GetThrottleInput(
+        checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
+        carSpeed, &carTransform, &racingConfig, dt);
+    steering_out = RacingAlgorithm_GetSteeringInput(
+        checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
+        carSpeed, &carTransform, &racingConfig, dt);
+    return true;
+}
+
+void World::setSvcuCommand(float throttle, float brake, float steer) {
+    lastSvcuThrottle_ = throttle;
+    lastSvcuBrake_ = brake;
+    lastSvcuSteer_ = steer;
+    hasSvcuCommand_ = true;
 }
 
 void World::init(const char* yamlFilePath) {
@@ -77,6 +105,12 @@ void World::init(const char* yamlFilePath) {
     carTransform.position.y = 0.5f;
     carTransform.position.z = static_cast<float>(carState.position.y());
     carTransform.yaw = static_cast<float>(carState.yaw);
+
+    wheelsInfo_ = WheelsInfo_default();
+    hasSvcuCommand_ = false;
+    lastSvcuThrottle_ = 0.0f;
+    lastSvcuBrake_ = 0.0f;
+    lastSvcuSteer_ = 0.0f;
 }
 
 void World::update(double dt) {
@@ -89,23 +123,14 @@ void World::update(double dt) {
         return;
     }
 
-    if (useRacingAlgorithm) {
-        Vector3 carVelocity{static_cast<float>(carState.velocity.x()),
-                            static_cast<float>(carState.velocity.y()),
-                            static_cast<float>(carState.velocity.z())};
-        float carSpeed = Vector3_Magnitude(carVelocity);
-        lookaheadIndices = RacingAlgorithm_GetLookaheadIndices(
-            static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
-        throttleInput = RacingAlgorithm_GetThrottleInput(
-            checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
-            carSpeed, &carTransform, &racingConfig, dt);
-        steeringAngle = RacingAlgorithm_GetSteeringInput(
-            checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
-            carSpeed, &carTransform, &racingConfig, dt);
-        std::printf("THROTTLE: %f, ANGLE: %f\n", throttleInput, steeringAngle);
+    if (hasSvcuCommand_) {
+        throttleInput = lastSvcuThrottle_;
+        brakeInput = lastSvcuBrake_;
+        steeringAngle = lastSvcuSteer_;
     }
 
-    carInput.acc = throttleInput;
+    const double netAcc = static_cast<double>(throttleInput - brakeInput);
+    carInput.acc = netAcc;
     carInput.delta = steeringAngle;
 
     carModel.updateState(carState, carInput, dt);
@@ -115,6 +140,10 @@ void World::update(double dt) {
     carTransform.yaw = static_cast<float>(carState.yaw);
 
     totalDistance += carState.velocity.x() * dt;
+
+    wheelsInfo_ = carModel.getWheelSpeeds(carState, carInput);
+
+    hasSvcuCommand_ = false;
 
     if (!detectCollisions()) {
         return;

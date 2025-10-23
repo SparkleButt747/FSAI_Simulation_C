@@ -145,6 +145,8 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     const BrakeRequest breq = br_.prepare(static_cast<float>(brk_eff_), static_cast<float>(vx));
     const PowertrainStatus ps = pt_.compute(static_cast<float>(thr_eff_), breq.regen_command, static_cast<float>(vx), static_cast<float>(dt));
     const BrakeStatus     bst = br_.finalize(breq, ps.regen_force);
+    last_pt_status_ = ps;
+    last_brake_status_ = bst;
 
     // Raw Fx components (before ellipse), sign convention: forward positive
     double Fx_drive = double(ps.wheel_force);

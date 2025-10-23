@@ -27,21 +27,26 @@ public:
 class DynamicBicycle : public VehicleModel {
 public:
     using VehicleModel::VehicleModel;
-    struct Forces { double Fx; double FyF; double FyR; };
+  struct Forces { double Fx; double FyF; double FyR; };
 
-    void updateState(VehicleState& state, const VehicleInput& input, double dt) override;
-    static double calculateMagnitude(double x, double y);
+  void updateState(VehicleState& state, const VehicleInput& input, double dt) override;
+  static double calculateMagnitude(double x, double y);
+
+  const PowertrainStatus& lastPowertrainStatus() const { return last_pt_status_; }
+  const BrakeStatus& lastBrakeStatus() const { return last_brake_status_; }
 
 private:
-    // Actuator states (first-order lags)
-    mutable double thr_eff_{0.0};
-    mutable double brk_eff_{0.0};
+  // Actuator states (first-order lags)
+  mutable double thr_eff_{0.0};
+  mutable double brk_eff_{0.0};
 
-    // Runtime powertrain/brakes
-    mutable EVMotorPowertrain pt_;
-    mutable BrakeController   br_;
+  // Runtime powertrain/brakes
+  mutable EVMotorPowertrain pt_;
+  mutable BrakeController   br_;
+  mutable PowertrainStatus  last_pt_status_{};
+  mutable BrakeStatus       last_brake_status_{};
 
-    Forces computeForces(const VehicleState& state, const VehicleInput& input, double dt) const;
+  Forces computeForces(const VehicleState& state, const VehicleInput& input, double dt) const;
 
     // helpers
     static inline double clamp(double v, double lo, double hi){ return v<lo?lo:(v>hi?hi:v); }
