@@ -58,7 +58,12 @@ uint16_t parse_port(const std::string& text, uint16_t fallback) {
   return static_cast<uint16_t>(value);
 }
 
-uint16_t extract_udp_port(const std::string& endpoint, uint16_t fallback) {
+struct UdpPorts {
+  uint16_t bind;
+  uint16_t peer;
+};
+
+UdpPorts parse_udp_ports(const std::string& endpoint, uint16_t fallback) {
   std::string work = endpoint;
   if (starts_with_ignore_case(work, "udp:")) {
     work = work.substr(4);
@@ -70,24 +75,34 @@ uint16_t extract_udp_port(const std::string& endpoint, uint16_t fallback) {
       }
     }
   }
-  const auto colon_pos = work.rfind(':');
-  std::string port_str;
-  if (colon_pos != std::string::npos) {
-    port_str = work.substr(colon_pos + 1);
-  } else {
-    port_str = work;
+
+  auto trim = [](std::string value) {
+    std::size_t start = 0;
+    while (start < value.size() &&
+           std::isspace(static_cast<unsigned char>(value[start]))) {
+      ++start;
+    }
+    std::size_t end = value.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+      --end;
+    }
+    return value.substr(start, end - start);
+  };
+
+  std::string bind_str = work;
+  std::string peer_str = work;
+  const auto at_pos = work.find('@');
+  if (at_pos != std::string::npos) {
+    bind_str = work.substr(0, at_pos);
+    peer_str = work.substr(at_pos + 1);
   }
-  std::size_t start = 0;
-  while (start < port_str.size() &&
-         std::isspace(static_cast<unsigned char>(port_str[start]))) {
-    ++start;
-  }
-  std::size_t end = port_str.size();
-  while (end > start && std::isspace(static_cast<unsigned char>(port_str[end - 1]))) {
-    --end;
-  }
-  port_str = port_str.substr(start, end - start);
-  return parse_port(port_str, fallback);
+
+  bind_str = trim(bind_str);
+  peer_str = trim(peer_str);
+
+  const uint16_t bind_port = parse_port(bind_str, fallback);
+  const uint16_t peer_port = parse_port(peer_str, bind_port);
+  return UdpPorts{bind_port, peer_port};
 }
 
 class UdpCanLink final : public ICanLink {
@@ -97,7 +112,9 @@ class UdpCanLink final : public ICanLink {
 
   bool open(const std::string& endpoint, bool /*enable_loopback*/) override {
     close();
-    port_ = extract_udp_port(endpoint, kDefaultCanUdpPort);
+    const auto ports = parse_udp_ports(endpoint, kDefaultCanUdpPort);
+    port_ = ports.bind;
+    peer_port_ = ports.peer;
 
     recv_fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
     if (recv_fd_ < 0) {
@@ -125,6 +142,7 @@ class UdpCanLink final : public ICanLink {
     }
 
     peer_addr_ = addr;
+    peer_addr_.sin_port = htons(peer_port_);
 
     auto set_non_blocking = [](int fd) {
       int flags = ::fcntl(fd, F_GETFL, 0);
@@ -188,6 +206,7 @@ class UdpCanLink final : public ICanLink {
   int recv_fd_{-1};
   int send_fd_{-1};
   uint16_t port_{0};
+  uint16_t peer_port_{0};
   sockaddr_in peer_addr_{};
 };
 
@@ -216,14 +235,20 @@ std::string canonicalize_can_endpoint(const std::string& endpoint_hint) {
 #endif
   }
   if (starts_with_ignore_case(endpoint_hint, "udp:")) {
-    const uint16_t port = extract_udp_port(endpoint_hint, kDefaultCanUdpPort);
-    return "udp:" + std::to_string(port);
+    const auto ports = parse_udp_ports(endpoint_hint, kDefaultCanUdpPort);
+    if (ports.peer != ports.bind) {
+      return "udp:" + std::to_string(ports.bind) + "@" + std::to_string(ports.peer);
+    }
+    return "udp:" + std::to_string(ports.bind);
   }
 #if defined(__linux__)
   return endpoint_hint;
 #else
-  const uint16_t port = extract_udp_port(endpoint_hint, kDefaultCanUdpPort);
-  return "udp:" + std::to_string(port);
+  const auto ports = parse_udp_ports(endpoint_hint, kDefaultCanUdpPort);
+  if (ports.peer != ports.bind) {
+    return "udp:" + std::to_string(ports.bind) + "@" + std::to_string(ports.peer);
+  }
+  return "udp:" + std::to_string(ports.bind);
 #endif
 }
 

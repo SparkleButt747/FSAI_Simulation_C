@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(FSAI_Simulation_C LANGUAGES C CXX)
 
+enable_testing()
+
 # ------------------------------------------------------------------------------
 # Standards
 # ------------------------------------------------------------------------------
@@ -40,6 +42,7 @@ endif()
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 find_package(PkgConfig REQUIRED)
 find_package(SDL2 QUIET CONFIG)
+find_package(Threads REQUIRED)
 set(SDL2_IMPORTED_TARGET "")
 set(SDL2_INCLUDE_DIRS "")
 if(TARGET SDL2::SDL2)
@@ -97,6 +100,7 @@ list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/control/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/tools/Graphics/.*")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/sim/svcu/svcu_main.cpp$")
 
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/RacingAlgorithm.c")
 
@@ -116,6 +120,7 @@ target_link_libraries(fsai_sim
     Eigen3::Eigen
     yaml-cpp::yaml-cpp
     OpenGL::GL
+    Threads::Threads
     m
 )
 
@@ -125,6 +130,17 @@ endif()
 
 if(SDL2_INCLUDE_DIRS)
   target_include_directories(fsai_sim PUBLIC ${SDL2_INCLUDE_DIRS})
+endif()
+
+file(GLOB SVCU_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/sim/svcu/tests/*.cpp")
+if(SVCU_TEST_SOURCES)
+  add_executable(svcu_integration_tests ${SVCU_TEST_SOURCES})
+  target_link_libraries(svcu_integration_tests PRIVATE fsai_sim Threads::Threads)
+  if(TARGET fsai_control_runtime)
+    target_link_libraries(svcu_integration_tests PRIVATE fsai_control_runtime)
+  endif()
+  target_compile_definitions(svcu_integration_tests PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
+  add_test(NAME svcu_integration_tests COMMAND svcu_integration_tests)
 endif()
 
 file(GLOB RENDERING_C_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tools/Graphics/*.c")
@@ -162,6 +178,9 @@ if(CONTROL_RUNTIME_SOURCES)
     target_link_libraries(fsai_control_runtime PUBLIC dl)
   endif()
   target_link_libraries(fsai_run PRIVATE fsai_control_runtime)
+  if(TARGET svcu_integration_tests)
+    target_link_libraries(svcu_integration_tests PRIVATE fsai_control_runtime)
+  endif()
 endif()
 
 add_executable(svcu_run sim/svcu/svcu_main.cpp)
@@ -177,7 +196,13 @@ if(BUILD_TESTS)
     "${CMAKE_SOURCE_DIR}/*Test*.cpp"
   )
     foreach(TEST_FILE ${TEST_SOURCES})
+      if(TEST_FILE MATCHES "/sim/svcu/tests/")
+        continue()
+      endif()
       get_filename_component(TEST_NAME ${TEST_FILE} NAME_WE)
+      if(TARGET ${TEST_NAME})
+        continue()
+      endif()
       add_executable(${TEST_NAME} ${TEST_FILE})
       target_link_libraries(${TEST_NAME} PRIVATE fsai_sim fsai_rendering)
       if(SDL2_IMPORTED_TARGET)

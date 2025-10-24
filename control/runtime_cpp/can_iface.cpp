@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <cstring>
 #include <numbers>
 
@@ -118,16 +117,11 @@ bool CanIface::Send(const Ai2VcuCommandSet& commands) {
     if (!sim_link_) {
       return false;
     }
-    const auto send_frame = [this](const can_frame& frame) {
-      if (!sim_link_->send(frame)) {
-        std::fprintf(stderr, "[CanIface] Failed to send CAN frame id=%u\n", frame.can_id);
-      }
-    };
-    send_frame(fsai::sim::svcu::dbc::encode_ai2vcu_status(commands.status));
-    send_frame(fsai::sim::svcu::dbc::encode_ai2vcu_steer(commands.steer));
-    send_frame(fsai::sim::svcu::dbc::encode_ai2vcu_drive_front(commands.front_drive));
-    send_frame(fsai::sim::svcu::dbc::encode_ai2vcu_drive_rear(commands.rear_drive));
-    send_frame(fsai::sim::svcu::dbc::encode_ai2vcu_brake(commands.brake));
+    sim_link_->send(fsai::sim::svcu::dbc::encode_ai2vcu_status(commands.status));
+    sim_link_->send(fsai::sim::svcu::dbc::encode_ai2vcu_steer(commands.steer));
+    sim_link_->send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_front(commands.front_drive));
+    sim_link_->send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_rear(commands.rear_drive));
+    sim_link_->send(fsai::sim::svcu::dbc::encode_ai2vcu_brake(commands.brake));
     return true;
   }
 
@@ -229,11 +223,9 @@ std::optional<GpsSample> CanIface::LatestGps() const {
 bool CanIface::InitializeSimulation(const Config& config) {
   auto link = fsai::sim::svcu::make_can_link(config.endpoint);
   if (!link) {
-    std::fprintf(stderr, "[CanIface] Failed to create CAN link for %s\n", config.endpoint.c_str());
     return false;
   }
   if (!link->open(config.endpoint, config.enable_loopback)) {
-    std::fprintf(stderr, "[CanIface] Failed to open CAN endpoint %s\n", config.endpoint.c_str());
     return false;
   }
   sim_link_ = std::move(link);
@@ -252,7 +244,6 @@ bool CanIface::InitializeFsAiApi(const Config& config) {
                                                               : "libfs_ai_api.so";
   api_->handle = dlopen(library_path.c_str(), RTLD_LAZY);
   if (!api_->handle) {
-    std::fprintf(stderr, "[CanIface] Failed to load %s: %s\n", library_path.c_str(), dlerror());
     return false;
   }
   api_->init_fn = reinterpret_cast<int (*)(const char*)>(dlsym(api_->handle, "fs_ai_api_init"));
@@ -265,17 +256,14 @@ bool CanIface::InitializeFsAiApi(const Config& config) {
   api_->gps_fn = reinterpret_cast<int (*)(FsAiApiGpsData*)>(
       dlsym(api_->handle, "fs_ai_api_gps_get_data"));
   if (!api_->init_fn || !api_->set_fn || !api_->get_fn) {
-    std::fprintf(stderr, "[CanIface] Missing functions in FS-AI API library\n");
     return false;
   }
   if (api_->init_fn(config.endpoint.c_str()) != 0) {
-    std::fprintf(stderr, "[CanIface] fs_ai_api_init failed for %s\n", config.endpoint.c_str());
     return false;
   }
   return true;
 #else
   (void)config;
-  std::fprintf(stderr, "[CanIface] FS-AI API mode not supported on this platform\n");
   return false;
 #endif
 }
