@@ -161,6 +161,7 @@ bool decode_vcu2ai_steer(const can_frame& frame, Vcu2AiSteer& out);
 bool decode_vcu2ai_drive_front(const can_frame& frame, Vcu2AiDrive& out);
 bool decode_vcu2ai_drive_rear(const can_frame& frame, Vcu2AiDrive& out);
 bool decode_vcu2ai_brake(const can_frame& frame, Vcu2AiBrake& out);
+bool decode_vcu2ai_speeds(const can_frame& frame, Vcu2AiSpeeds& out);
 bool decode_vcu2log_dynamics1(const can_frame& frame, Vcu2LogDynamics1& out);
 bool decode_ai2log_dynamics2(const can_frame& frame, Ai2LogDynamics2& out);
 
