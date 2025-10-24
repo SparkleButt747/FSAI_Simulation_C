@@ -33,6 +33,7 @@ class CanIface {
     std::string endpoint;
     bool enable_loopback{true};
     std::string api_library;
+    double wheel_radius_m{0.25};
   };
 
   CanIface();
@@ -43,6 +44,9 @@ class CanIface {
 
   bool Send(const Ai2VcuCommandSet& commands);
   void Poll(uint64_t now_ns);
+
+  bool SendSimulationFrame(const can_frame& frame);
+  void SetSimulationGpsSample(double lat_deg, double lon_deg, double speed_mps);
 
   std::optional<fsai::types::VehicleState> LatestVehicleState() const;
   std::optional<ImuSample> LatestImu() const;
@@ -60,10 +64,12 @@ class CanIface {
   bool InitializeFsAiApi(const Config& config);
   void PollSimulation();
   void PollFsAiApi();
+  void ProcessFrame(const can_frame& frame);
 
   Mode mode_{Mode::kSimulation};
   bool initialized_{false};
   std::unique_ptr<fsai::sim::svcu::ICanLink> sim_link_;
+  double wheel_radius_m_{0.25};
 
   fsai::sim::svcu::dbc::Vcu2AiStatus feedback_status_{};
   fsai::sim::svcu::dbc::Vcu2AiSteer feedback_steer_{};
@@ -72,10 +78,16 @@ class CanIface {
   fsai::sim::svcu::dbc::Vcu2AiBrake feedback_brake_{};
   fsai::sim::svcu::dbc::Vcu2LogDynamics1 feedback_dyn_{};
   fsai::sim::svcu::dbc::Ai2LogDynamics2 feedback_imu_{};
+  fsai::sim::svcu::dbc::Vcu2AiSpeeds feedback_speeds_{};
   uint64_t last_feedback_ns_{0};
   bool has_status_{false};
   bool has_dyn_{false};
   bool has_imu_{false};
+  bool has_speeds_{false};
+  double gps_lat_deg_{0.0};
+  double gps_lon_deg_{0.0};
+  double gps_speed_mps_{0.0};
+  bool has_gps_{false};
 
   struct FsAiApiVtable;
   std::unique_ptr<FsAiApiVtable> api_;
