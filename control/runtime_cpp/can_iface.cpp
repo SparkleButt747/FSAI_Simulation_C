@@ -1,8 +1,10 @@
 #include "can_iface.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <numbers>
 
 #if defined(__unix__) || defined(__APPLE__)
 #include <dlfcn.h>
@@ -62,6 +64,7 @@ bool CanIface::Initialize(const Config& config) {
   Shutdown();
   mode_ = config.mode;
   initialized_ = false;
+  wheel_radius_m_ = std::max(0.01, config.wheel_radius_m);
 
   switch (mode_) {
     case Mode::kSimulation:
@@ -99,6 +102,11 @@ void CanIface::Shutdown() {
 #endif
   api_.reset();
   initialized_ = false;
+  has_status_ = false;
+  has_dyn_ = false;
+  has_imu_ = false;
+  has_speeds_ = false;
+  has_gps_ = false;
 }
 
 bool CanIface::Send(const Ai2VcuCommandSet& commands) {
@@ -151,6 +159,20 @@ void CanIface::Poll(uint64_t now_ns) {
   }
 }
 
+bool CanIface::SendSimulationFrame(const can_frame& frame) {
+  if (!initialized_ || mode_ != Mode::kSimulation || !sim_link_) {
+    return false;
+  }
+  return sim_link_->send(frame);
+}
+
+void CanIface::SetSimulationGpsSample(double lat_deg, double lon_deg, double speed_mps) {
+  gps_lat_deg_ = lat_deg;
+  gps_lon_deg_ = lon_deg;
+  gps_speed_mps_ = speed_mps;
+  has_gps_ = true;
+}
+
 std::optional<fsai::types::VehicleState> CanIface::LatestVehicleState() const {
   if (!initialized_ || !has_dyn_) {
     return std::nullopt;
@@ -160,7 +182,20 @@ std::optional<fsai::types::VehicleState> CanIface::LatestVehicleState() const {
   state.x = 0.0f;
   state.y = 0.0f;
   state.yaw = 0.0f;
-  state.vx = feedback_dyn_.speed_actual_kph / 3.6f;
+  double speed_mps = 0.0;
+  if (has_speeds_) {
+    double rpm_sum = 0.0;
+    for (float rpm : feedback_speeds_.wheel_rpm) {
+      rpm_sum += rpm;
+    }
+    const double rpm_mean = rpm_sum / 4.0;
+    speed_mps = (rpm_mean * 2.0 * std::numbers::pi_v<double> * wheel_radius_m_) / 60.0;
+  } else if (has_gps_) {
+    speed_mps = gps_speed_mps_;
+  } else {
+    speed_mps = feedback_dyn_.speed_actual_kph / 3.6f;
+  }
+  state.vx = static_cast<float>(speed_mps);
   state.vy = 0.0f;
   state.yaw_rate = has_imu_ ? feedback_imu_.yaw_rate_degps * kDegToRad : 0.0f;
   state.ax = has_imu_ ? feedback_imu_.accel_longitudinal_mps2 : 0.0f;
@@ -181,13 +216,13 @@ std::optional<ImuSample> CanIface::LatestImu() const {
 }
 
 std::optional<GpsSample> CanIface::LatestGps() const {
-  if (!initialized_ || !has_dyn_) {
+  if (!initialized_ || (!has_dyn_ && !has_gps_)) {
     return std::nullopt;
   }
   GpsSample gps{};
-  gps.lat_deg = 0.0;
-  gps.lon_deg = 0.0;
-  gps.speed_mps = feedback_dyn_.speed_actual_kph / 3.6f;
+  gps.lat_deg = has_gps_ ? gps_lat_deg_ : 0.0;
+  gps.lon_deg = has_gps_ ? gps_lon_deg_ : 0.0;
+  gps.speed_mps = has_gps_ ? gps_speed_mps_ : feedback_dyn_.speed_actual_kph / 3.6f;
   return gps;
 }
 
@@ -205,6 +240,8 @@ bool CanIface::InitializeSimulation(const Config& config) {
   has_status_ = false;
   has_dyn_ = false;
   has_imu_ = false;
+  has_speeds_ = false;
+  has_gps_ = false;
   return true;
 }
 
@@ -248,43 +285,54 @@ void CanIface::PollSimulation() {
     return;
   }
   while (auto frame = sim_link_->receive()) {
-    fsai::sim::svcu::dbc::Vcu2AiStatus status{};
-    fsai::sim::svcu::dbc::Vcu2AiSteer steer{};
-    fsai::sim::svcu::dbc::Vcu2AiDrive drive{};
-    fsai::sim::svcu::dbc::Vcu2AiBrake brake{};
-    fsai::sim::svcu::dbc::Vcu2LogDynamics1 dyn{};
-    fsai::sim::svcu::dbc::Ai2LogDynamics2 imu{};
-    if (fsai::sim::svcu::dbc::decode_vcu2ai_status(*frame, status)) {
-      feedback_status_ = status;
-      has_status_ = true;
-      continue;
-    }
-    if (fsai::sim::svcu::dbc::decode_vcu2ai_steer(*frame, steer)) {
-      feedback_steer_ = steer;
-      continue;
-    }
-    if (fsai::sim::svcu::dbc::decode_vcu2ai_drive_front(*frame, drive)) {
-      feedback_front_drive_ = drive;
-      continue;
-    }
-    if (fsai::sim::svcu::dbc::decode_vcu2ai_drive_rear(*frame, drive)) {
-      feedback_rear_drive_ = drive;
-      continue;
-    }
-    if (fsai::sim::svcu::dbc::decode_vcu2ai_brake(*frame, brake)) {
-      feedback_brake_ = brake;
-      continue;
-    }
-    if (fsai::sim::svcu::dbc::decode_vcu2log_dynamics1(*frame, dyn)) {
-      feedback_dyn_ = dyn;
-      has_dyn_ = true;
-      continue;
-    }
-    if (fsai::sim::svcu::dbc::decode_ai2log_dynamics2(*frame, imu)) {
-      feedback_imu_ = imu;
-      has_imu_ = true;
-      continue;
-    }
+    ProcessFrame(*frame);
+  }
+}
+
+void CanIface::ProcessFrame(const can_frame& frame) {
+  fsai::sim::svcu::dbc::Vcu2AiStatus status{};
+  fsai::sim::svcu::dbc::Vcu2AiSteer steer{};
+  fsai::sim::svcu::dbc::Vcu2AiDrive drive{};
+  fsai::sim::svcu::dbc::Vcu2AiBrake brake{};
+  fsai::sim::svcu::dbc::Vcu2LogDynamics1 dyn{};
+  fsai::sim::svcu::dbc::Ai2LogDynamics2 imu{};
+  fsai::sim::svcu::dbc::Vcu2AiSpeeds speeds{};
+  if (fsai::sim::svcu::dbc::decode_vcu2ai_status(frame, status)) {
+    feedback_status_ = status;
+    has_status_ = true;
+    return;
+  }
+  if (fsai::sim::svcu::dbc::decode_vcu2ai_steer(frame, steer)) {
+    feedback_steer_ = steer;
+    return;
+  }
+  if (fsai::sim::svcu::dbc::decode_vcu2ai_drive_front(frame, drive)) {
+    feedback_front_drive_ = drive;
+    return;
+  }
+  if (fsai::sim::svcu::dbc::decode_vcu2ai_drive_rear(frame, drive)) {
+    feedback_rear_drive_ = drive;
+    return;
+  }
+  if (fsai::sim::svcu::dbc::decode_vcu2ai_brake(frame, brake)) {
+    feedback_brake_ = brake;
+    return;
+  }
+  if (fsai::sim::svcu::dbc::decode_vcu2ai_speeds(frame, speeds)) {
+    feedback_speeds_ = speeds;
+    has_speeds_ = true;
+    return;
+  }
+  if (fsai::sim::svcu::dbc::decode_vcu2log_dynamics1(frame, dyn)) {
+    feedback_dyn_ = dyn;
+    gps_speed_mps_ = dyn.speed_actual_kph / 3.6f;
+    has_dyn_ = true;
+    return;
+  }
+  if (fsai::sim::svcu::dbc::decode_ai2log_dynamics2(frame, imu)) {
+    feedback_imu_ = imu;
+    has_imu_ = true;
+    return;
   }
 }
 

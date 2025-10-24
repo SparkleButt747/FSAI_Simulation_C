@@ -1,0 +1,37 @@
+# Sensor noise and latency configuration for simulated CAN feedback.
+# Latencies are specified in milliseconds; noise values are standard deviations
+# in the units noted for each channel.
+seed: 1337
+
+steering:
+  noise_std_deg: 0.0
+  latency_ms: 0.0
+
+wheel_speed:
+  noise_std_rpm: 0.0
+  latency_ms: 0.0
+
+drive_torque:
+  front_noise_std_nm: 0.0
+  rear_noise_std_nm: 0.0
+  latency_ms: 0.0
+
+brake:
+  noise_std_pct: 0.0
+  latency_ms: 0.0
+
+speed:
+  noise_std_kph: 0.0
+  latency_ms: 0.0
+
+imu:
+  noise_std_ax: 0.0
+  noise_std_ay: 0.0
+  noise_std_yaw_degps: 0.0
+  latency_ms: 0.0
+
+gps:
+  noise_std_lat_deg: 0.0
+  noise_std_lon_deg: 0.0
+  noise_std_speed_mps: 0.0
+  latency_ms: 0.0

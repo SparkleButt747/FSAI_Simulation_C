@@ -207,6 +207,16 @@ bool decode_vcu2ai_brake(const can_frame& frame, Vcu2AiBrake& out) {
   return true;
 }
 
+bool decode_vcu2ai_speeds(const can_frame& frame, Vcu2AiSpeeds& out) {
+  if (frame.can_id != kMsgIdVcu2AiSpeeds || frame.can_dlc < 8) {
+    return false;
+  }
+  for (int i = 0; i < 4; ++i) {
+    out.wheel_rpm[i] = static_cast<float>(read_u16_le(frame.data + (i * 2)));
+  }
+  return true;
+}
+
 bool decode_vcu2log_dynamics1(const can_frame& frame, Vcu2LogDynamics1& out) {
   if (frame.can_id != kMsgIdVcu2LogDynamics1 || frame.can_dlc < 8) {
     return false;
