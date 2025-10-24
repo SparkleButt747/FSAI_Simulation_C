@@ -156,6 +156,14 @@ bool decode_ai2vcu_drive_rear(const can_frame& frame, Ai2VcuDrive& out);
 bool decode_ai2vcu_steer(const can_frame& frame, Ai2VcuSteer& out);
 bool decode_ai2vcu_brake(const can_frame& frame, Ai2VcuBrake& out);
 
+bool decode_vcu2ai_status(const can_frame& frame, Vcu2AiStatus& out);
+bool decode_vcu2ai_steer(const can_frame& frame, Vcu2AiSteer& out);
+bool decode_vcu2ai_drive_front(const can_frame& frame, Vcu2AiDrive& out);
+bool decode_vcu2ai_drive_rear(const can_frame& frame, Vcu2AiDrive& out);
+bool decode_vcu2ai_brake(const can_frame& frame, Vcu2AiBrake& out);
+bool decode_vcu2log_dynamics1(const can_frame& frame, Vcu2LogDynamics1& out);
+bool decode_ai2log_dynamics2(const can_frame& frame, Ai2LogDynamics2& out);
+
 // Encode helpers for AI -> VCU traffic (used by simulator AI loop)
 can_frame encode_ai2vcu_status(const Ai2VcuStatus& status);
 can_frame encode_ai2vcu_drive_front(const Ai2VcuDrive& drive);
