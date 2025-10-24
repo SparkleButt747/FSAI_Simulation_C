@@ -1,0 +1,84 @@
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+
+#include "ai2vcu_adapter.hpp"
+#include "adsdv_dbc.hpp"
+#include "can_link.hpp"
+#include "types.h"
+
+namespace fsai::control::runtime {
+
+struct ImuSample {
+  float accel_longitudinal_mps2{0.0f};
+  float accel_lateral_mps2{0.0f};
+  float yaw_rate_rps{0.0f};
+};
+
+struct GpsSample {
+  double lat_deg{0.0};
+  double lon_deg{0.0};
+  double speed_mps{0.0};
+};
+
+class CanIface {
+ public:
+  enum class Mode { kSimulation, kFsAiApi };
+
+  struct Config {
+    Mode mode{Mode::kSimulation};
+    std::string endpoint;
+    bool enable_loopback{true};
+    std::string api_library;
+  };
+
+  CanIface();
+  ~CanIface();
+
+  bool Initialize(const Config& config);
+  void Shutdown();
+
+  bool Send(const Ai2VcuCommandSet& commands);
+  void Poll(uint64_t now_ns);
+
+  std::optional<fsai::types::VehicleState> LatestVehicleState() const;
+  std::optional<ImuSample> LatestImu() const;
+  std::optional<GpsSample> LatestGps() const;
+
+  const fsai::sim::svcu::dbc::Vcu2AiStatus& RawStatus() const { return feedback_status_; }
+  const fsai::sim::svcu::dbc::Vcu2AiSteer& RawSteer() const { return feedback_steer_; }
+  const fsai::sim::svcu::dbc::Vcu2AiDrive& RawFrontDrive() const { return feedback_front_drive_; }
+  const fsai::sim::svcu::dbc::Vcu2AiDrive& RawRearDrive() const { return feedback_rear_drive_; }
+  const fsai::sim::svcu::dbc::Vcu2AiBrake& RawBrake() const { return feedback_brake_; }
+  const fsai::sim::svcu::dbc::Vcu2LogDynamics1& RawDynamics() const { return feedback_dyn_; }
+
+ private:
+  bool InitializeSimulation(const Config& config);
+  bool InitializeFsAiApi(const Config& config);
+  void PollSimulation();
+  void PollFsAiApi();
+
+  Mode mode_{Mode::kSimulation};
+  bool initialized_{false};
+  std::unique_ptr<fsai::sim::svcu::ICanLink> sim_link_;
+
+  fsai::sim::svcu::dbc::Vcu2AiStatus feedback_status_{};
+  fsai::sim::svcu::dbc::Vcu2AiSteer feedback_steer_{};
+  fsai::sim::svcu::dbc::Vcu2AiDrive feedback_front_drive_{};
+  fsai::sim::svcu::dbc::Vcu2AiDrive feedback_rear_drive_{};
+  fsai::sim::svcu::dbc::Vcu2AiBrake feedback_brake_{};
+  fsai::sim::svcu::dbc::Vcu2LogDynamics1 feedback_dyn_{};
+  fsai::sim::svcu::dbc::Ai2LogDynamics2 feedback_imu_{};
+  uint64_t last_feedback_ns_{0};
+  bool has_status_{false};
+  bool has_dyn_{false};
+  bool has_imu_{false};
+
+  struct FsAiApiVtable;
+  std::unique_ptr<FsAiApiVtable> api_;
+};
+
+}  // namespace fsai::control::runtime

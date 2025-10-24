@@ -132,6 +132,106 @@ bool decode_ai2vcu_brake(const can_frame& frame, Ai2VcuBrake& out) {
   return true;
 }
 
+bool decode_vcu2ai_status(const can_frame& frame, Vcu2AiStatus& out) {
+  if (frame.can_id != kMsgIdVcu2AiStatus || frame.can_dlc < 8) {
+    return false;
+  }
+  std::memset(&out, 0, sizeof(out));
+  out.handshake = read_bits_le(frame.data, 0, 1) != 0;
+  out.shutdown_request = read_bits_le(frame.data, 8, 1) != 0;
+  out.as_switch_on = read_bits_le(frame.data, 9, 1) != 0;
+  out.ts_switch_on = read_bits_le(frame.data, 10, 1) != 0;
+  out.go_signal = read_bits_le(frame.data, 11, 1) != 0;
+  out.steering_status = static_cast<SteeringStatus>(read_bits_le(frame.data, 12, 2));
+  out.as_state = static_cast<AsState>(read_bits_le(frame.data, 16, 4));
+  out.ami_state = static_cast<uint8_t>(read_bits_le(frame.data, 20, 4));
+  out.fault = read_bits_le(frame.data, 24, 1) != 0;
+  out.warning = read_bits_le(frame.data, 25, 1) != 0;
+  out.ai_estop_request = read_bits_le(frame.data, 40, 1) != 0;
+  out.hvil_open_fault = read_bits_le(frame.data, 41, 1) != 0;
+  out.hvil_short_fault = read_bits_le(frame.data, 42, 1) != 0;
+  out.ebs_fault = read_bits_le(frame.data, 43, 1) != 0;
+  out.offboard_charger_fault = read_bits_le(frame.data, 44, 1) != 0;
+  out.ai_comms_lost = read_bits_le(frame.data, 45, 1) != 0;
+  out.warn_batt_temp_high = read_bits_le(frame.data, 32, 1) != 0;
+  out.warn_batt_soc_low = read_bits_le(frame.data, 33, 1) != 0;
+  out.autonomous_braking_fault = read_bits_le(frame.data, 46, 1) != 0;
+  out.mission_status_fault = read_bits_le(frame.data, 47, 1) != 0;
+  out.charge_procedure_fault = read_bits_le(frame.data, 48, 1) != 0;
+  out.bms_fault = read_bits_le(frame.data, 49, 1) != 0;
+  out.brake_plausibility_fault = read_bits_le(frame.data, 50, 1) != 0;
+  out.shutdown_cause = static_cast<uint8_t>(read_bits_le(frame.data, 56, 8));
+  return true;
+}
+
+bool decode_vcu2ai_steer(const can_frame& frame, Vcu2AiSteer& out) {
+  if (frame.can_id != kMsgIdVcu2AiSteer || frame.can_dlc < 6) {
+    return false;
+  }
+  out.angle_deg = static_cast<float>(read_i16_le(frame.data) * 0.1f);
+  out.angle_max_deg = static_cast<float>(read_u16_le(frame.data + 2) * 0.1f);
+  out.angle_request_deg = static_cast<float>(read_i16_le(frame.data + 4) * 0.1f);
+  return true;
+}
+
+bool decode_vcu2ai_drive_front(const can_frame& frame, Vcu2AiDrive& out) {
+  if (frame.can_id != kMsgIdVcu2AiDriveFront || frame.can_dlc < 6) {
+    return false;
+  }
+  out.axle_trq_nm = static_cast<float>(read_i16_le(frame.data) * 0.1f);
+  out.axle_trq_request_nm = static_cast<float>(read_u16_le(frame.data + 2) * 0.1f);
+  out.axle_trq_max_nm = static_cast<float>(read_u16_le(frame.data + 4) * 0.1f);
+  return true;
+}
+
+bool decode_vcu2ai_drive_rear(const can_frame& frame, Vcu2AiDrive& out) {
+  if (frame.can_id != kMsgIdVcu2AiDriveRear || frame.can_dlc < 6) {
+    return false;
+  }
+  out.axle_trq_nm = static_cast<float>(read_i16_le(frame.data) * 0.1f);
+  out.axle_trq_request_nm = static_cast<float>(read_u16_le(frame.data + 2) * 0.1f);
+  out.axle_trq_max_nm = static_cast<float>(read_u16_le(frame.data + 4) * 0.1f);
+  return true;
+}
+
+bool decode_vcu2ai_brake(const can_frame& frame, Vcu2AiBrake& out) {
+  if (frame.can_id != kMsgIdVcu2AiBrake || frame.can_dlc < 5) {
+    return false;
+  }
+  out.front_pct = static_cast<float>(frame.data[0]) * 0.5f;
+  out.front_req_pct = static_cast<float>(frame.data[1]) * 0.5f;
+  out.rear_pct = static_cast<float>(frame.data[2]) * 0.5f;
+  out.rear_req_pct = static_cast<float>(frame.data[3]) * 0.5f;
+  out.status_brk = static_cast<BrakeStatus>(frame.data[4] & 0x0Fu);
+  out.status_ebs = static_cast<EbsStatus>((frame.data[4] >> 4) & 0x0Fu);
+  return true;
+}
+
+bool decode_vcu2log_dynamics1(const can_frame& frame, Vcu2LogDynamics1& out) {
+  if (frame.can_id != kMsgIdVcu2LogDynamics1 || frame.can_dlc < 8) {
+    return false;
+  }
+  out.speed_actual_kph = static_cast<float>(frame.data[0]);
+  out.speed_target_kph = static_cast<float>(frame.data[1]);
+  out.steer_actual_deg = static_cast<float>(static_cast<int8_t>(frame.data[2])) * 0.5f;
+  out.steer_target_deg = static_cast<float>(static_cast<int8_t>(frame.data[3])) * 0.5f;
+  out.brake_actual_pct = static_cast<float>(frame.data[4]);
+  out.brake_target_pct = static_cast<float>(frame.data[5]);
+  out.drive_trq_actual_pct = static_cast<float>(frame.data[6]);
+  out.drive_trq_target_pct = static_cast<float>(frame.data[7]);
+  return true;
+}
+
+bool decode_ai2log_dynamics2(const can_frame& frame, Ai2LogDynamics2& out) {
+  if (frame.can_id != kMsgIdAi2LogDynamics2 || frame.can_dlc < 6) {
+    return false;
+  }
+  out.accel_longitudinal_mps2 = static_cast<float>(read_i16_le(frame.data) * 0.00195313f);
+  out.accel_lateral_mps2 = static_cast<float>(read_i16_le(frame.data + 2) * 0.00195313f);
+  out.yaw_rate_degps = static_cast<float>(read_i16_le(frame.data + 4) * 0.0078125f);
+  return true;
+}
+
 can_frame encode_ai2vcu_status(const Ai2VcuStatus& status) {
   can_frame frame{};
   frame.can_id = kMsgIdAi2VcuStatus;

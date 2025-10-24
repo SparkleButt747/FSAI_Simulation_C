@@ -26,6 +26,8 @@
 #include "adsdv_dbc.hpp"
 #include "link.hpp"
 #include "can_link.hpp"
+#include "ai2vcu_adapter.hpp"
+#include "can_iface.hpp"
 
 namespace {
 constexpr double kDefaultDt = 0.01;
@@ -67,6 +69,8 @@ int main(int argc, char* argv[]) {
 
   double dt = kDefaultDt;
   std::string can_iface = fsai::sim::svcu::default_can_endpoint();
+  std::string mode = "sim";
+  bool can_iface_overridden = false;
   uint16_t command_port = kDefaultCommandPort;
   uint16_t telemetry_port = kDefaultTelemetryPort;
 
@@ -76,6 +80,9 @@ int main(int argc, char* argv[]) {
       dt = std::atof(argv[++i]);
     } else if (arg == "--can-if" && i + 1 < argc) {
       can_iface = argv[++i];
+      can_iface_overridden = true;
+    } else if (arg == "--mode" && i + 1 < argc) {
+      mode = argv[++i];
     } else if (arg == "--cmd-port" && i + 1 < argc) {
       command_port = parse_port(argv[++i], command_port);
     } else if (arg == "--state-port" && i + 1 < argc) {
@@ -97,12 +104,19 @@ int main(int argc, char* argv[]) {
                 kDefaultDt);
     dt = kDefaultDt;
   }
+  if (!can_iface_overridden) {
+    if (mode == "sim") {
+      can_iface = "vcan0";
+    } else if (mode == "car") {
+      can_iface = "can0";
+    }
+  }
   can_iface = fsai::sim::svcu::canonicalize_can_endpoint(can_iface);
   const bool can_is_udp = fsai::sim::svcu::is_udp_endpoint(can_iface);
   std::printf(
-      "Using dt = %.4f seconds, CAN %s (%s), cmd-port %u, state-port %u\n",
-      dt, can_iface.c_str(), can_is_udp ? "udp" : "socketcan", command_port,
-      telemetry_port);
+      "Using dt = %.4f seconds, mode=%s, CAN %s (%s), cmd-port %u, state-port %u\n",
+      dt, mode.c_str(), can_iface.c_str(), can_is_udp ? "udp" : "socketcan",
+      command_port, telemetry_port);
 
   fsai_clock_config clock_cfg{};
   clock_cfg.mode = FSAI_CLOCK_MODE_SIMULATED;
@@ -111,6 +125,8 @@ int main(int argc, char* argv[]) {
 
   const uint64_t step_ns = fsai_clock_from_seconds(dt);
   const double step_seconds = fsai_clock_to_seconds(step_ns);
+  const uint64_t ai2vcu_period_ns = fsai_clock_from_seconds(0.01);
+  uint64_t last_ai2vcu_tx_ns = 0;
 
   fsai_budget_init();
   fsai_budget_configure(FSAI_BUDGET_SUBSYSTEM_SIMULATION, "Simulation Renderer",
@@ -159,10 +175,30 @@ int main(int argc, char* argv[]) {
   bool running = true;
   size_t frame_counter = 0;
 
-  auto can_link = fsai::sim::svcu::make_can_link(can_iface);
-  if (!can_link || !can_link->open(can_iface, true)) {
-    std::fprintf(stderr, "Failed to open CAN endpoint %s\n", can_iface.c_str());
-    return EXIT_FAILURE;
+  fsai::control::runtime::CanIface::Config can_cfg{};
+  can_cfg.endpoint = can_iface;
+  can_cfg.enable_loopback = true;
+  can_cfg.mode = (mode == "car") ? fsai::control::runtime::CanIface::Mode::kFsAiApi
+                                   : fsai::control::runtime::CanIface::Mode::kSimulation;
+  if (can_cfg.mode == fsai::control::runtime::CanIface::Mode::kFsAiApi) {
+    can_cfg.enable_loopback = false;
+  }
+
+  fsai::control::runtime::CanIface can_interface;
+  if (!can_interface.Initialize(can_cfg)) {
+    if (mode == "sim" && !can_iface_overridden) {
+      const std::string fallback = fsai::sim::svcu::default_can_endpoint();
+      std::printf("Falling back to CAN endpoint %s\n", fallback.c_str());
+      can_cfg.endpoint = fallback;
+      can_cfg.mode = fsai::control::runtime::CanIface::Mode::kSimulation;
+      if (!can_interface.Initialize(can_cfg)) {
+        std::fprintf(stderr, "Failed to open CAN endpoint %s\n", can_cfg.endpoint.c_str());
+        return EXIT_FAILURE;
+      }
+    } else {
+      std::fprintf(stderr, "Failed to open CAN endpoint %s\n", can_cfg.endpoint.c_str());
+      return EXIT_FAILURE;
+    }
   }
 
   fsai::sim::svcu::UdpEndpoint command_rx;
@@ -204,9 +240,19 @@ int main(int argc, char* argv[]) {
   const float brake_front_bias = tmp_brake_front_bias;
   const float brake_rear_bias = std::clamp(1.0f - brake_front_bias, 0.0f, 1.0f);
 
+  fsai::control::runtime::Ai2VcuAdapterConfig adapter_cfg{};
+  adapter_cfg.front_motor_weight = front_motor_weight;
+  adapter_cfg.rear_motor_weight = rear_motor_weight;
+  adapter_cfg.brake_front_bias = brake_front_bias;
+  adapter_cfg.brake_rear_bias = brake_rear_bias;
+  adapter_cfg.max_speed_kph =
+      static_cast<float>(vehicle_param.input_ranges.vel.max * 3.6);
+  fsai::control::runtime::Ai2VcuAdapter ai2vcu_adapter(adapter_cfg);
+
   std::optional<fsai::sim::svcu::CommandPacket> latest_command;
   const uint64_t stale_threshold_ns =
       fsai_clock_from_seconds(kCommandStaleSeconds);
+
 
   while (running) {
     SDL_Event event;
@@ -241,6 +287,8 @@ int main(int argc, char* argv[]) {
       }
     }
 
+    can_interface.Poll(fsai_clock_now());
+
     float autopThrottle = world.throttleInput;
     float autopBrake = world.brakeInput;
     float autopSteer = world.steeringAngle;
@@ -259,65 +307,14 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    const float throttle_cmd = std::clamp(autopThrottle, 0.0f, 1.0f);
-    const float brake_cmd = std::clamp(autopBrake, 0.0f, 1.0f);
-
     const VehicleState& veh_state = world.vehicleState();
     const double vx = veh_state.velocity.x();
     const double vy = veh_state.velocity.y();
     const float speed_mps = static_cast<float>(std::sqrt(vx * vx + vy * vy));
-    const float speed_kph = speed_mps * 3.6f;
-    const float target_speed_kph = std::clamp(
-        static_cast<float>(vehicle_param.input_ranges.vel.max * throttle_cmd * 3.6),
-        0.0f, 255.0f);
-
-    fsai::sim::svcu::dbc::Ai2VcuStatus status_msg{};
-    status_msg.handshake = true;
-    status_msg.estop_request = false;
-    status_msg.mission_status = world.useRacingAlgorithm
-                                    ? fsai::sim::svcu::dbc::MissionStatus::kRunning
-                                    : fsai::sim::svcu::dbc::MissionStatus::kSelected;
-    status_msg.direction_request = fsai::sim::svcu::dbc::DirectionRequest::kForward;
-    status_msg.lap_counter = static_cast<uint8_t>(
-        std::clamp(world.completedLaps(), 0, 15));
-    status_msg.cones_count_actual = 0;
-    status_msg.cones_count_all = 0;
-    status_msg.veh_speed_actual_kph = speed_kph;
-    status_msg.veh_speed_demand_kph = target_speed_kph;
-    can_link->send(fsai::sim::svcu::dbc::encode_ai2vcu_status(status_msg));
-
-    const float total_torque_nm = throttle_cmd *
-                                  2.0f * fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
-    float front_torque_request_nm =
-        std::clamp(total_torque_nm * front_motor_weight, 0.0f,
-                   fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
-    float rear_torque_request_nm =
-        std::clamp(total_torque_nm * rear_motor_weight, 0.0f,
-                   fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
-
-    fsai::sim::svcu::dbc::Ai2VcuSteer steer_msg{};
-    steer_msg.steer_deg = std::clamp(autopSteer * fsai::sim::svcu::dbc::kRadToDeg,
-                                     -fsai::sim::svcu::dbc::kMaxSteerDeg,
-                                     fsai::sim::svcu::dbc::kMaxSteerDeg);
-    can_link->send(fsai::sim::svcu::dbc::encode_ai2vcu_steer(steer_msg));
-
-    fsai::sim::svcu::dbc::Ai2VcuDrive front_drive{};
-    front_drive.axle_torque_request_nm = front_torque_request_nm;
-    front_drive.motor_speed_max_rpm = 4000.0f;
-    can_link->send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_front(front_drive));
-
-    fsai::sim::svcu::dbc::Ai2VcuDrive rear_drive{};
-    rear_drive.axle_torque_request_nm = rear_torque_request_nm;
-    rear_drive.motor_speed_max_rpm = 4000.0f;
-    can_link->send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_rear(rear_drive));
-
-    fsai::sim::svcu::dbc::Ai2VcuBrake brake_msg{};
-    const float brake_pct_total = brake_cmd * 100.0f;
-    brake_msg.front_pct = std::clamp(brake_pct_total * brake_front_bias, 0.0f,
-                                     fsai::sim::svcu::dbc::kMaxBrakePercent);
-    brake_msg.rear_pct = std::clamp(brake_pct_total * brake_rear_bias, 0.0f,
-                                    fsai::sim::svcu::dbc::kMaxBrakePercent);
-    can_link->send(fsai::sim::svcu::dbc::encode_ai2vcu_brake(brake_msg));
+    float measured_speed_mps = speed_mps;
+    if (auto can_state = can_interface.LatestVehicleState()) {
+      measured_speed_mps = std::max(can_state->vx, measured_speed_mps);
+    }
 
     fsai::sim::svcu::CommandPacket command_packet{};
     while (auto bytes = command_rx.receive(&command_packet, sizeof(command_packet))) {
@@ -342,6 +339,23 @@ int main(int argc, char* argv[]) {
 
     appliedThrottle = std::clamp(appliedThrottle, 0.0f, 1.0f);
     appliedBrake = std::clamp(appliedBrake, 0.0f, 1.0f);
+
+    fsai::types::ControlCmd control_cmd{};
+    control_cmd.throttle = appliedThrottle;
+    control_cmd.brake = appliedBrake;
+    control_cmd.steer_rad = appliedSteer;
+    control_cmd.t_ns = now_ns;
+
+    if (now_ns - last_ai2vcu_tx_ns >= ai2vcu_period_ns) {
+      auto command_frames = ai2vcu_adapter.Adapt(
+          control_cmd, measured_speed_mps, world.useRacingAlgorithm,
+          static_cast<uint8_t>(std::clamp(world.completedLaps(), 0, 15)));
+      if (can_interface.Send(command_frames)) {
+        last_ai2vcu_tx_ns = now_ns;
+      }
+    }
+
+    can_interface.Poll(now_ns);
 
     world.setSvcuCommand(appliedThrottle, appliedBrake, appliedSteer);
     world.throttleInput = appliedThrottle;

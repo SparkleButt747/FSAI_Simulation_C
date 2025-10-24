@@ -150,6 +150,20 @@ file(GLOB_RECURSE SIM_APP_SOURCES CONFIGURE_DEPENDS
 add_executable(fsai_run ${SIM_APP_SOURCES})
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering)
 
+file(GLOB_RECURSE CONTROL_RUNTIME_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/control/runtime_cpp/*.cpp"
+)
+
+if(CONTROL_RUNTIME_SOURCES)
+  add_library(fsai_control_runtime STATIC ${CONTROL_RUNTIME_SOURCES})
+  target_include_directories(fsai_control_runtime PUBLIC ${HEADER_DIRS})
+  target_link_libraries(fsai_control_runtime PUBLIC fsai_sim)
+  if(UNIX)
+    target_link_libraries(fsai_control_runtime PUBLIC dl)
+  endif()
+  target_link_libraries(fsai_run PRIVATE fsai_control_runtime)
+endif()
+
 add_executable(svcu_run sim/svcu/svcu_main.cpp)
 target_link_libraries(svcu_run PRIVATE fsai_sim)
 
