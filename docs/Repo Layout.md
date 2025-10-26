@@ -1,5 +1,3 @@
-
-
 # Target repository layout (authoritative)
 
 ```
@@ -66,11 +64,9 @@ fsai/
 ├─ control/
 │  ├─ include/control/api.h
 │  ├─ src/
-│  │  ├─ clc_controller.cpp        # your Custom Lookahead Controller (baseline)
+│  │  ├─ controller.cpp            # racing algorithm (throttle and steering)
 │  │  ├─ control_node.cpp          # Control_Tick(): builds ControlCmd, safety, rate limits
-│  │  ├─ boundary_assign.cpp       # (stub; later real)
-│  │  ├─ boundary_fit.cpp          # (stub; later real)
-│  │  ├─ centerline_spline.cpp     # (stub; later real)
+│  │  ├─ centerline.cpp            # (stub; later real)
 │  │  └─ scheduler.cpp             # cadence @200 Hz, pacing to CAN (10 ms send)
 │  └─ test/
 │     ├─ TestSteering.c   TestThrottle.c
@@ -98,18 +94,17 @@ fsai/
    └─ SimulationModelsTest/ TestDynamicBicycle.cpp
 ```
 
-
 # Provider registry (simple and robust)
 
 `sim/src/integration/provider_registry.cpp` loads providers by string (compile-time maps protected by `#ifdef`s). Read defaults from `config/default.yaml`, override via `-D` or CLI flags:
 
 ```yaml
-mode: sim                # sim | hil | car
+mode: sim # sim | hil | car
 providers:
-  vision: fake_from_sim  # fake_from_sim | zed
-  planner: fake_track    # fake_track | spline
-  estimator: fake_truth  # fake_truth | ekf
-  can: fake              # fake | dbc | fsai_api
+  vision: fake_from_sim # fake_from_sim | zed
+  planner: fake_track # fake_track | spline
+  estimator: fake_truth # fake_truth | ekf
+  can: fake # fake | dbc | fsai_api
 rates:
   control_hz: 200
   vision_hz: 60
@@ -119,23 +114,15 @@ rates:
 # Interfaces (as built artifacts)
 
 - `include/control/api.h` exposes `Control_Tick()` returning `ControlCmd`.
-    
 - `include/vision/api.h` exposes `Vision_ProcessStereo()` returning `Detections`.
-    
 - `include/io/can/ican.h` exposes `CAN_SendControl()` paced by scheduler (10 ms).
-    
 - `include/io/camera/stereo_source.h` exposes `grab()` for sim/real stereo.
-    
 - `record/include/record/api.h` exposes `Rec_*()`.
-    
-    
+
 # Build hygiene & tests
 
 - Add `-Wall -Wextra -Werror` and sanitizers in Debug at the top level.
-    
 - Keep your existing tests under `tests/` and `control/test/`, link them against the new libs.
-    
 - Make the HUD show `providers.*` and `mode` so everyone knows what’s running.
-    
 
 ---

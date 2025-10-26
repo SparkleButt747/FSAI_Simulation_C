@@ -1,5 +1,5 @@
-#ifndef RACINGALGORITHM_H
-#define RACINGALGORITHM_H
+#ifndef CONTROLLER_H
+#define CONTROLLER_H
 
 #ifdef __cplusplus
 extern "C"
@@ -20,25 +20,25 @@ extern "C"
         float speedLookAheadSensitivity;    // e.g., 0.7
         float steeringLookAheadSensitivity; // e.g., 0.1
         float accelerationFactor;           // e.g., 0.002
-    } RacingAlgorithmConfig;
+    } ControllerConfig;
 
     // Computes the throttle input (range -1 to 1) given the checkpoint data, current car velocity,
     // car transform, configuration, and simulation timestep dt.
-    float RacingAlgorithm_GetThrottleInput(const Vector3 *checkpointPositions, int nCheckpoints,
+    float Controller_GetThrottleInput(const Vector3 *checkpointPositions, int nCheckpoints,
                                            double carVelocity, const Transform *carTransform,
-                                           const RacingAlgorithmConfig *config, double dt);
+                                           const ControllerConfig *config, double dt);
 
     // Computes the steering input (range -1 to 1) given the checkpoint data, current car velocity,
     // car transform, configuration, and simulation timestep dt.
-    float RacingAlgorithm_GetSteeringInput(const Vector3 *checkpointPositions, int nCheckpoints,
+    float Controller_GetSteeringInput(const Vector3 *checkpointPositions, int nCheckpoints,
                                            double carVelocity, const Transform *carTransform,
-                                           const RacingAlgorithmConfig *config, double dt);
+                                           const ControllerConfig *config, double dt);
 
-    LookaheadIndices RacingAlgorithm_GetLookaheadIndices(int nCheckpoints, double carVelocity,
-                                                const RacingAlgorithmConfig* config);
+    LookaheadIndices Controller_GetLookaheadIndices(int nCheckpoints, double carVelocity,
+                                                const ControllerConfig* config);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // RACINGALGORITHM_H
+#endif // CONTROLLER_H

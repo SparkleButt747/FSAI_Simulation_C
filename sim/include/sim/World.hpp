@@ -6,7 +6,7 @@
 #include "VehicleState.hpp"
 #include "VehicleInput.hpp"
 #include "Telemetry.hpp"
-#include "RacingAlgorithm.h"
+#include "controller.h"
 #include "Transform.h"
 #include "Vector.h"
 #include "PathConfig.hpp"
@@ -33,7 +33,7 @@ public:
     float steeringAngle{0.0f};
     float throttleInput{0.0f};
     float brakeInput{0.0f};
-    int useRacingAlgorithm{1};
+    int useController{1};
     int regenTrack{1};
 
     const VehicleState& vehicleState() const { return carState; }
@@ -83,7 +83,7 @@ private:
         float lapCompletionThreshold{0.1f};
     } config{};
 
-    RacingAlgorithmConfig racingConfig{};
+    ControllerConfig racingConfig{};
     LookaheadIndices lookaheadIndices{};
 
     double totalTime{0.0};

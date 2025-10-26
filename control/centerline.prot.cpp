@@ -1,19 +1,6 @@
 #define _USE_MATH_DEFINES
 
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#include <CGAL/Delaunay_triangulation_2.h>
-#include <CGAL/draw_triangulation_2.h>
-
-#include "PathGenerator.hpp"
-#include "TrackGenerator.hpp"
-#include "Transform.h"
-
-#include <typeinfo>
-#include <cmath>
-#include <chrono>
-#include <iostream>
-#include <vector>
-#include <cstring>
+#include "centerline.prot.hpp"
 
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
@@ -42,7 +29,7 @@ void printEdges(Triangulation& T) {
     std::cout << std::endl;
   }
 
-void drawEdges(Triangulation& T, CGAL::Graphics_scene& scene, CGAL::Color color = CGAL::IO::Color(15, 15, 15)) {
+void drawEdges(Triangulation& T, CGAL::Graphics_scene& scene, CGAL::Color color) {
   for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
     auto segment = T.segment(*it);
     scene.add_segment(segment.source(), segment.target(), color);
@@ -67,8 +54,8 @@ double getAngle(Point a, Point b) {
 Point generateVehicleTriangulation(
   Triangulation& T,
   const TrackResult& track,
-  double carLength = 4.0,
-  double carWidth = 1.5
+  double carLength,
+  double carWidth
 ) {
       double carYaw = getInitialTrackYaw(track);
 
@@ -95,8 +82,8 @@ Triangulation getVisibleTrackTriangulation(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
-  double sensorRange = 35.0,
-  double sensorFOV = 2 * M_PI / 3
+  double sensorRange,
+  double sensorFOV
 ) {
     Triangulation visibleTrack;
     double carYaw = getInitialTrackYaw(fullTrack);
@@ -144,16 +131,6 @@ int main(int argc, char* argv[])
     PathResult path = pathGen.generatePath(nPoints);
     TrackGenerator trackGen;
     TrackResult track = trackGen.generateTrack(pathConfig, path);
-
-    // Track output for Python prototypes
-    // for (auto cone: track.leftCones) {
-    //   std::cout << "left " << cone.position.x << " " << cone.position.z << '\n';
-    // }
-    // for (auto cone: track.rightCones) {
-    //   std::cout << "right " << cone.position.x << " " << cone.position.z << '\n';
-    // }
-    // std::cout << "start " << track.checkpoints[0].position.x << " " << track.checkpoints[0].position.z << '\n';
-    // std::cout << "next " << track.checkpoints[1].position.x << " " << track.checkpoints[1].position.z << '\n';
 
     Triangulation T;
     Triangulation CarT;

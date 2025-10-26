@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "RacingAlgorithm.h"
+#include "controller.h"
 #include "Vector.h"
 
 int main(void) {
@@ -25,17 +25,17 @@ int main(void) {
     int nCheckpoints = 12;
     double carVelocity = 0;
     Transform transform = {{0, 0, 0}, 0};
-    RacingAlgorithmConfig config = {0.7, 0.1, 0.002};
+    ControllerConfig config = {0.7, 0.1, 0.002};
     double dt = 0.1;
 
-    float throttle1 = RacingAlgorithm_GetSteeringInput(
+    float throttle1 = Controller_GetSteeringInput(
         checkpoints, nCheckpoints,
         carVelocity, &transform,
         &config, dt
     );
     printf("%f", throttle1);
-    // (const Vector3* checkpointPositions, int nCheckpoints, 
-        // double carVelocity, const Transform* carTransform, 
-        // const RacingAlgorithmConfig* config, double dt)
+    // (const Vector3* checkpointPositions, int nCheckpoints,
+        // double carVelocity, const Transform* carTransform,
+        // const ControllerConfig* config, double dt)
     return 0;
 }

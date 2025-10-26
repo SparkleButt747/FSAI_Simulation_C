@@ -8,7 +8,6 @@ This project is a simulation-based racing application that integrates various mo
 - **MainController**: Contains the main logic for controlling cars and other entities. ([MainController/CarController.c](MainController/CarController.c))
 - **PathLogic**: Includes assets and logic for pathfinding and navigation.
 - **PhysicsEngine**: Simulates the physics of the racing environment.
-- **RacingAlgorithms**: Implements racing strategies and algorithms.
 - **Telemetry**: Manages telemetry data and logging.
 
 ## Build Instructions

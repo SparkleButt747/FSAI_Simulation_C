@@ -9,7 +9,7 @@ static Vector3 transformToVector3(const Transform& t) {
 }
 
 bool World::computeRacingControl(double dt, float& throttle_out, float& steering_out) {
-    if (!useRacingAlgorithm || checkpointPositions.empty()) {
+    if (!useController || checkpointPositions.empty()) {
         return false;
     }
 
@@ -17,12 +17,12 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
                         static_cast<float>(carState.velocity.y()),
                         static_cast<float>(carState.velocity.z())};
     const float carSpeed = Vector3_Magnitude(carVelocity);
-    lookaheadIndices = RacingAlgorithm_GetLookaheadIndices(
+    lookaheadIndices = Controller_GetLookaheadIndices(
         static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
-    throttle_out = RacingAlgorithm_GetThrottleInput(
+    throttle_out = Controller_GetThrottleInput(
         checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
         carSpeed, &carTransform, &racingConfig, dt);
-    steering_out = RacingAlgorithm_GetSteeringInput(
+    steering_out = Controller_GetSteeringInput(
         checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
         carSpeed, &carTransform, &racingConfig, dt);
     return true;
@@ -75,7 +75,7 @@ void World::init(const char* yamlFilePath) {
     config.lapCompletionThreshold = 0.1f;
 
     // Use racing algorithm by default
-    useRacingAlgorithm = 1;
+    useController = 1;
 
     // Regenerate track after cone collision
     regenTrack = 1;

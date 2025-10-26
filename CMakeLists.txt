@@ -112,17 +112,17 @@ list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(main|sim/app)/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(main|sim/app)/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(c)$")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(cpp)$")
-list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/BoundaryEstimation.cpp$")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/centerline.prot.cpp$")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/control/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/sim/svcu/svcu_main.cpp$")
 
-list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/RacingAlgorithm.c")
+list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.c")
 
 # control prototype source
-file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/BoundaryEstimation.cpp")
+file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/centerline.prot.cpp")
 
 add_library(fsai_sim STATIC
   ${SIM_C_SOURCES}

@@ -471,10 +471,10 @@ int main(int argc, char* argv[]) {
     if (key == 'q' || key == 'Q') {
       running = false;
     } else if (key == 'm' || key == 'M') {
-      world.useRacingAlgorithm = world.useRacingAlgorithm ? 0 : 1;
+      world.useController = world.useController ? 0 : 1;
       std::printf("Switched to %s control mode.\n",
-                  world.useRacingAlgorithm ? "automatic" : "manual");
-    } else if (!world.useRacingAlgorithm && key != -1) {
+                  world.useController ? "automatic" : "manual");
+    } else if (!world.useController && key != -1) {
       if (key == 'w' || key == 'W') {
         world.throttleInput = 1.0f;
         world.brakeInput = 0.0f;
@@ -494,7 +494,7 @@ int main(int argc, char* argv[]) {
     float autopThrottle = world.throttleInput;
     float autopBrake = world.brakeInput;
     float autopSteer = world.steeringAngle;
-    if (world.useRacingAlgorithm) {
+    if (world.useController) {
       float raThrottle = 0.0f;
       float raSteer = 0.0f;
       if (world.computeRacingControl(step_seconds, raThrottle, raSteer)) {
@@ -550,7 +550,7 @@ int main(int argc, char* argv[]) {
 
     if (now_ns - last_ai2vcu_tx_ns >= ai2vcu_period_ns) {
       auto command_frames = ai2vcu_adapter.Adapt(
-          control_cmd, measured_speed_mps, world.useRacingAlgorithm,
+          control_cmd, measured_speed_mps, world.useController,
           static_cast<uint8_t>(std::clamp(world.completedLaps(), 0, 15)));
       if (can_interface.Send(command_frames)) {
         last_ai2vcu_tx_ns = now_ns;
@@ -688,7 +688,7 @@ int main(int argc, char* argv[]) {
     status_msg.as_switch_on = true;
     status_msg.ts_switch_on = true;
     status_msg.go_signal = true;
-    status_msg.as_state = world.useRacingAlgorithm
+    status_msg.as_state = world.useController
                               ? fsai::sim::svcu::dbc::AsState::kDriving
                               : fsai::sim::svcu::dbc::AsState::kReady;
     status_msg.steering_status = fsai::sim::svcu::dbc::SteeringStatus::kActive;
@@ -800,7 +800,7 @@ int main(int argc, char* argv[]) {
     telemetry.gps_speed_mps = static_cast<float>(
         std::sqrt(vehicle_state.velocity.x() * vehicle_state.velocity.x() +
                   vehicle_state.velocity.y() * vehicle_state.velocity.y()));
-    telemetry.status_flags = static_cast<uint8_t>(world.useRacingAlgorithm ? 0x3 : 0x1);
+    telemetry.status_flags = static_cast<uint8_t>(world.useController ? 0x3 : 0x1);
     telemetry_tx.send(&telemetry, sizeof(telemetry));
 
     logger.logState(sim_time_s, world.vehicleState());
