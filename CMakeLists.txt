@@ -61,6 +61,23 @@ endif()
 find_package(yaml-cpp REQUIRED)
 find_package(OpenGL REQUIRED)
 
+# CGAL and its components
+find_package(CGAL QUIET COMPONENTS)
+find_package(CGAL REQUIRED OPTIONAL_COMPONENTS Qt6)
+
+
+if ( NOT CGAL_FOUND )
+  message(STATUS "This project requires the CGAL library, and will not be compiled.")
+  return()
+endif()
+
+
+find_package( Boost REQUIRED )
+if ( NOT Boost_FOUND )
+  message(STATUS "This project requires the Boost library, and will not be compiled.")
+  return()
+endif()
+
 add_definitions(-DSDL_MAIN_HANDLED)
 
 # ------------------------------------------------------------------------------
@@ -104,6 +121,9 @@ list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/sim/svcu/svcu_main.cpp$")
 
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/RacingAlgorithm.c")
 
+# control prototype source
+file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/BoundaryEstimation.cpp")
+
 add_library(fsai_sim STATIC
   ${SIM_C_SOURCES}
   ${SIM_CPP_SOURCES}
@@ -124,12 +144,34 @@ target_link_libraries(fsai_sim
     m
 )
 
+
+add_library(fsai_ctrl STATIC
+  ${SIM_C_SOURCES}
+  ${SIM_CPP_SOURCES}
+  ${ALL_HEADERS}         # for IDEs
+)
+
+target_include_directories(fsai_ctrl
+  PUBLIC
+    ${HEADER_DIRS}
+)
+
+target_link_libraries(fsai_ctrl
+  PUBLIC
+    Eigen3::Eigen
+    CGAL::CGAL
+    CGAL::CGAL_Basic_viewer
+    m
+)
+
 if(SDL2_IMPORTED_TARGET)
   target_link_libraries(fsai_sim PUBLIC ${SDL2_IMPORTED_TARGET})
+  target_link_libraries(fsai_ctrl PUBLIC ${SDL2_IMPORTED_TARGET})
 endif()
 
 if(SDL2_INCLUDE_DIRS)
   target_include_directories(fsai_sim PUBLIC ${SDL2_INCLUDE_DIRS})
+  target_include_directories(fsai_ctrl PUBLIC ${SDL2_INCLUDE_DIRS})
 endif()
 
 file(GLOB SVCU_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/sim/svcu/tests/*.cpp")
@@ -185,6 +227,22 @@ endif()
 
 add_executable(svcu_run sim/svcu/svcu_main.cpp)
 target_link_libraries(svcu_run PRIVATE fsai_sim)
+
+
+# ------------------------------------------------------------------------------
+# Control prototype
+# ------------------------------------------------------------------------------
+add_executable(fsai_plan ${CONTROL_SOURCE})
+target_link_libraries(fsai_plan PRIVATE fsai_ctrl)
+
+add_to_cached_list( CGAL_EXECUTABLE_TARGETS fsai_plan )
+
+
+if(TARGET SDL2::SDL2)
+  target_link_libraries(fsai_plan PRIVATE SDL2::SDL2)
+else()
+  target_link_libraries(fsai_plan PRIVATE PkgConfig::SDL2)
+endif()
 
 # ------------------------------------------------------------------------------
 # Tests
