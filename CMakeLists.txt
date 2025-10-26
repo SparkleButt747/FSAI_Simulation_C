@@ -119,7 +119,7 @@ list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/sim/svcu/svcu_main.cpp$")
 
-list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.c")
+list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
 
 # control prototype source
 file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/centerline.prot.cpp")

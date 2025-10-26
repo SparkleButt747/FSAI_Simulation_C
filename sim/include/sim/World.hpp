@@ -6,7 +6,7 @@
 #include "VehicleState.hpp"
 #include "VehicleInput.hpp"
 #include "Telemetry.hpp"
-#include "controller.h"
+#include "controller.prot.h"
 #include "Transform.h"
 #include "Vector.h"
 #include "PathConfig.hpp"

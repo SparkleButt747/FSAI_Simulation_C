@@ -63,6 +63,7 @@ fsai/
 │     └─ fsai_run.cpp              # main(), mode switch, HUD, recorder
 ├─ control/
 │  ├─ include/control/api.h
+│  ├─ include/control/api.c
 │  ├─ src/
 │  │  ├─ controller.cpp            # racing algorithm (throttle and steering)
 │  │  ├─ control_node.cpp          # Control_Tick(): builds ControlCmd, safety, rate limits

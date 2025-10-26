@@ -1,4 +1,4 @@
-#include "controller.h"
+#include "controller.prot.h"
 #include "math.h"
 #include <stdlib.h>
 #include <stdio.h>

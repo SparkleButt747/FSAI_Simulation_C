@@ -1,6 +1,6 @@
 # FS-AI Pipelines & Contracts v1.1 — Stereo + Cone Output
 
-_Date:_ 22 Aug 2025
+_Date:_ 26 Oct 2025
 _Scope:_ Incorporates team requirements: **Vision requires Left/Right frames** (real or simulated). **Control consumes cone positions**. **Simulation** must produce synchronized stereo imagery and switch to real cameras/CAN for on‑car tests.
 
 ---
@@ -12,6 +12,8 @@ _Scope:_ Incorporates team requirements: **Vision requires Left/Right frames** (
 - **Simulation:** 2D top‑down isn’t sufficient. Add a minimal **3D renderer** that outputs synchronized stereo images matching real camera intrinsics/extrinsics.
 
 - **Swap to real‑world:** Replace `SimStereoCamera` → `RealStereoCamera`, and `SimVehicleModel` → `CAN/Hypermotive` with identical data contracts.
+
+- **Control:** Boundary assign removed. It only makes up a part of the cost function and the correct path through the cones can still be estimated without any color information. Backend of the pipeline was also simplified to use the existing racing algorithm instead of using a speed profile and LQR, Stanley etc. controllers for lateral and longitudinal.
 
 ---
 
@@ -82,25 +84,15 @@ Side Classification -> Outlier Rejection (RANSAC/consistency) -> Emit ConeDet[] 
 
 **Output**
 
-- `ControlCmd{steer_rad, throttle, brake, t_ns}`
-
-- Packed CAN messages (on‑car) via DBC‑generated code
+- `ControlCmd{steer_rad, throttle, brake, t_ns}` → CAN messages via a CAN bus to the (simulated) VCU
 
 **Pipeline**
 
 ```
-Cones -> Boundary Assignment (L/R) -> Boundary Fit (spline/regularize) -> Centerline ->
-Speed Profile (curvature, μg) -> Lateral Controller (PP/Stanley/LQR) @200 Hz ->
-Longitudinal Controller (PID/MPC) -> Command Scheduler (rate limits, interlocks) -> Output
+Cones -> Centerline (Boundary Estimation) -> Racing Algorithm -> Command Scheduler (rate limits, interlocks) -> Output
 ```
 
-- **Boundary Assignment:** cluster by `side` with fallbacks:
-
-  - If many `UNKNOWN`, infer by spatial layout: two roughly parallel sets flanking the estimated path.
-
-- **Centerline:** midpoint of sides, enforce C¹/C² continuity. Horizon 60–80 m.
-
-- **Speed profile:** ($v_{max}(s) = \sqrt{\mu g / |\kappa(s)|}$), keep margin.
+- **Centerline:** midpoint of cones, If using splines, enforce C¹/C² continuity. Horizon 60–80 m.
 
 - **Controllers:** steering @ 200 Hz; speed @ 200 Hz. Rate‑limit steering and throttle/brake.
 
@@ -259,7 +251,7 @@ typedef struct IStereoSource {
 **CAN interface**
 
 ```c
-int CAN_SendControl(const ControlCmd* u);    // packs via generated DBC code
+int CAN_SendControl(const ControlCmd* u);    // packs via API specification
 int CAN_Poll(CanMsg* out);                   // non-blocking RX
 ```
 
@@ -304,13 +296,7 @@ void Rec_Close(void);
 
 ## Control: Cones → Track Details
 
-- Use cone `side` where present. For `UNKNOWN`, project onto the most probable side using heading and lateral distribution.
-
-- Fit left/right with cubic splines; reject outliers via RANSAC with parallelism constraint.
-
-- Centerline = midpoint of left/right at uniform arc-length sampling; ensure no self‑intersections.
-
-- **Fallbacks:** If one side missing, extrapolate from the other using width prior.
+- Centerline = list of midpoints of left/right cones.
 
 ---
 
@@ -419,12 +405,12 @@ void Rec_Close(void);
 ```c
 // Vision
 int Vision_Init(const char* config_yaml);
-int Vision_ProcessStereo(const StereoFrame* in, Detections* out); // 1=OK, 0=INVALID_*; see error codes
+int Vision_ProcessStereo(const StereoFrame* in, ConeDet* out); // 1=OK, 0=INVALID_*; see error codes
 void Vision_Shutdown(void);
 
 // Control
 int Control_Init(const char* config_yaml);
-int Control_Tick(const VehicleState* s, const Detections* dets, ControlCmd* u); // 1=OK, 0=HOLD
+int Control_Tick(const VehicleState* s, const ConeDet* dets, ControlCmd* u); // 1=OK, 0=HOLD
 void Control_Shutdown(void);
 
 // Stereo Sources (Sim/Real)

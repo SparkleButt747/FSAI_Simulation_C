@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "controller.h"
+#include "controller.prot.h"
 #include "Vector.h"
 
 int main(void) {
