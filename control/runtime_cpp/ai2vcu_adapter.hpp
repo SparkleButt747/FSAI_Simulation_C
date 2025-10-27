@@ -39,8 +39,10 @@ class Ai2VcuAdapter {
   explicit Ai2VcuAdapter(const Ai2VcuAdapterConfig& config);
 
   Ai2VcuCommandSet Adapt(const fsai::types::ControlCmd& cmd,
+                         const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback);
+  Ai2VcuCommandSet Adapt(const fsai::types::ControlCmd& cmd,
                          const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback,
-                         const AdapterTelemetry& telemetry = AdapterTelemetry{});
+                         const AdapterTelemetry& telemetry);
 
  private:
   enum class State {

@@ -114,6 +114,12 @@ void Ai2VcuAdapter::UpdateStatusFlags(
 
 Ai2VcuCommandSet Ai2VcuAdapter::Adapt(
     const fsai::types::ControlCmd& cmd,
+    const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback) {
+  return Adapt(cmd, feedback, AdapterTelemetry{});
+}
+
+Ai2VcuCommandSet Ai2VcuAdapter::Adapt(
+    const fsai::types::ControlCmd& cmd,
     const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback,
     const AdapterTelemetry& telemetry) {
   ToggleHandshake();
