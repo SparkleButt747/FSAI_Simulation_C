@@ -261,6 +261,22 @@ bool ApproximatelyEqual(float a, float b, float tol) {
   return std::abs(a - b) <= tol;
 }
 
+fsai::sim::svcu::dbc::Vcu2AiStatus MakeStatus(fsai::sim::svcu::dbc::AsState as_state,
+                                              bool go_signal = true) {
+  fsai::sim::svcu::dbc::Vcu2AiStatus status{};
+  status.as_state = as_state;
+  status.go_signal = go_signal;
+  return status;
+}
+
+fsai::control::runtime::Ai2VcuAdapter::AdapterTelemetry MakeTelemetry(float speed_mps,
+                                                                      uint8_t lap_counter) {
+  fsai::control::runtime::Ai2VcuAdapter::AdapterTelemetry telemetry{};
+  telemetry.measured_speed_mps = speed_mps;
+  telemetry.lap_counter = lap_counter;
+  return telemetry;
+}
+
 struct TimedStatus {
   fsai::sim::svcu::dbc::Vcu2AiStatus status;
   SteadyClock::time_point time;
@@ -405,7 +421,9 @@ bool TestMessageRatesAndSaturation() {
     cmd.throttle = 1.2f;
     cmd.brake = 1.3f;
 
-    auto commands = adapter.Adapt(cmd, 0.0f, true, 1);
+    auto commands = adapter.Adapt(
+        cmd, MakeStatus(fsai::sim::svcu::dbc::AsState::kDriving),
+        MakeTelemetry(0.0f, 1));
     commands.steer.steer_deg = 60.0f;
     commands.front_drive.axle_torque_request_nm =
         fsai::sim::svcu::dbc::kMaxAxleTorqueNm * 1.5f;
@@ -606,7 +624,9 @@ bool TestWatchdogTransitions() {
   cmd.throttle = 1.0f;
   cmd.brake = 1.0f;
   cmd.t_ns = NowNs();
-  auto driving_commands = adapter.Adapt(cmd, 0.0f, true, 1);
+  auto driving_commands = adapter.Adapt(
+      cmd, MakeStatus(fsai::sim::svcu::dbc::AsState::kDriving),
+      MakeTelemetry(0.0f, 1));
   driving_commands.steer.steer_deg = 20.0f;
   driving_commands.front_drive.axle_torque_request_nm = fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
   driving_commands.rear_drive.axle_torque_request_nm = fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
@@ -638,7 +658,9 @@ bool TestWatchdogTransitions() {
 
   fsai::types::ControlCmd hold_cmd{};
   hold_cmd.t_ns = NowNs();
-  auto handshake_drop = adapter.Adapt(hold_cmd, 0.0f, true, 1);
+  auto handshake_drop = adapter.Adapt(
+      hold_cmd, MakeStatus(fsai::sim::svcu::dbc::AsState::kReady, false),
+      MakeTelemetry(0.0f, 1));
   handshake_drop.status.handshake = false;
   handshake_drop.status.direction_request = fsai::sim::svcu::dbc::DirectionRequest::kNeutral;
   handshake_drop.front_drive.axle_torque_request_nm = 0.0f;
@@ -671,7 +693,9 @@ bool TestWatchdogTransitions() {
 
   fsai::types::ControlCmd estop_cmd{};
   estop_cmd.t_ns = NowNs();
-  auto estop_commands = adapter.Adapt(estop_cmd, 0.0f, true, 1);
+  auto estop_commands = adapter.Adapt(
+      estop_cmd, MakeStatus(fsai::sim::svcu::dbc::AsState::kEmergencyBrake),
+      MakeTelemetry(0.0f, 1));
   estop_commands.status.estop_request = true;
   estop_commands.status.handshake = true;
   estop_commands.front_drive.axle_torque_request_nm = 0.0f;

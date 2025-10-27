@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 #include "adsdv_dbc.hpp"
 #include "types.h"
@@ -28,16 +29,38 @@ struct Ai2VcuCommandSet {
 
 class Ai2VcuAdapter {
  public:
+  struct AdapterTelemetry {
+    float measured_speed_mps{0.0f};
+    std::optional<uint8_t> lap_counter;
+    std::optional<uint8_t> cones_count_actual;
+    std::optional<uint16_t> cones_count_all;
+  };
+
   explicit Ai2VcuAdapter(const Ai2VcuAdapterConfig& config);
 
   Ai2VcuCommandSet Adapt(const fsai::types::ControlCmd& cmd,
-                         float measured_speed_mps,
-                         bool mission_running,
-                         uint8_t lap_counter);
+                         const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback,
+                         const AdapterTelemetry& telemetry = AdapterTelemetry{});
 
  private:
+  enum class State {
+    kIdle,
+    kArmed,
+    kRunning,
+    kSafeStop,
+  };
+
+  void ToggleHandshake();
+  void UpdateTelemetry(const AdapterTelemetry& telemetry);
+  void UpdateState(const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback);
+  bool ShouldEnterSafeStop(const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback) const;
+  void UpdateStatusFlags(const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback,
+                         bool allow_motion);
+
   Ai2VcuAdapterConfig config_;
   fsai::sim::svcu::dbc::Ai2VcuStatus status_{};
+  State state_{State::kIdle};
+  bool handshake_level_{true};
 };
 
 }  // namespace fsai::control::runtime
