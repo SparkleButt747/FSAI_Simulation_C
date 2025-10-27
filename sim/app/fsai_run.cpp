@@ -12,6 +12,7 @@
 #include <random>
 #include <string>
 #include <vector>
+#include <limits>
 
 #include <SDL.h>
 #include <yaml-cpp/yaml.h>
@@ -549,9 +550,19 @@ int main(int argc, char* argv[]) {
     control_cmd.t_ns = now_ns;
 
     if (now_ns - last_ai2vcu_tx_ns >= ai2vcu_period_ns) {
+      fsai::control::runtime::Ai2VcuAdapter::AdapterTelemetry adapter_telemetry{};
+      adapter_telemetry.measured_speed_mps = measured_speed_mps;
+      adapter_telemetry.lap_counter = static_cast<uint8_t>(
+          std::clamp(world.completedLaps(), 0, 15));
+      const auto total_cones = world.leftConePositions().size() +
+                               world.rightConePositions().size();
+      if (total_cones > 0) {
+        adapter_telemetry.cones_count_all = static_cast<uint16_t>(
+            std::min<size_t>(total_cones, std::numeric_limits<uint16_t>::max()));
+      }
+
       auto command_frames = ai2vcu_adapter.Adapt(
-          control_cmd, measured_speed_mps, world.useController,
-          static_cast<uint8_t>(std::clamp(world.completedLaps(), 0, 15)));
+          control_cmd, can_interface.RawStatus(), adapter_telemetry);
       if (can_interface.Send(command_frames)) {
         last_ai2vcu_tx_ns = now_ns;
         last_ai2vcu_commands = command_frames;
