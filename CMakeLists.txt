@@ -80,6 +80,8 @@ endif()
 
 add_definitions(-DSDL_MAIN_HANDLED)
 
+add_subdirectory(third_party/imgui)
+
 # ------------------------------------------------------------------------------
 # Collect sources/headers (exclude build tree)
 # ------------------------------------------------------------------------------
@@ -110,6 +112,8 @@ set(SIM_CPP_SOURCES ${ALL_CPP_SOURCES})
 
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(main|sim/app)/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(main|sim/app)/.*")
+list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/third_party/imgui/.*")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/third_party/imgui/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(c)$")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(cpp)$")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/centerline.prot.cpp$")
@@ -206,7 +210,7 @@ file(GLOB_RECURSE SIM_APP_SOURCES CONFIGURE_DEPENDS
 )
 
 add_executable(fsai_run ${SIM_APP_SOURCES})
-target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering)
+target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
 
 file(GLOB_RECURSE CONTROL_RUNTIME_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/control/runtime_cpp/*.cpp"
