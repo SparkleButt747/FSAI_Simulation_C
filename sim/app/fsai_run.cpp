@@ -17,6 +17,10 @@
 #include <SDL.h>
 #include <yaml-cpp/yaml.h>
 
+#include "imgui.h"
+#include "backends/imgui_impl_sdl2.h"
+#include "backends/imgui_impl_sdlrenderer2.h"
+
 #include "Graphics.h"
 #include "budget.h"
 #include "fsai_clock.h"
@@ -352,10 +356,36 @@ int main(int argc, char* argv[]) {
     return EXIT_FAILURE;
   }
 
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO();
+  (void)io;
+  ImGui::StyleColorsDark();
+  if (!ImGui_ImplSDL2_InitForSDLRenderer(graphics.window, graphics.renderer)) {
+    std::fprintf(stderr, "ImGui_ImplSDL2_InitForSDLRenderer failed\n");
+    ImGui::DestroyContext();
+    Graphics_Cleanup(&graphics);
+    return EXIT_FAILURE;
+  }
+  if (!ImGui_ImplSDLRenderer2_Init(graphics.renderer)) {
+    std::fprintf(stderr, "ImGui_ImplSDLRenderer2_Init failed\n");
+    ImGui_ImplSDL2_Shutdown();
+    ImGui::DestroyContext();
+    Graphics_Cleanup(&graphics);
+    return EXIT_FAILURE;
+  }
+
+  auto shutdown_imgui = [&]() {
+    ImGui_ImplSDLRenderer2_Shutdown();
+    ImGui_ImplSDL2_Shutdown();
+    ImGui::DestroyContext();
+  };
+
   fsai::sim::integration::TerminalKeyboard keyboard{};
   fsai::sim::integration::CsvLogger logger("CarStateLog.csv", "RALog.csv");
   if (!logger.valid()) {
     std::fprintf(stderr, "Failed to open CSV logs\n");
+    shutdown_imgui();
     Graphics_Cleanup(&graphics);
     return EXIT_FAILURE;
   }
@@ -394,10 +424,14 @@ int main(int argc, char* argv[]) {
       can_cfg.mode = fsai::control::runtime::CanIface::Mode::kSimulation;
       if (!can_interface.Initialize(can_cfg)) {
         std::fprintf(stderr, "Failed to open CAN endpoint %s\n", can_cfg.endpoint.c_str());
+        shutdown_imgui();
+        Graphics_Cleanup(&graphics);
         return EXIT_FAILURE;
       }
     } else {
       std::fprintf(stderr, "Failed to open CAN endpoint %s\n", can_cfg.endpoint.c_str());
+      shutdown_imgui();
+      Graphics_Cleanup(&graphics);
       return EXIT_FAILURE;
     }
   }
@@ -405,6 +439,8 @@ int main(int argc, char* argv[]) {
   fsai::sim::svcu::UdpEndpoint command_rx;
   if (!command_rx.bind(command_port)) {
     std::fprintf(stderr, "Failed to bind command UDP port %u\n", command_port);
+    shutdown_imgui();
+    Graphics_Cleanup(&graphics);
     return EXIT_FAILURE;
   }
 
@@ -412,6 +448,8 @@ int main(int argc, char* argv[]) {
   if (!telemetry_tx.connect(telemetry_port)) {
     std::fprintf(stderr, "Failed to connect telemetry UDP port %u\n",
                  telemetry_port);
+    shutdown_imgui();
+    Graphics_Cleanup(&graphics);
     return EXIT_FAILURE;
   }
 
@@ -452,6 +490,7 @@ int main(int argc, char* argv[]) {
   while (running) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+      ImGui_ImplSDL2_ProcessEvent(&event);
       if (event.type == SDL_QUIT) {
         running = false;
       }
@@ -459,6 +498,10 @@ int main(int argc, char* argv[]) {
     if (!running) {
       break;
     }
+
+    ImGui_ImplSDLRenderer2_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
 
     const int key = keyboard.poll();
     if (key == 'q' || key == 'Q') {
@@ -592,6 +635,14 @@ int main(int argc, char* argv[]) {
     const float actual_speed_kph = static_cast<float>(vehicle_speed_mps * 3.6);
     const float actual_steer_deg = static_cast<float>(wheel_info.steering *
         fsai::sim::svcu::dbc::kRadToDeg);
+
+    ImGui::Begin("Simulation Stats");
+    ImGui::Text("Simulation time: %.2f s", sim_time_s);
+    ImGui::Text("Vehicle speed: %.1f km/h", actual_speed_kph);
+    ImGui::Text("Throttle: %.2f", appliedThrottle);
+    ImGui::Text("Brake: %.2f", appliedBrake);
+    ImGui::Text("Steering: %.1f deg", actual_steer_deg);
+    ImGui::End();
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
                                                 sample_noise(sensor_cfg.steering_deg.noise_std)));
@@ -894,6 +945,8 @@ int main(int argc, char* argv[]) {
       const float car_radius = 2.0f * kRenderScale;
       Graphics_DrawCar(&graphics, car_screen_x, car_screen_y, car_radius,
                        transform.yaw);
+      ImGui::Render();
+      ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), graphics.renderer);
       Graphics_Present(&graphics);
     }
 
@@ -906,6 +959,7 @@ int main(int argc, char* argv[]) {
   }
 
   fsai_budget_report_all();
+  shutdown_imgui();
   Graphics_Cleanup(&graphics);
   std::printf("Simulation complete. Car state log saved to CarStateLog.csv\n");
   return EXIT_SUCCESS;
