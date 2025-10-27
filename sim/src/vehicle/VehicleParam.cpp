@@ -125,6 +125,16 @@ VehicleParam VehicleParam::loadFromFile(const std::string& yamlFile){
     if (auto c = n["regen_curve"]) { pt.regen_curve.rpm=getVecD(c["rpm"]); pt.regen_curve.torque=getVecD(c["torque"]); }
     if (pt.drive_curve.rpm.empty()) { pt.drive_curve.rpm={0.0,10000.0}; pt.drive_curve.torque={200.0,200.0}; }
     if (pt.regen_curve.rpm.empty()) { pt.regen_curve.rpm={0.0,10000.0}; pt.regen_curve.torque={100.0,100.0}; }
+    pt.torque_split_front = std::max(0.0, getD(n, "torque_split_front", 0.0));
+    pt.torque_split_rear = std::max(0.0, getD(n, "torque_split_rear", 1.0));
+    pt.torque_front_max_nm = std::max(0.0, getD(n, "torque_front_max_nm", 0.0));
+    pt.torque_rear_max_nm = getD(n, "torque_rear_max_nm", 195.0);
+    if (pt.torque_rear_max_nm <= 0.0) {
+      pt.torque_rear_max_nm = 195.0;
+    }
+    if (pt.torque_split_front <= 0.0 && pt.torque_split_rear <= 0.0) {
+      pt.torque_split_rear = 1.0;
+    }
     if (auto b = n["battery"]) {
       pt.battery.capacity_kwh         = getD(b, "capacity_kwh", 0.0);
       pt.battery.soc_init             = getD(b, "soc_init", 1.0);

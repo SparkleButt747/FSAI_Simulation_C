@@ -10,9 +10,23 @@ constexpr float kEpsilon = 1e-6f;
 
 Ai2VcuAdapter::Ai2VcuAdapter(const Ai2VcuAdapterConfig& config)
     : config_(config) {
-  const float motor_sum = std::max(kEpsilon, config_.front_motor_weight + config_.rear_motor_weight);
-  config_.front_motor_weight = std::clamp(config_.front_motor_weight / motor_sum, 0.0f, 1.0f);
-  config_.rear_motor_weight = std::clamp(config_.rear_motor_weight / motor_sum, 0.0f, 1.0f);
+  float front_fraction = std::max(0.0f, config_.front_torque_fraction);
+  float rear_fraction = std::max(0.0f, config_.rear_torque_fraction);
+  if (front_fraction <= kEpsilon && rear_fraction <= kEpsilon) {
+    rear_fraction = 1.0f;
+  }
+  const float fraction_sum = std::max(kEpsilon, front_fraction + rear_fraction);
+  config_.front_torque_fraction = std::clamp(front_fraction / fraction_sum, 0.0f, 1.0f);
+  config_.rear_torque_fraction = std::clamp(rear_fraction / fraction_sum, 0.0f, 1.0f);
+
+  config_.front_axle_max_torque_nm =
+      std::clamp(config_.front_axle_max_torque_nm, 0.0f,
+                 fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
+  config_.rear_axle_max_torque_nm =
+      std::clamp(config_.rear_axle_max_torque_nm <= 0.0f
+                     ? fsai::sim::svcu::dbc::kMaxAxleTorqueNm
+                     : config_.rear_axle_max_torque_nm,
+                 0.0f, fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
 
   const float brake_sum = std::max(kEpsilon, config_.brake_front_bias + config_.brake_rear_bias);
   config_.brake_front_bias = std::clamp(config_.brake_front_bias / brake_sum, 0.0f, 1.0f);
@@ -141,25 +155,39 @@ Ai2VcuCommandSet Ai2VcuAdapter::Adapt(
   out.brake_clamped = brake;
 
   if (allow_motion) {
-    out.steer.steer_deg = std::clamp(
-        cmd.steer_rad * fsai::sim::svcu::dbc::kRadToDeg,
-        -fsai::sim::svcu::dbc::kMaxSteerDeg,
-        fsai::sim::svcu::dbc::kMaxSteerDeg);
+    auto quantize = [](float value, float step) {
+      if (step <= 0.0f) {
+        return value;
+      }
+      return std::round(value / step) * step;
+    };
 
-    const float total_torque_nm = throttle * 2.0f * fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
-    out.front_drive.axle_torque_request_nm =
-        std::clamp(total_torque_nm * config_.front_motor_weight, 0.0f,
-                   fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
-    out.rear_drive.axle_torque_request_nm =
-        std::clamp(total_torque_nm * config_.rear_motor_weight, 0.0f,
-                   fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
+    const float steer_deg = cmd.steer_rad * fsai::sim::svcu::dbc::kRadToDeg;
+    const float steer_deg_clamped = std::clamp(steer_deg, -fsai::sim::svcu::dbc::kMaxSteerDeg,
+                                               fsai::sim::svcu::dbc::kMaxSteerDeg);
+    out.steer.steer_deg = std::clamp(quantize(steer_deg_clamped, 0.1f),
+                                     -fsai::sim::svcu::dbc::kMaxSteerDeg,
+                                     fsai::sim::svcu::dbc::kMaxSteerDeg);
+
+    const float front_torque_target =
+        throttle * config_.front_torque_fraction * config_.front_axle_max_torque_nm;
+    const float rear_torque_target =
+        throttle * config_.rear_torque_fraction * config_.rear_axle_max_torque_nm;
+    out.front_drive.axle_torque_request_nm = std::clamp(
+        front_torque_target, 0.0f, config_.front_axle_max_torque_nm);
+    out.rear_drive.axle_torque_request_nm = std::clamp(
+        rear_torque_target, 0.0f, config_.rear_axle_max_torque_nm);
     out.front_drive.motor_speed_max_rpm = config_.motor_speed_max_rpm;
     out.rear_drive.motor_speed_max_rpm = config_.motor_speed_max_rpm;
 
     const float brake_pct = brake * fsai::sim::svcu::dbc::kMaxBrakePercent;
-    out.brake.front_pct = std::clamp(brake_pct * config_.brake_front_bias, 0.0f,
+    const float front_brake_clamped = std::clamp(brake_pct * config_.brake_front_bias, 0.0f,
+                                                 fsai::sim::svcu::dbc::kMaxBrakePercent);
+    const float rear_brake_clamped = std::clamp(brake_pct * config_.brake_rear_bias, 0.0f,
+                                                fsai::sim::svcu::dbc::kMaxBrakePercent);
+    out.brake.front_pct = std::clamp(quantize(front_brake_clamped, 0.5f), 0.0f,
                                      fsai::sim::svcu::dbc::kMaxBrakePercent);
-    out.brake.rear_pct = std::clamp(brake_pct * config_.brake_rear_bias, 0.0f,
+    out.brake.rear_pct = std::clamp(quantize(rear_brake_clamped, 0.5f), 0.0f,
                                     fsai::sim::svcu::dbc::kMaxBrakePercent);
   } else {
     out.steer.steer_deg = 0.0f;

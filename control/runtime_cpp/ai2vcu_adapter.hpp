@@ -9,8 +9,10 @@
 namespace fsai::control::runtime {
 
 struct Ai2VcuAdapterConfig {
-  float front_motor_weight{0.5f};
-  float rear_motor_weight{0.5f};
+  float front_torque_fraction{0.0f};
+  float rear_torque_fraction{1.0f};
+  float front_axle_max_torque_nm{0.0f};
+  float rear_axle_max_torque_nm{fsai::sim::svcu::dbc::kMaxAxleTorqueNm};
   float brake_front_bias{0.5f};
   float brake_rear_bias{0.5f};
   float max_speed_kph{120.0f};

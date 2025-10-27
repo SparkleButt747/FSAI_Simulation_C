@@ -114,6 +114,10 @@ struct PowertrainParam {
   int    front_motor_count{0};
   int    rear_motor_count{1};
   bool   enable_regen{true};
+  double torque_split_front{0.0};
+  double torque_split_rear{1.0};
+  double torque_front_max_nm{0.0};
+  double torque_rear_max_nm{195.0};
   double final_drive_ratio{1.0};
   double gear_efficiency{1.0};
   double drive_efficiency{1.0};

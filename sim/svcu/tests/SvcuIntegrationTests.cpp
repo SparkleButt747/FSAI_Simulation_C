@@ -288,14 +288,10 @@ VehicleParam LoadVehicleParam(const std::filesystem::path& path) {
 
 fsai::control::runtime::Ai2VcuAdapterConfig BuildAdapterConfig(const VehicleParam& params) {
   fsai::control::runtime::Ai2VcuAdapterConfig cfg{};
-  const float total_motors = std::max(1, params.powertrain.motor_count);
-  const float front_motors = std::clamp(params.powertrain.front_motor_count, 0, params.powertrain.motor_count);
-  float front_weight = total_motors > 0 ? front_motors / total_motors : 0.5f;
-  if (front_weight <= 0.0f || front_weight >= 1.0f) {
-    front_weight = 0.5f;
-  }
-  cfg.front_motor_weight = front_weight;
-  cfg.rear_motor_weight = std::clamp(1.0f - front_weight, 0.0f, 1.0f);
+  cfg.front_torque_fraction = static_cast<float>(params.powertrain.torque_split_front);
+  cfg.rear_torque_fraction = static_cast<float>(params.powertrain.torque_split_rear);
+  cfg.front_axle_max_torque_nm = static_cast<float>(params.powertrain.torque_front_max_nm);
+  cfg.rear_axle_max_torque_nm = static_cast<float>(params.powertrain.torque_rear_max_nm);
 
   float front_bias = static_cast<float>(params.brakes.front_bias);
   float rear_bias = static_cast<float>(params.brakes.rear_bias);
@@ -440,7 +436,7 @@ bool TestMessageRatesAndSaturation() {
                     cmd.brake);
       DebugLog(buffer);
     }
-    can_iface.Send(commands);
+    can_iface.Send(commands, NowNs());
 
     fsai::sim::svcu::TelemetryPacket telemetry{};
     telemetry.t_ns = NowNs();
@@ -610,7 +606,7 @@ bool TestWatchdogTransitions() {
     auto next_tick = SteadyClock::now();
     for (int i = 0; i < iterations; ++i) {
       next_tick += period;
-      can_iface.Send(commands);
+      can_iface.Send(commands, NowNs());
       fsai::sim::svcu::TelemetryPacket telemetry{};
       telemetry.t_ns = NowNs();
       telemetry_tx.send(&telemetry, sizeof(telemetry));

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <thread>
+#include <limits>
 
 #include <optional>
 #include <utility>
@@ -15,6 +16,7 @@
 #include "svcu_runner.hpp"
 
 namespace {
+constexpr float kEpsilon = 1e-6f;
 struct SanitizedCommand {
   float steer_rad{0.0f};
   float throttle{0.0f};
@@ -49,6 +51,33 @@ class CommandAggregator {
     sanitized_.brake = max_brake_;
     sanitized_.front_brake_req_pct = sanitized_.brake * 100.0f;
     sanitized_.rear_brake_req_pct = sanitized_.front_brake_req_pct;
+
+    front_torque_max_nm_ = static_cast<float>(
+        std::clamp(params.powertrain.torque_front_max_nm, 0.0,
+                   static_cast<double>(fsai::sim::svcu::dbc::kMaxAxleTorqueNm)));
+    rear_torque_max_nm_ = static_cast<float>(
+        std::clamp(params.powertrain.torque_rear_max_nm, 0.0,
+                   static_cast<double>(fsai::sim::svcu::dbc::kMaxAxleTorqueNm)));
+    if (rear_torque_max_nm_ <= 0.0f) {
+      rear_torque_max_nm_ = fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
+    }
+    float front_split = static_cast<float>(std::max(0.0, params.powertrain.torque_split_front));
+    float rear_split = static_cast<float>(std::max(0.0, params.powertrain.torque_split_rear));
+    if (front_torque_max_nm_ <= 0.0f) {
+      front_split = 0.0f;
+    }
+    if (rear_split <= 0.0f && front_split <= 0.0f) {
+      rear_split = 1.0f;
+    }
+    const float split_sum = std::max(kEpsilon, front_split + rear_split);
+    front_torque_share_ = std::clamp(front_split / split_sum, 0.0f, 1.0f);
+    rear_torque_share_ = std::clamp(rear_split / split_sum, 0.0f, 1.0f);
+    drive_torque_denominator_ = front_torque_share_ * std::max(front_torque_max_nm_, 0.0f) +
+                                rear_torque_share_ * std::max(rear_torque_max_nm_, 0.0f);
+    if (drive_torque_denominator_ <= kEpsilon) {
+      drive_torque_denominator_ = std::max(rear_torque_max_nm_,
+                                           fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
+    }
   }
 
   void update(const fsai::sim::svcu::dbc::Ai2VcuStatus& status) {
@@ -127,15 +156,15 @@ class CommandAggregator {
 
       float front_req = has_front_drive_
                             ? std::clamp(front_drive_.axle_torque_request_nm, 0.0f,
-                                         fsai::sim::svcu::dbc::kMaxAxleTorqueNm)
+                                         front_torque_max_nm_)
                             : 0.0f;
       float rear_req = has_rear_drive_
                            ? std::clamp(rear_drive_.axle_torque_request_nm, 0.0f,
-                                        fsai::sim::svcu::dbc::kMaxAxleTorqueNm)
+                                        rear_torque_max_nm_)
                            : 0.0f;
       float total_req = front_req + rear_req;
-      float throttle = clamp01(total_req /
-                               (2.0f * fsai::sim::svcu::dbc::kMaxAxleTorqueNm));
+      const float denom = std::max(drive_torque_denominator_, std::numeric_limits<float>::epsilon());
+      float throttle = clamp01(total_req / denom);
       if (throttle > max_throttle_ && total_req > 0.0f) {
         const float scale = max_throttle_ / std::max(throttle, 1e-6f);
         front_req *= scale;
@@ -186,6 +215,11 @@ class CommandAggregator {
   float brake_max_force_{0.0f};
   float max_throttle_{1.0f};
   float max_brake_{1.0f};
+  float front_torque_share_{0.0f};
+  float rear_torque_share_{1.0f};
+  float front_torque_max_nm_{0.0f};
+  float rear_torque_max_nm_{fsai::sim::svcu::dbc::kMaxAxleTorqueNm};
+  float drive_torque_denominator_{fsai::sim::svcu::dbc::kMaxAxleTorqueNm};
 
   fsai::sim::svcu::dbc::Ai2VcuStatus status_{};
   fsai::sim::svcu::dbc::Ai2VcuDrive front_drive_{};
