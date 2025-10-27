@@ -42,7 +42,7 @@ class CanIface {
   bool Initialize(const Config& config);
   void Shutdown();
 
-  bool Send(const Ai2VcuCommandSet& commands);
+  bool Send(const Ai2VcuCommandSet& commands, uint64_t now_ns = 0);
   void Poll(uint64_t now_ns);
 
   bool SendSimulationFrame(const can_frame& frame);
@@ -62,8 +62,9 @@ class CanIface {
  private:
   bool InitializeSimulation(const Config& config);
   bool InitializeFsAiApi(const Config& config);
+  bool TransmitFsAiApi(const Ai2VcuCommandSet& commands);
   void PollSimulation();
-  void PollFsAiApi();
+  void PollFsAiApi(uint64_t now_ns);
   void ProcessFrame(const can_frame& frame);
 
   Mode mode_{Mode::kSimulation};
@@ -91,6 +92,10 @@ class CanIface {
 
   struct FsAiApiVtable;
   std::unique_ptr<FsAiApiVtable> api_;
+  std::optional<Ai2VcuCommandSet> last_commands_{};
+  bool pending_api_tx_{false};
+  uint64_t last_api_tx_ns_{0};
+  static constexpr uint64_t kAi2VcuPeriodNs = 10'000'000;  // 10 ms
 };
 
 }  // namespace fsai::control::runtime

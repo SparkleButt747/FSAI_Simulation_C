@@ -64,6 +64,9 @@ bool CanIface::Initialize(const Config& config) {
   mode_ = config.mode;
   initialized_ = false;
   wheel_radius_m_ = std::max(0.01, config.wheel_radius_m);
+  last_commands_.reset();
+  pending_api_tx_ = false;
+  last_api_tx_ns_ = 0;
 
   switch (mode_) {
     case Mode::kSimulation:
@@ -106,12 +109,17 @@ void CanIface::Shutdown() {
   has_imu_ = false;
   has_speeds_ = false;
   has_gps_ = false;
+  last_commands_.reset();
+  pending_api_tx_ = false;
+  last_api_tx_ns_ = 0;
 }
 
-bool CanIface::Send(const Ai2VcuCommandSet& commands) {
+bool CanIface::Send(const Ai2VcuCommandSet& commands, uint64_t now_ns) {
   if (!initialized_) {
     return false;
   }
+
+  last_commands_ = commands;
 
   if (mode_ == Mode::kSimulation) {
     if (!sim_link_) {
@@ -125,20 +133,17 @@ bool CanIface::Send(const Ai2VcuCommandSet& commands) {
     return true;
   }
 
-  if (!api_) {
-    return false;
+  const bool has_timestamp = now_ns != 0;
+  const bool ok = TransmitFsAiApi(commands);
+  if (ok && has_timestamp) {
+    last_api_tx_ns_ = now_ns;
+    pending_api_tx_ = false;
+  } else if (!has_timestamp) {
+    pending_api_tx_ = true;
+  } else if (!ok) {
+    pending_api_tx_ = true;
   }
-
-  if (!api_->set_fn) {
-    return false;
-  }
-  FsAiApiAi2VcuData payload{};
-  payload.status = commands.status;
-  payload.steer = commands.steer;
-  payload.front_drive = commands.front_drive;
-  payload.rear_drive = commands.rear_drive;
-  payload.brake = commands.brake;
-  return api_->set_fn(&payload) == 0;
+  return ok;
 }
 
 void CanIface::Poll(uint64_t now_ns) {
@@ -149,7 +154,7 @@ void CanIface::Poll(uint64_t now_ns) {
   if (mode_ == Mode::kSimulation) {
     PollSimulation();
   } else {
-    PollFsAiApi();
+    PollFsAiApi(now_ns);
   }
 }
 
@@ -261,11 +266,26 @@ bool CanIface::InitializeFsAiApi(const Config& config) {
   if (api_->init_fn(config.endpoint.c_str()) != 0) {
     return false;
   }
+  pending_api_tx_ = false;
+  last_api_tx_ns_ = 0;
   return true;
 #else
   (void)config;
   return false;
 #endif
+}
+
+bool CanIface::TransmitFsAiApi(const Ai2VcuCommandSet& commands) {
+  if (!api_ || !api_->set_fn) {
+    return false;
+  }
+  FsAiApiAi2VcuData payload{};
+  payload.status = commands.status;
+  payload.steer = commands.steer;
+  payload.front_drive = commands.front_drive;
+  payload.rear_drive = commands.rear_drive;
+  payload.brake = commands.brake;
+  return api_->set_fn(&payload) == 0;
 }
 
 void CanIface::PollSimulation() {
@@ -324,7 +344,7 @@ void CanIface::ProcessFrame(const can_frame& frame) {
   }
 }
 
-void CanIface::PollFsAiApi() {
+void CanIface::PollFsAiApi(uint64_t now_ns) {
   if (!api_ || !api_->get_fn) {
     return;
   }
@@ -353,6 +373,20 @@ void CanIface::PollFsAiApi() {
     if (api_->gps_fn(&gps) == 0) {
       feedback_dyn_.speed_actual_kph = static_cast<float>(std::max(0.0, gps.speed_mps) * 3.6);
       has_dyn_ = true;
+    }
+  }
+  if (last_commands_) {
+    bool due = pending_api_tx_;
+    if (!due) {
+      if (last_api_tx_ns_ == 0) {
+        due = true;
+      } else if (now_ns >= last_api_tx_ns_ + kAi2VcuPeriodNs) {
+        due = true;
+      }
+    }
+    if (due && TransmitFsAiApi(*last_commands_)) {
+      last_api_tx_ns_ = now_ns;
+      pending_api_tx_ = false;
     }
   }
 }

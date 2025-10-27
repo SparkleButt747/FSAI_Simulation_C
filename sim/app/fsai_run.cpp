@@ -415,20 +415,6 @@ int main(int argc, char* argv[]) {
     return EXIT_FAILURE;
   }
 
-  const int front_motor_count = std::max(0, vehicle_param.powertrain.front_motor_count);
-  const int rear_motor_count = std::max(0, vehicle_param.powertrain.rear_motor_count);
-  const int total_motors = std::max(1, front_motor_count + rear_motor_count);
-  float tmp_front_motor_weight =
-      total_motors > 0 ? static_cast<float>(front_motor_count) / total_motors
-                       : 0.5f;
-  tmp_front_motor_weight = std::clamp(tmp_front_motor_weight, 0.0f, 1.0f);
-  if (tmp_front_motor_weight <= 0.0f &&
-      std::clamp(1.0f - tmp_front_motor_weight, 0.0f, 1.0f) <= 0.0f) {
-    tmp_front_motor_weight = 0.5f;
-  }
-  const float front_motor_weight = tmp_front_motor_weight;
-  const float rear_motor_weight = std::clamp(1.0f - front_motor_weight, 0.0f, 1.0f);
-
   float tmp_brake_front_bias = static_cast<float>(vehicle_param.brakes.front_bias);
   float tmp_brake_rear_bias = static_cast<float>(vehicle_param.brakes.rear_bias);
   const float brake_sum = tmp_brake_front_bias + tmp_brake_rear_bias;
@@ -441,8 +427,14 @@ int main(int argc, char* argv[]) {
   const float brake_rear_bias = std::clamp(1.0f - brake_front_bias, 0.0f, 1.0f);
 
   fsai::control::runtime::Ai2VcuAdapterConfig adapter_cfg{};
-  adapter_cfg.front_motor_weight = front_motor_weight;
-  adapter_cfg.rear_motor_weight = rear_motor_weight;
+  adapter_cfg.front_torque_fraction =
+      static_cast<float>(vehicle_param.powertrain.torque_split_front);
+  adapter_cfg.rear_torque_fraction =
+      static_cast<float>(vehicle_param.powertrain.torque_split_rear);
+  adapter_cfg.front_axle_max_torque_nm =
+      static_cast<float>(vehicle_param.powertrain.torque_front_max_nm);
+  adapter_cfg.rear_axle_max_torque_nm =
+      static_cast<float>(vehicle_param.powertrain.torque_rear_max_nm);
   adapter_cfg.brake_front_bias = brake_front_bias;
   adapter_cfg.brake_rear_bias = brake_rear_bias;
   adapter_cfg.max_speed_kph =
@@ -563,7 +555,7 @@ int main(int argc, char* argv[]) {
 
       auto command_frames = ai2vcu_adapter.Adapt(
           control_cmd, can_interface.RawStatus(), adapter_telemetry);
-      if (can_interface.Send(command_frames)) {
+      if (can_interface.Send(command_frames, now_ns)) {
         last_ai2vcu_tx_ns = now_ns;
         last_ai2vcu_commands = command_frames;
         has_last_ai_command = true;
