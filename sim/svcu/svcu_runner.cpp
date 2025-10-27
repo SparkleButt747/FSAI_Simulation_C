@@ -5,6 +5,9 @@
 #include <cstring>
 #include <thread>
 
+#include <optional>
+#include <utility>
+
 #include "adsdv_dbc.hpp"
 #include "link.hpp"
 #include "can_link.hpp"
@@ -246,6 +249,78 @@ RunStats RunSvcu(const RunConfig& config, const RunLimits& limits,
   fsai::sim::svcu::CommandPacket cmd_packet{};
   fsai::sim::svcu::TelemetryPacket telemetry{};
 
+  constexpr auto kAiCommsTimeout = std::chrono::milliseconds(100);
+  constexpr auto kFaultResetHold = std::chrono::milliseconds(500);
+  constexpr uint8_t kTelemetryFlagHvilClosed = 0x01;
+  constexpr uint8_t kTelemetryFlagEbsReleased = 0x02;
+  // ADS-DV shutdown cause enumerations (subset)
+  constexpr uint8_t kShutdownCauseNone = 0;
+  constexpr uint8_t kShutdownCauseEbs = 1;
+  constexpr uint8_t kShutdownCauseHvilOpen = 2;
+  constexpr uint8_t kShutdownCauseHvilShort = 3;
+  constexpr uint8_t kShutdownCauseAiCommsFault = 6;
+
+  auto clock_now = []() { return std::chrono::steady_clock::now(); };
+
+  auto last_ai_rx_time = clock_now();
+  bool seen_ai_frame = false;
+  bool ai_comms_lost_latched = false;
+  bool ebs_fault_latched = false;
+  bool hvil_open_fault_latched = false;
+  bool hvil_short_fault_latched = false;
+  bool finished_latched = false;
+  bool telemetry_seen = false;
+  bool last_hvil_ok = true;
+  bool last_ebs_ok = true;
+  bool reset_condition_active = false;
+  auto reset_condition_since = std::chrono::steady_clock::time_point{};
+  std::optional<fsai::sim::svcu::dbc::Ai2VcuStatus> last_ai_status;
+
+  auto compute_state = [&](bool ai_timeout) {
+    const bool estop_request = aggregator.estop_active();
+    const bool any_fault = ai_comms_lost_latched || ebs_fault_latched ||
+                           hvil_open_fault_latched || hvil_short_fault_latched ||
+                           estop_request;
+
+    fsai::sim::svcu::dbc::AsState as_state = fsai::sim::svcu::dbc::AsState::kOff;
+    if (any_fault) {
+      as_state = fsai::sim::svcu::dbc::AsState::kEmergencyBrake;
+    } else if (finished_latched) {
+      as_state = fsai::sim::svcu::dbc::AsState::kFinished;
+    } else if (!seen_ai_frame) {
+      as_state = fsai::sim::svcu::dbc::AsState::kOff;
+    } else if (last_ai_status.has_value()) {
+      switch (last_ai_status->mission_status) {
+        case fsai::sim::svcu::dbc::MissionStatus::kRunning:
+          as_state = fsai::sim::svcu::dbc::AsState::kDriving;
+          break;
+        case fsai::sim::svcu::dbc::MissionStatus::kSelected:
+          as_state = fsai::sim::svcu::dbc::AsState::kReady;
+          break;
+        case fsai::sim::svcu::dbc::MissionStatus::kFinished:
+          as_state = fsai::sim::svcu::dbc::AsState::kFinished;
+          break;
+        case fsai::sim::svcu::dbc::MissionStatus::kNotSelected:
+        default:
+          as_state = fsai::sim::svcu::dbc::AsState::kOff;
+          break;
+      }
+    } else {
+      as_state = fsai::sim::svcu::dbc::AsState::kReady;
+    }
+
+    const bool go_requested = last_ai_status.has_value() &&
+                              last_ai_status->mission_status ==
+                                  fsai::sim::svcu::dbc::MissionStatus::kRunning &&
+                              last_ai_status->direction_request ==
+                                  fsai::sim::svcu::dbc::DirectionRequest::kForward &&
+                              !last_ai_status->estop_request;
+    const bool allow_motion = go_requested &&
+                              as_state == fsai::sim::svcu::dbc::AsState::kDriving &&
+                              !ai_timeout && !any_fault;
+    return std::pair{as_state, allow_motion};
+  };
+
   while (should_continue()) {
     while (auto frame_opt = can_link->receive()) {
       stats.can_frames_rx++;
@@ -253,11 +328,16 @@ RunStats RunSvcu(const RunConfig& config, const RunLimits& limits,
         callbacks.on_can_rx(*frame_opt);
       }
       const auto& frame = *frame_opt;
+      const auto frame_rx_time = clock_now();
       switch (frame.can_id) {
         case fsai::sim::svcu::dbc::kMsgIdAi2VcuStatus: {
           fsai::sim::svcu::dbc::Ai2VcuStatus status{};
           if (fsai::sim::svcu::dbc::decode_ai2vcu_status(frame, status)) {
             aggregator.update(status);
+            last_ai_status = status;
+            if (status.mission_status == fsai::sim::svcu::dbc::MissionStatus::kFinished) {
+              finished_latched = true;
+            }
           }
           break;
         }
@@ -292,13 +372,71 @@ RunStats RunSvcu(const RunConfig& config, const RunLimits& limits,
         default:
           break;
       }
+      seen_ai_frame = true;
+      last_ai_rx_time = frame_rx_time;
     }
 
+    const auto now_time = clock_now();
     const auto now_ns = static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
+            now_time.time_since_epoch())
             .count());
-    const SanitizedCommand& sanitized = aggregator.sanitized();
+
+    const bool ai_timeout = seen_ai_frame &&
+                            (now_time - last_ai_rx_time) > kAiCommsTimeout;
+    if (ai_timeout) {
+      ai_comms_lost_latched = true;
+    }
+
+    if (aggregator.estop_active()) {
+      ebs_fault_latched = true;
+    }
+
+    if (last_ai_status.has_value() &&
+        last_ai_status->mission_status == fsai::sim::svcu::dbc::MissionStatus::kFinished) {
+      finished_latched = true;
+    }
+
+    const bool operator_reset_requested = last_ai_status.has_value() &&
+        last_ai_status->mission_status == fsai::sim::svcu::dbc::MissionStatus::kNotSelected &&
+        last_ai_status->direction_request ==
+            fsai::sim::svcu::dbc::DirectionRequest::kNeutral &&
+        !last_ai_status->estop_request;
+
+    if (operator_reset_requested && telemetry_seen && last_hvil_ok && last_ebs_ok &&
+        !ai_timeout) {
+      if (!reset_condition_active) {
+        reset_condition_active = true;
+        reset_condition_since = now_time;
+      } else if (now_time - reset_condition_since >= kFaultResetHold) {
+        ai_comms_lost_latched = false;
+        ebs_fault_latched = false;
+        hvil_open_fault_latched = false;
+        hvil_short_fault_latched = false;
+        finished_latched = false;
+      }
+    } else {
+      reset_condition_active = false;
+    }
+
+    const SanitizedCommand sanitized_raw = aggregator.sanitized();
+    const bool aggregator_enabled = sanitized_raw.enabled;
+    const auto state_and_motion = compute_state(ai_timeout);
+    bool allow_motion = aggregator_enabled && state_and_motion.second;
+    SanitizedCommand sanitized = sanitized_raw;
+    if (!allow_motion) {
+      sanitized.enabled = false;
+      sanitized.steer_rad = 0.0f;
+      sanitized.throttle = 0.0f;
+      sanitized.front_torque_request_nm = 0.0f;
+      sanitized.rear_torque_request_nm = 0.0f;
+      sanitized.brake = 1.0f;
+      sanitized.front_brake_req_pct = fsai::sim::svcu::dbc::kMaxBrakePercent;
+      sanitized.rear_brake_req_pct = fsai::sim::svcu::dbc::kMaxBrakePercent;
+    } else {
+      sanitized.enabled = true;
+    }
+
     cmd_packet.t_ns = now_ns;
     cmd_packet.steer_rad = sanitized.steer_rad;
     cmd_packet.throttle = std::clamp(sanitized.throttle, 0.0f, 1.0f);
@@ -317,7 +455,7 @@ RunStats RunSvcu(const RunConfig& config, const RunLimits& limits,
         sample.rear_torque_request_nm = sanitized.rear_torque_request_nm;
         sample.front_brake_req_pct = sanitized.front_brake_req_pct;
         sample.rear_brake_req_pct = sanitized.rear_brake_req_pct;
-        sample.handshake = aggregator.handshake();
+        sample.handshake = seen_ai_frame && !ai_timeout;
         sample.estop = aggregator.estop_active();
         callbacks.on_command(sample);
       }
@@ -329,39 +467,71 @@ RunStats RunSvcu(const RunConfig& config, const RunLimits& limits,
       }
       stats.telemetry_packets_processed++;
 
-      const SanitizedCommand& cmd = aggregator.sanitized();
-      const bool handshake = aggregator.handshake();
+      telemetry_seen = true;
+      const bool hvil_ok = (telemetry.status_flags & kTelemetryFlagHvilClosed) != 0u;
+      const bool ebs_ok = (telemetry.status_flags & kTelemetryFlagEbsReleased) != 0u;
+      last_hvil_ok = hvil_ok;
+      last_ebs_ok = ebs_ok;
+      if (!hvil_ok) {
+        hvil_open_fault_latched = true;
+        hvil_short_fault_latched = true;
+      }
+      if (!ebs_ok) {
+        ebs_fault_latched = true;
+      }
+
+      auto [status_state, status_allow_motion] = compute_state(ai_timeout);
       const bool estop = aggregator.estop_active();
+      const bool handshake = seen_ai_frame && !ai_timeout;
+      const bool faults_present = ai_comms_lost_latched || ebs_fault_latched ||
+                                  hvil_open_fault_latched || hvil_short_fault_latched ||
+                                  estop;
+      const bool go_signal = aggregator_enabled && status_allow_motion;
+
+      auto compute_shutdown_cause = [&]() -> uint8_t {
+        if (ai_comms_lost_latched) {
+          return kShutdownCauseAiCommsFault;
+        }
+        if (ebs_fault_latched || estop) {
+          return kShutdownCauseEbs;
+        }
+        if (hvil_open_fault_latched) {
+          return kShutdownCauseHvilOpen;
+        }
+        if (hvil_short_fault_latched) {
+          return kShutdownCauseHvilShort;
+        }
+        return kShutdownCauseNone;
+      };
+
+      const SanitizedCommand cmd = sanitized;
       fsai::sim::svcu::dbc::Vcu2AiStatus status_msg{};
       status_msg.handshake = handshake;
-      status_msg.shutdown_request = estop;
+      status_msg.shutdown_request = faults_present;
       status_msg.as_switch_on = handshake;
-      status_msg.ts_switch_on = true;
-      status_msg.go_signal = cmd.enabled;
-      status_msg.as_state = estop
-                                ? fsai::sim::svcu::dbc::AsState::kEmergencyBrake
-                                : (cmd.enabled
-                                       ? fsai::sim::svcu::dbc::AsState::kDriving
-                                       : (handshake ? fsai::sim::svcu::dbc::AsState::kReady
-                                                    : fsai::sim::svcu::dbc::AsState::kOff));
-      status_msg.steering_status = cmd.enabled
+      status_msg.ts_switch_on = handshake;
+      status_msg.go_signal = go_signal;
+      status_msg.as_state = status_state;
+      status_msg.steering_status = go_signal
                                        ? fsai::sim::svcu::dbc::SteeringStatus::kActive
-                                       : fsai::sim::svcu::dbc::SteeringStatus::kOff;
-      status_msg.fault = estop;
+                                       : (faults_present
+                                              ? fsai::sim::svcu::dbc::SteeringStatus::kFault
+                                              : fsai::sim::svcu::dbc::SteeringStatus::kOff);
+      status_msg.fault = faults_present;
       status_msg.warning = false;
       status_msg.ami_state = 4;
       status_msg.ai_estop_request = estop;
-      status_msg.hvil_open_fault = false;
-      status_msg.hvil_short_fault = false;
-      status_msg.ebs_fault = estop;
+      status_msg.hvil_open_fault = hvil_open_fault_latched;
+      status_msg.hvil_short_fault = hvil_short_fault_latched;
+      status_msg.ebs_fault = ebs_fault_latched || estop;
       status_msg.offboard_charger_fault = false;
-      status_msg.ai_comms_lost = false;
+      status_msg.ai_comms_lost = ai_comms_lost_latched;
       status_msg.warn_batt_temp_high = false;
       status_msg.warn_batt_soc_low = false;
       status_msg.charge_procedure_fault = false;
       status_msg.autonomous_braking_fault = false;
       status_msg.mission_status_fault = false;
-      status_msg.shutdown_cause = estop ? 1 : 0;
+      status_msg.shutdown_cause = compute_shutdown_cause();
       status_msg.bms_fault = false;
       status_msg.brake_plausibility_fault = false;
       if (callbacks.on_status) {
