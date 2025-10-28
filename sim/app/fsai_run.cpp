@@ -25,6 +25,7 @@
 #include "budget.h"
 #include "fsai_clock.h"
 #include "csv_logger.hpp"
+#include "logging.hpp"
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
 #include "terminal_keyboard.hpp"
@@ -626,6 +627,48 @@ void DrawCanPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   ImGui::End();
 }
 
+ImVec4 ColorForLogLevel(fsai::sim::log::Level level) {
+  switch (level) {
+    case fsai::sim::log::Level::kInfo:
+      return ImVec4(0.9f, 0.9f, 0.9f, 1.0f);
+    case fsai::sim::log::Level::kWarning:
+      return ImVec4(0.95f, 0.85f, 0.3f, 1.0f);
+    case fsai::sim::log::Level::kError:
+      return ImVec4(0.95f, 0.4f, 0.4f, 1.0f);
+  }
+  return ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+void DrawLogConsole() {
+  ImGui::Begin("Simulation Log");
+
+  if (ImGui::Button("Clear")) {
+    fsai::sim::log::Clear();
+  }
+  ImGui::SameLine();
+  static bool auto_scroll = true;
+  ImGui::Checkbox("Auto-scroll", &auto_scroll);
+
+  ImGui::Separator();
+
+  const auto entries = fsai::sim::log::Snapshot();
+  const bool should_scroll = fsai::sim::log::ConsumeScrollRequest();
+
+  ImGui::BeginChild("LogConsoleScroll", ImVec2(0, 0), false,
+                    ImGuiWindowFlags_HorizontalScrollbar);
+  for (const auto& entry : entries) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ColorForLogLevel(entry.level));
+    ImGui::TextUnformatted(entry.formatted.c_str());
+    ImGui::PopStyleColor();
+  }
+  if (auto_scroll && should_scroll) {
+    ImGui::SetScrollHereY(1.0f);
+  }
+  ImGui::EndChild();
+
+  ImGui::End();
+}
+
 void DrawWorldScene(Graphics* graphics, const World& world,
                     const fsai::sim::app::RuntimeTelemetry& telemetry) {
   (void)telemetry;
@@ -882,20 +925,23 @@ int main(int argc, char* argv[]) {
     } else if (arg == "--sensor-config" && i + 1 < argc) {
       sensor_config_path = argv[++i];
     } else if (arg == "--help") {
-      std::printf(
+      fsai::sim::log::LogfToStdout(
+          fsai::sim::log::Level::kInfo,
           "Usage: fsai_run [--dt seconds] [--can-if iface|udp:port] [--cmd-port p] "
-          "[--state-port p] [--sensor-config path]\n");
+          "[--state-port p] [--sensor-config path]");
       return EXIT_SUCCESS;
     } else if (i == 1 && argc == 2) {
       dt = std::atof(arg.c_str());
     } else {
-      std::printf("Ignoring unrecognized argument '%s'\n", arg.c_str());
+      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                           "Ignoring unrecognized argument '%s'", arg.c_str());
     }
   }
 
   if (dt <= 0.0) {
-    std::printf("Invalid dt value provided. Using default dt = %.3f\n",
-                kDefaultDt);
+    fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                         "Invalid dt value provided. Using default dt = %.3f",
+                         kDefaultDt);
     dt = kDefaultDt;
   }
   if (!can_iface_overridden) {
@@ -907,8 +953,9 @@ int main(int argc, char* argv[]) {
   }
   can_iface = fsai::sim::svcu::canonicalize_can_endpoint(can_iface);
   const bool can_is_udp = fsai::sim::svcu::is_udp_endpoint(can_iface);
-  std::printf(
-      "Using dt = %.4f seconds, mode=%s, CAN %s (%s), cmd-port %u, state-port %u\n",
+  fsai::sim::log::Logf(
+      fsai::sim::log::Level::kInfo,
+      "Using dt = %.4f seconds, mode=%s, CAN %s (%s), cmd-port %u, state-port %u",
       dt, mode.c_str(), can_iface.c_str(), can_is_udp ? "udp" : "socketcan",
       command_port, telemetry_port);
 
@@ -1052,7 +1099,8 @@ int main(int argc, char* argv[]) {
   if (!can_interface.Initialize(can_cfg)) {
     if (mode == "sim" && !can_iface_overridden) {
       const std::string fallback = fsai::sim::svcu::default_can_endpoint();
-      std::printf("Falling back to CAN endpoint %s\n", fallback.c_str());
+      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                           "Falling back to CAN endpoint %s", fallback.c_str());
       can_cfg.endpoint = fallback;
       can_cfg.mode = fsai::control::runtime::CanIface::Mode::kSimulation;
       if (!can_interface.Initialize(can_cfg)) {
@@ -1141,8 +1189,9 @@ int main(int argc, char* argv[]) {
       running = false;
     } else if (key == 'm' || key == 'M') {
       world.useController = world.useController ? 0 : 1;
-      std::printf("Switched to %s control mode.\n",
-                  world.useController ? "automatic" : "manual");
+      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                           "Switched to %s control mode.",
+                           world.useController ? "automatic" : "manual");
     } else if (!world.useController && key != -1) {
       if (key == 'w' || key == 'W') {
         world.throttleInput = 1.0f;
@@ -1428,6 +1477,7 @@ int main(int argc, char* argv[]) {
     DrawSimulationPanel(runtime_telemetry);
     DrawControlPanel(runtime_telemetry);
     DrawCanPanel(runtime_telemetry);
+    DrawLogConsole();
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
                                                 sample_noise(sensor_cfg.steering_deg.noise_std)));
@@ -1593,7 +1643,8 @@ int main(int argc, char* argv[]) {
 
     auto send_sim_frame = [&](const can_frame& frame) {
       if (!can_interface.SendSimulationFrame(frame)) {
-        std::fprintf(stderr, "Failed to send simulation CAN frame id=%u\n", frame.can_id);
+        fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                             "Failed to send simulation CAN frame id=%u", frame.can_id);
       }
     };
 
@@ -1678,6 +1729,7 @@ int main(int argc, char* argv[]) {
   fsai_budget_report_all();
   shutdown_imgui();
   Graphics_Cleanup(&graphics);
-  std::printf("Simulation complete. Car state log saved to CarStateLog.csv\n");
+  fsai::sim::log::LogInfoToStdout(
+      "Simulation complete. Car state log saved to CarStateLog.csv");
   return EXIT_SUCCESS;
 }
