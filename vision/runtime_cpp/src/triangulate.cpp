@@ -2,7 +2,8 @@
 #include <cmath>
 #include <limits>
 
-#include "common/include/common/types.h"
+#include "triangulate.hpp"
+// #include "common/include/common/types.h"
 
 
 struct Point2D{
@@ -74,10 +75,13 @@ int main(){
 
     if(triangulate(cam1_point,cam2_point,params,coord_3d)){
         std::cout << "Success in triangulating point" << std::endl;
+        std::cout << "X: " << coord_3d.X << " m" << std::endl;
+        std::cout << "Y: " << coord_3d.Y << " m" << std::endl;
+        std::cout << "Z: " << coord_3d.Z << " m (Depth)" << std::endl;
     }else{
         std::cout << "Disparity is zero, unable to recover depth!" << std ::endl;
     }
 
-    return 0;
+    return 0; 
 
 }
