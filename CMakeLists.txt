@@ -122,6 +122,14 @@ list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/sim/svcu/svcu_main.cpp$")
+list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/.git/.*")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/.git/.*")
+
+
+# Drop everything under vision/
+list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision/.*")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision/.*")
+
 
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
 

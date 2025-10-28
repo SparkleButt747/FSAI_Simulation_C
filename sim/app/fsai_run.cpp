@@ -52,6 +52,41 @@ constexpr double kBaseLongitudeDeg = -122.1697;
 constexpr double kMetersPerDegreeLat = 111111.0;
 constexpr const char* kDefaultSensorConfig = "../configs/sim/sensors.yaml";
 
+template <size_t Capacity>
+class RollingBuffer {
+ public:
+  void push(float value) {
+    data_[next_index_] = value;
+    next_index_ = (next_index_ + 1) % Capacity;
+    if (size_ < Capacity) {
+      ++size_;
+    }
+  }
+
+  [[nodiscard]] bool empty() const { return size_ == 0; }
+
+  [[nodiscard]] size_t size() const { return size_; }
+
+  void copy(std::vector<float>& out) const {
+    out.clear();
+    out.reserve(size_);
+    if (size_ == 0) {
+      return;
+    }
+    if (size_ < Capacity) {
+      out.insert(out.end(), data_.begin(), data_.begin() + static_cast<long>(size_));
+      return;
+    }
+    out.insert(out.end(), data_.begin() + static_cast<long>(next_index_), data_.end());
+    out.insert(out.end(), data_.begin(), data_.begin() + static_cast<long>(next_index_));
+  }
+
+ private:
+  std::array<float, Capacity> data_{};
+  size_t next_index_{0};
+  size_t size_{0};
+};
+
 inline double metersToLatitude(double north_meters) {
   return kBaseLatitudeDeg + north_meters / kMetersPerDegreeLat;
 }
@@ -63,16 +98,142 @@ inline double metersToLongitude(double east_meters) {
   return kBaseLongitudeDeg + east_meters / meters_per_degree_lon;
 }
 
-void RenderSimulationStats(const fsai::sim::app::RuntimeTelemetry& telemetry) {
+void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
+  static RollingBuffer<360> speed_history;
+  static RollingBuffer<360> accel_long_history;
+  static RollingBuffer<360> accel_lat_history;
+  static RollingBuffer<360> yaw_rate_history;
+  static std::vector<float> plot_buffer;
+
+  speed_history.push(telemetry.physics.vehicle_speed_kph);
+  accel_long_history.push(telemetry.acceleration.longitudinal_mps2);
+  accel_lat_history.push(telemetry.acceleration.lateral_mps2);
+  yaw_rate_history.push(telemetry.acceleration.yaw_rate_degps);
+
   ImGui::Begin("Simulation Stats");
-  ImGui::Text("Simulation time: %.2f s", telemetry.physics.simulation_time_s);
-  ImGui::Text("Vehicle speed: %.1f km/h", telemetry.physics.vehicle_speed_kph);
-  ImGui::Text("Throttle: %.2f", telemetry.control.applied_throttle);
-  ImGui::Text("Brake: %.2f", telemetry.control.applied_brake);
-  ImGui::Text("Steering: %.1f deg", telemetry.physics.steering_deg);
-  ImGui::Text("Runtime mode: %s", telemetry.mode.runtime_mode.c_str());
+
+  ImGui::Text("Runtime mode: %s",
+              telemetry.mode.runtime_mode.empty() ? "N/A"
+                                                  : telemetry.mode.runtime_mode.c_str());
   ImGui::Text("Control mode: %s",
               telemetry.mode.use_controller ? "automatic" : "manual");
+  ImGui::Text("Simulation time: %.2f s", telemetry.physics.simulation_time_s);
+
+  if (ImGui::CollapsingHeader("Vehicle Pose", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Text("Position XYZ [m]: %.2f, %.2f, %.2f", telemetry.pose.position_x_m,
+                telemetry.pose.position_y_m, telemetry.pose.position_z_m);
+    ImGui::Text("Yaw: %.1f deg", telemetry.pose.yaw_deg);
+  }
+
+  if (ImGui::CollapsingHeader("Vehicle Kinematics", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Text("Speed: %.2f m/s (%.1f km/h)", telemetry.physics.vehicle_speed_mps,
+                telemetry.physics.vehicle_speed_kph);
+    ImGui::Text("Steering: %.1f deg", telemetry.physics.steering_deg);
+    ImGui::Text("Throttle: %.2f", telemetry.control.applied_throttle);
+    ImGui::Text("Brake: %.2f", telemetry.control.applied_brake);
+    if (telemetry.control.has_last_command && telemetry.control.last_command) {
+      ImGui::Text("Last torque request F/R [Nm]: %.0f / %.0f",
+                  telemetry.control.last_command->front_drive.axle_torque_request_nm,
+                  telemetry.control.last_command->rear_drive.axle_torque_request_nm);
+      ImGui::Text("Last brake request F/R [%%]: %.1f / %.1f",
+                  telemetry.control.last_command->brake.front_pct,
+                  telemetry.control.last_command->brake.rear_pct);
+    }
+  }
+
+  if (ImGui::CollapsingHeader("Axle Torques", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Text("Front axle torque: %.0f Nm (drive force %.0f N)",
+                telemetry.drive.front_axle_torque_nm,
+                telemetry.drive.front_drive_force_n);
+    ImGui::Text("Rear axle torque: %.0f Nm (drive force %.0f N)",
+                telemetry.drive.rear_axle_torque_nm,
+                telemetry.drive.rear_drive_force_n);
+    ImGui::Text("Net longitudinal forces F/R [N]: %.0f / %.0f",
+                telemetry.drive.front_net_force_n, telemetry.drive.rear_net_force_n);
+    if (telemetry.can.front_drive.axle_trq_request_nm != 0.0f ||
+        telemetry.can.rear_drive.axle_trq_request_nm != 0.0f) {
+      ImGui::Text("Requested axle torque F/R [Nm]: %.0f / %.0f",
+                  telemetry.can.front_drive.axle_trq_request_nm,
+                  telemetry.can.rear_drive.axle_trq_request_nm);
+    }
+  }
+
+  if (ImGui::CollapsingHeader("Brake System", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Text("Front brake force: %.0f N (%.1f%%)", telemetry.brake.front_force_n,
+                telemetry.brake.front_pct);
+    ImGui::Text("Rear brake force: %.0f N (%.1f%%)", telemetry.brake.rear_force_n,
+                telemetry.brake.rear_pct);
+    if (telemetry.can.brake.front_req_pct != 0.0f ||
+        telemetry.can.brake.rear_req_pct != 0.0f) {
+      ImGui::Text("Requested brake F/R [%%]: %.1f / %.1f",
+                  telemetry.can.brake.front_req_pct, telemetry.can.brake.rear_req_pct);
+    }
+  }
+
+  if (ImGui::CollapsingHeader("Wheel RPM", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::BeginTable("wheel_rpm", 4,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_NoHostExtendX)) {
+      static constexpr const char* kWheelLabels[4] = {"LF", "RF", "LR", "RR"};
+      for (int i = 0; i < 4; ++i) {
+        ImGui::TableSetupColumn(kWheelLabels[i], ImGuiTableColumnFlags_WidthStretch);
+      }
+      ImGui::TableHeadersRow();
+      ImGui::TableNextRow();
+      for (int i = 0; i < 4; ++i) {
+        ImGui::TableSetColumnIndex(i);
+        ImGui::Text("%.0f", telemetry.wheels.rpm[static_cast<size_t>(i)]);
+      }
+      ImGui::EndTable();
+    }
+  }
+
+  if (ImGui::CollapsingHeader("Accelerations", ImGuiTreeNodeFlags_DefaultOpen)) {
+    constexpr float kGravity = 9.80665f;
+    const float lon_g = telemetry.acceleration.longitudinal_mps2 / kGravity;
+    const float lat_g = telemetry.acceleration.lateral_mps2 / kGravity;
+    ImGui::Text("Accel longitudinal: %.2f m/s^2 (%.2f g)",
+                telemetry.acceleration.longitudinal_mps2, lon_g);
+    ImGui::Text("Accel lateral: %.2f m/s^2 (%.2f g)",
+                telemetry.acceleration.lateral_mps2, lat_g);
+    ImGui::Text("Accel vertical: %.2f m/s^2", telemetry.acceleration.vertical_mps2);
+    ImGui::Text("Yaw rate: %.2f deg/s", telemetry.acceleration.yaw_rate_degps);
+    if (telemetry.can.imu) {
+      const auto& imu = *telemetry.can.imu;
+      ImGui::Text("IMU sample a_lon/a_lat [m/s^2]: %.2f / %.2f", imu.accel_longitudinal_mps2,
+                  imu.accel_lateral_mps2);
+      ImGui::Text("IMU yaw rate: %.2f deg/s", imu.yaw_rate_rps *
+                                              fsai::sim::svcu::dbc::kRadToDeg);
+    }
+  }
+
+  if (ImGui::CollapsingHeader("Lap Stats", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Text("Completed laps: %d", telemetry.lap.completed_laps);
+    ImGui::Text("Current lap time: %.1f s", telemetry.lap.current_lap_time_s);
+    ImGui::Text("Distance traveled: %.1f m", telemetry.lap.total_distance_m);
+    if (telemetry.can.gps) {
+      ImGui::Text("GPS speed: %.2f m/s", telemetry.can.gps->speed_mps);
+    }
+  }
+
+  if (ImGui::CollapsingHeader("Trends")) {
+    auto draw_plot = [&](const char* label, RollingBuffer<360>& buffer, float pad) {
+      buffer.copy(plot_buffer);
+      if (plot_buffer.empty()) {
+        return;
+      }
+      const auto [min_it, max_it] = std::minmax_element(plot_buffer.begin(), plot_buffer.end());
+      const float min_v = *min_it - pad;
+      const float max_v = *max_it + pad;
+      ImGui::PlotLines(label, plot_buffer.data(), static_cast<int>(plot_buffer.size()), 0,
+                       nullptr, min_v, max_v, ImVec2(0.0f, 80.0f));
+    };
+    draw_plot("Speed [km/h]", speed_history, 2.0f);
+    draw_plot("Accel lon [m/s^2]", accel_long_history, 0.5f);
+    draw_plot("Accel lat [m/s^2]", accel_lat_history, 0.5f);
+    draw_plot("Yaw rate [deg/s]", yaw_rate_history, 1.0f);
+  }
+
   ImGui::End();
 }
 
@@ -708,10 +869,22 @@ int main(int argc, char* argv[]) {
     const auto& brake_status = model.lastBrakeStatus();
     const WheelsInfo& wheel_info = world.wheelsInfo();
     const double wheel_radius = std::max(0.01, model.param().tire.radius);
-    const double front_force = pt_status.front_drive_force - pt_status.front_regen_force -
-                               brake_status.front_force;
-    const double rear_force = pt_status.rear_drive_force - pt_status.rear_regen_force -
-                              brake_status.rear_force;
+    const double front_drive_force = pt_status.front_drive_force - pt_status.front_regen_force;
+    const double rear_drive_force = pt_status.rear_drive_force - pt_status.rear_regen_force;
+    const double front_net_force = front_drive_force - brake_status.front_force;
+    const double rear_net_force = rear_drive_force - brake_status.rear_force;
+    const double front_axle_torque_nm = front_drive_force * wheel_radius;
+    const double rear_axle_torque_nm = rear_drive_force * wheel_radius;
+
+    const double max_brake_force = std::max(1.0, model.param().brakes.max_force);
+    const double front_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_front_bias);
+    const double rear_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_rear_bias);
+    const double front_brake_pct = front_max_force > 0.0
+                                       ? (std::max(0.0, brake_status.front_force) / front_max_force) * 100.0
+                                       : 0.0;
+    const double rear_brake_pct = rear_max_force > 0.0
+                                      ? (std::max(0.0, brake_status.rear_force) / rear_max_force) * 100.0
+                                      : 0.0;
 
     const double vehicle_speed_mps = std::sqrt(
         vehicle_state.velocity.x() * vehicle_state.velocity.x() +
@@ -725,6 +898,34 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.physics.vehicle_speed_mps = static_cast<float>(vehicle_speed_mps);
     runtime_telemetry.physics.vehicle_speed_kph = actual_speed_kph;
     runtime_telemetry.physics.steering_deg = actual_steer_deg;
+    runtime_telemetry.pose.position_x_m = static_cast<float>(vehicle_state.position.x());
+    runtime_telemetry.pose.position_y_m = static_cast<float>(vehicle_state.position.y());
+    runtime_telemetry.pose.position_z_m = static_cast<float>(vehicle_state.position.z());
+    runtime_telemetry.pose.yaw_deg = static_cast<float>(vehicle_state.yaw *
+                                                        fsai::sim::svcu::dbc::kRadToDeg);
+    runtime_telemetry.wheels.rpm = {wheel_info.lf_speed, wheel_info.rf_speed,
+                                    wheel_info.lb_speed, wheel_info.rb_speed};
+    runtime_telemetry.drive.front_drive_force_n = static_cast<float>(front_drive_force);
+    runtime_telemetry.drive.rear_drive_force_n = static_cast<float>(rear_drive_force);
+    runtime_telemetry.drive.front_net_force_n = static_cast<float>(front_net_force);
+    runtime_telemetry.drive.rear_net_force_n = static_cast<float>(rear_net_force);
+    runtime_telemetry.drive.front_axle_torque_nm = static_cast<float>(front_axle_torque_nm);
+    runtime_telemetry.drive.rear_axle_torque_nm = static_cast<float>(rear_axle_torque_nm);
+    runtime_telemetry.brake.front_force_n = static_cast<float>(brake_status.front_force);
+    runtime_telemetry.brake.rear_force_n = static_cast<float>(brake_status.rear_force);
+    runtime_telemetry.brake.front_pct = static_cast<float>(front_brake_pct);
+    runtime_telemetry.brake.rear_pct = static_cast<float>(rear_brake_pct);
+    runtime_telemetry.acceleration.longitudinal_mps2 =
+        static_cast<float>(vehicle_state.acceleration.x());
+    runtime_telemetry.acceleration.lateral_mps2 =
+        static_cast<float>(vehicle_state.acceleration.y());
+    runtime_telemetry.acceleration.vertical_mps2 =
+        static_cast<float>(vehicle_state.acceleration.z());
+    runtime_telemetry.acceleration.yaw_rate_degps =
+        static_cast<float>(vehicle_state.rotation.z() * fsai::sim::svcu::dbc::kRadToDeg);
+    runtime_telemetry.lap.current_lap_time_s = world.lapTimeSeconds();
+    runtime_telemetry.lap.total_distance_m = world.totalDistanceMeters();
+    runtime_telemetry.lap.completed_laps = world.completedLaps();
     runtime_telemetry.can.status = can_interface.RawStatus();
     runtime_telemetry.can.steer = can_interface.RawSteer();
     runtime_telemetry.can.front_drive = can_interface.RawFrontDrive();
@@ -747,7 +948,7 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.mode.use_controller = world.useController != 0;
     runtime_telemetry.mode.runtime_mode = mode;
 
-    RenderSimulationStats(runtime_telemetry);
+    DrawSimulationPanel(runtime_telemetry);
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
                                                 sample_noise(sensor_cfg.steering_deg.noise_std)));
@@ -783,9 +984,6 @@ int main(int argc, char* argv[]) {
       has_torque_meas = true;
     }
 
-    const double max_brake_force = std::max(1.0, model.param().brakes.max_force);
-    const double front_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_front_bias);
-    const double rear_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_rear_bias);
     BrakeSample brake_sample{};
     const double front_pct_raw = (std::max(0.0, brake_status.front_force) / front_max_force) * 100.0;
     const double rear_pct_raw = (std::max(0.0, brake_status.rear_force) / rear_max_force) * 100.0;
@@ -939,8 +1137,8 @@ int main(int argc, char* argv[]) {
     fsai::sim::svcu::TelemetryPacket telemetry{};
     telemetry.t_ns = now_ns;
     telemetry.steer_angle_rad = appliedSteer;
-    telemetry.front_axle_torque_nm = static_cast<float>(front_force * wheel_radius);
-    telemetry.rear_axle_torque_nm = static_cast<float>(rear_force * wheel_radius);
+    telemetry.front_axle_torque_nm = static_cast<float>(front_net_force * wheel_radius);
+    telemetry.rear_axle_torque_nm = static_cast<float>(rear_net_force * wheel_radius);
     telemetry.wheel_speed_rpm[0] = wheel_info.lf_speed;
     telemetry.wheel_speed_rpm[1] = wheel_info.rf_speed;
     telemetry.wheel_speed_rpm[2] = wheel_info.lb_speed;
