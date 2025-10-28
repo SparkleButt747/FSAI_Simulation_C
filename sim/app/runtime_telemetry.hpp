@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <optional>
 #include <string>
 
@@ -16,6 +17,46 @@ struct RuntimeTelemetry {
     float vehicle_speed_kph{0.0f};
     float steering_deg{0.0f};
   } physics;
+
+  struct PoseData {
+    float position_x_m{0.0f};
+    float position_y_m{0.0f};
+    float position_z_m{0.0f};
+    float yaw_deg{0.0f};
+  } pose;
+
+  struct WheelData {
+    std::array<float, 4> rpm{0.0f, 0.0f, 0.0f, 0.0f};
+  } wheels;
+
+  struct DriveData {
+    float front_axle_torque_nm{0.0f};
+    float rear_axle_torque_nm{0.0f};
+    float front_drive_force_n{0.0f};
+    float rear_drive_force_n{0.0f};
+    float front_net_force_n{0.0f};
+    float rear_net_force_n{0.0f};
+  } drive;
+
+  struct BrakeData {
+    float front_force_n{0.0f};
+    float rear_force_n{0.0f};
+    float front_pct{0.0f};
+    float rear_pct{0.0f};
+  } brake;
+
+  struct AccelerationData {
+    float longitudinal_mps2{0.0f};
+    float lateral_mps2{0.0f};
+    float vertical_mps2{0.0f};
+    float yaw_rate_degps{0.0f};
+  } acceleration;
+
+  struct LapData {
+    double current_lap_time_s{0.0};
+    double total_distance_m{0.0};
+    int completed_laps{0};
+  } lap;
 
   struct CanData {
     fsai::sim::svcu::dbc::Vcu2AiStatus status{};
