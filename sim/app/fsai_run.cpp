@@ -1721,12 +1721,8 @@ int main(int argc, char* argv[]) {
     SDL_Delay(static_cast<Uint32>(step_seconds * 1000.0));
 
     frame_counter++;
-    if (frame_counter % kReportIntervalFrames == 0) {
-      fsai_budget_report_all();
-    }
   }
 
-  fsai_budget_report_all();
   shutdown_imgui();
   Graphics_Cleanup(&graphics);
   fsai::sim::log::LogInfoToStdout(

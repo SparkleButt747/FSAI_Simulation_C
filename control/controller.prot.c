@@ -65,7 +65,6 @@ LookaheadIndices Controller_GetLookaheadIndices(int nCheckpoints, double carVelo
     int speedIndex = (speedLookaheadDistance < (lookaheadMax + 1)) ? speedLookaheadDistance : lookaheadMax;
 
     LookaheadIndices indices = {steeringIndex, speedIndex, lookaheadMax};
-    printf("LIObj: %d, %d, %d\n", indices.steer, indices.speed, indices.max);
     return indices;
 
 }

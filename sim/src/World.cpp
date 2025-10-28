@@ -159,7 +159,6 @@ bool World::detectCollisions() {
     if (distToNext < config.collisionThreshold) {
         moveNextCheckpointToLast();
     }
-    std::printf("Next Checkpoint: (%f, %f)\n", checkpointPositions[0].x, checkpointPositions[0].z);
 
     dx = carTransform.position.x - lastCheckpoint.x;
     dz = carTransform.position.z - lastCheckpoint.z;
