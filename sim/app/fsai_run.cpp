@@ -98,6 +98,103 @@ inline double metersToLongitude(double east_meters) {
   return kBaseLongitudeDeg + east_meters / meters_per_degree_lon;
 }
 
+const char* CanModeToString(fsai::control::runtime::CanIface::Mode mode) {
+  switch (mode) {
+    case fsai::control::runtime::CanIface::Mode::kSimulation:
+      return "Simulation";
+    case fsai::control::runtime::CanIface::Mode::kFsAiApi:
+      return "FS AI API";
+  }
+  return "Unknown";
+}
+
+const char* AsStateToString(fsai::sim::svcu::dbc::AsState state) {
+  switch (state) {
+    case fsai::sim::svcu::dbc::AsState::kOff:
+      return "Off";
+    case fsai::sim::svcu::dbc::AsState::kReady:
+      return "Ready";
+    case fsai::sim::svcu::dbc::AsState::kDriving:
+      return "Driving";
+    case fsai::sim::svcu::dbc::AsState::kEmergencyBrake:
+      return "Emergency Brake";
+    case fsai::sim::svcu::dbc::AsState::kFinished:
+      return "Finished";
+    case fsai::sim::svcu::dbc::AsState::kR2d:
+      return "Ready to Drive";
+  }
+  return "Unknown";
+}
+
+const char* SteeringStatusToString(fsai::sim::svcu::dbc::SteeringStatus status) {
+  switch (status) {
+    case fsai::sim::svcu::dbc::SteeringStatus::kOff:
+      return "Off";
+    case fsai::sim::svcu::dbc::SteeringStatus::kActive:
+      return "Active";
+    case fsai::sim::svcu::dbc::SteeringStatus::kFault:
+      return "Fault";
+    case fsai::sim::svcu::dbc::SteeringStatus::kUnknown:
+      return "Unknown";
+  }
+  return "Unknown";
+}
+
+const char* BrakeStatusToString(fsai::sim::svcu::dbc::BrakeStatus status) {
+  switch (status) {
+    case fsai::sim::svcu::dbc::BrakeStatus::kInitialising:
+      return "Initialising";
+    case fsai::sim::svcu::dbc::BrakeStatus::kReady:
+      return "Ready";
+    case fsai::sim::svcu::dbc::BrakeStatus::kShuttingDown:
+      return "Shutting Down";
+    case fsai::sim::svcu::dbc::BrakeStatus::kShutdownComplete:
+      return "Shutdown Complete";
+    case fsai::sim::svcu::dbc::BrakeStatus::kFault:
+      return "Fault";
+  }
+  return "Unknown";
+}
+
+const char* EbsStatusToString(fsai::sim::svcu::dbc::EbsStatus status) {
+  switch (status) {
+    case fsai::sim::svcu::dbc::EbsStatus::kUnavailable:
+      return "Unavailable";
+    case fsai::sim::svcu::dbc::EbsStatus::kArmed:
+      return "Armed";
+    case fsai::sim::svcu::dbc::EbsStatus::kTriggered:
+      return "Triggered";
+  }
+  return "Unknown";
+}
+
+ImVec4 ColorForFreshness(double age_s, bool valid) {
+  if (!valid || !std::isfinite(age_s)) {
+    return ImVec4(0.85f, 0.3f, 0.3f, 1.0f);
+  }
+  if (age_s < 0.25) {
+    return ImVec4(0.2f, 0.75f, 0.2f, 1.0f);
+  }
+  if (age_s < 0.75) {
+    return ImVec4(0.95f, 0.85f, 0.25f, 1.0f);
+  }
+  return ImVec4(0.9f, 0.45f, 0.25f, 1.0f);
+}
+
+template <typename T>
+ImVec4 ColorForFreshness(const fsai::sim::app::RuntimeTelemetry::TimedSample<T>& sample) {
+  return ColorForFreshness(sample.age_s, sample.valid);
+}
+
+template <typename T, typename Fn>
+void WithFreshnessColor(const fsai::sim::app::RuntimeTelemetry::TimedSample<T>& sample,
+                        Fn&& fn) {
+  const ImVec4 color = ColorForFreshness(sample);
+  ImGui::PushStyleColor(ImGuiCol_Text, color);
+  fn();
+  ImGui::PopStyleColor();
+}
+
 void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   static RollingBuffer<360> speed_history;
   static RollingBuffer<360> accel_long_history;
@@ -150,11 +247,17 @@ void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
                 telemetry.drive.rear_drive_force_n);
     ImGui::Text("Net longitudinal forces F/R [N]: %.0f / %.0f",
                 telemetry.drive.front_net_force_n, telemetry.drive.rear_net_force_n);
-    if (telemetry.can.front_drive.axle_trq_request_nm != 0.0f ||
-        telemetry.can.rear_drive.axle_trq_request_nm != 0.0f) {
+    if ((telemetry.can.front_drive.valid &&
+         telemetry.can.front_drive.value.axle_trq_request_nm != 0.0f) ||
+        (telemetry.can.rear_drive.valid &&
+         telemetry.can.rear_drive.value.axle_trq_request_nm != 0.0f)) {
       ImGui::Text("Requested axle torque F/R [Nm]: %.0f / %.0f",
-                  telemetry.can.front_drive.axle_trq_request_nm,
-                  telemetry.can.rear_drive.axle_trq_request_nm);
+                  telemetry.can.front_drive.valid
+                      ? telemetry.can.front_drive.value.axle_trq_request_nm
+                      : 0.0f,
+                  telemetry.can.rear_drive.valid
+                      ? telemetry.can.rear_drive.value.axle_trq_request_nm
+                      : 0.0f);
     }
   }
 
@@ -163,10 +266,12 @@ void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
                 telemetry.brake.front_pct);
     ImGui::Text("Rear brake force: %.0f N (%.1f%%)", telemetry.brake.rear_force_n,
                 telemetry.brake.rear_pct);
-    if (telemetry.can.brake.front_req_pct != 0.0f ||
-        telemetry.can.brake.rear_req_pct != 0.0f) {
+    if (telemetry.can.brake.valid &&
+        (telemetry.can.brake.value.front_req_pct != 0.0f ||
+         telemetry.can.brake.value.rear_req_pct != 0.0f)) {
       ImGui::Text("Requested brake F/R [%%]: %.1f / %.1f",
-                  telemetry.can.brake.front_req_pct, telemetry.can.brake.rear_req_pct);
+                  telemetry.can.brake.value.front_req_pct,
+                  telemetry.can.brake.value.rear_req_pct);
     }
   }
 
@@ -232,6 +337,174 @@ void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
     draw_plot("Accel lon [m/s^2]", accel_long_history, 0.5f);
     draw_plot("Accel lat [m/s^2]", accel_lat_history, 0.5f);
     draw_plot("Yaw rate [deg/s]", yaw_rate_history, 1.0f);
+  }
+
+  ImGui::End();
+}
+
+void DrawCanPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
+  ImGui::Begin("CAN Telemetry");
+
+  ImGui::Text("Transport: %s", CanModeToString(telemetry.can.mode));
+  ImGui::Text("Endpoint: %s",
+              telemetry.can.endpoint.empty() ? "N/A" : telemetry.can.endpoint.c_str());
+
+  const bool heartbeat_valid = telemetry.can.status.valid &&
+                               std::isfinite(telemetry.can.last_heartbeat_age_s);
+  const ImVec4 heartbeat_color =
+      ColorForFreshness(telemetry.can.last_heartbeat_age_s, heartbeat_valid);
+  if (heartbeat_valid) {
+    ImGui::TextColored(heartbeat_color, "Heartbeat age: %.0f ms",
+                       telemetry.can.last_heartbeat_age_s * 1000.0);
+  } else {
+    ImGui::TextColored(heartbeat_color, "Heartbeat age: no data");
+  }
+
+  if (ImGui::CollapsingHeader("VCU Status", ImGuiTreeNodeFlags_DefaultOpen)) {
+    WithFreshnessColor(telemetry.can.status, [&]() {
+      if (!telemetry.can.status.valid) {
+        ImGui::Text("No status frames received");
+        return;
+      }
+      const auto& status = telemetry.can.status.value;
+      ImGui::Text("Handshake: %s | Go signal: %s",
+                  status.handshake ? "Yes" : "No",
+                  status.go_signal ? "Yes" : "No");
+      ImGui::Text("AS state: %s | Steering: %s", AsStateToString(status.as_state),
+                  SteeringStatusToString(status.steering_status));
+      ImGui::Text("TS switch: %s | AS switch: %s",
+                  status.ts_switch_on ? "On" : "Off",
+                  status.as_switch_on ? "On" : "Off");
+      ImGui::Text("Shutdown request: %s | Fault: %s | Warning: %s",
+                  status.shutdown_request ? "Yes" : "No",
+                  status.fault ? "Yes" : "No",
+                  status.warning ? "Yes" : "No");
+      const struct {
+        bool flag;
+        const char* label;
+      } flagged_states[] = {
+          {status.ai_estop_request, "AI e-stop request"},
+          {status.hvil_open_fault, "HVIL open fault"},
+          {status.hvil_short_fault, "HVIL short fault"},
+          {status.ebs_fault, "EBS fault"},
+          {status.offboard_charger_fault, "Offboard charger fault"},
+          {status.ai_comms_lost, "AI communications lost"},
+          {status.warn_batt_temp_high, "Battery temperature high"},
+          {status.warn_batt_soc_low, "Battery SOC low"},
+          {status.charge_procedure_fault, "Charge procedure fault"},
+          {status.autonomous_braking_fault, "Autonomous braking fault"},
+          {status.mission_status_fault, "Mission status fault"},
+          {status.bms_fault, "BMS fault"},
+          {status.brake_plausibility_fault, "Brake plausibility fault"},
+      };
+      bool any_flags = false;
+      for (const auto& flag : flagged_states) {
+        if (flag.flag) {
+          if (!any_flags) {
+            ImGui::Text("Active flags:");
+            any_flags = true;
+          }
+          ImGui::BulletText("%s", flag.label);
+        }
+      }
+      if (!any_flags) {
+        ImGui::Text("Active flags: none");
+      }
+      ImGui::Text("Age: %.0f ms", telemetry.can.status.age_s * 1000.0);
+    });
+  }
+
+  if (ImGui::CollapsingHeader("Steering Feedback", ImGuiTreeNodeFlags_DefaultOpen)) {
+    WithFreshnessColor(telemetry.can.steer, [&]() {
+      if (!telemetry.can.steer.valid) {
+        ImGui::Text("No steering frames received");
+        return;
+      }
+      const auto& steer = telemetry.can.steer.value;
+      ImGui::Text("Angle: %.1f deg (req %.1f / max %.1f)", steer.angle_deg,
+                  steer.angle_request_deg, steer.angle_max_deg);
+      ImGui::Text("Age: %.0f ms", telemetry.can.steer.age_s * 1000.0);
+    });
+  }
+
+  if (ImGui::CollapsingHeader("Drive Feedback", ImGuiTreeNodeFlags_DefaultOpen)) {
+    auto draw_drive = [&](const char* label,
+                          const fsai::sim::app::RuntimeTelemetry::TimedSample<
+                              fsai::sim::svcu::dbc::Vcu2AiDrive>& sample) {
+      WithFreshnessColor(sample, [&]() {
+        if (!sample.valid) {
+          ImGui::Text("%s: no drive frames", label);
+          return;
+        }
+        const auto& drive = sample.value;
+        ImGui::Text("%s axle torque: %.0f Nm", label, drive.axle_trq_nm);
+        ImGui::Text("%s request / max: %.0f / %.0f Nm", label,
+                    drive.axle_trq_request_nm, drive.axle_trq_max_nm);
+        ImGui::Text("Age: %.0f ms", sample.age_s * 1000.0);
+      });
+    };
+    draw_drive("Front", telemetry.can.front_drive);
+    draw_drive("Rear", telemetry.can.rear_drive);
+  }
+
+  if (ImGui::CollapsingHeader("Brake Feedback", ImGuiTreeNodeFlags_DefaultOpen)) {
+    WithFreshnessColor(telemetry.can.brake, [&]() {
+      if (!telemetry.can.brake.valid) {
+        ImGui::Text("No brake frames received");
+        return;
+      }
+      const auto& brake = telemetry.can.brake.value;
+      ImGui::Text("Actual F/R: %.1f / %.1f %%", brake.front_pct, brake.rear_pct);
+      ImGui::Text("Requested F/R: %.1f / %.1f %%", brake.front_req_pct,
+                  brake.rear_req_pct);
+      ImGui::Text("Status: %s | EBS: %s", BrakeStatusToString(brake.status_brk),
+                  EbsStatusToString(brake.status_ebs));
+      ImGui::Text("Age: %.0f ms", telemetry.can.brake.age_s * 1000.0);
+    });
+  }
+
+  if (ImGui::CollapsingHeader("Wheel Speeds", ImGuiTreeNodeFlags_DefaultOpen)) {
+    WithFreshnessColor(telemetry.can.speeds, [&]() {
+      if (!telemetry.can.speeds.valid) {
+        ImGui::Text("No wheel speed frames received");
+        return;
+      }
+      if (ImGui::BeginTable("can_wheel_rpm", 4,
+                            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                ImGuiTableFlags_NoHostExtendX)) {
+        static constexpr const char* kWheelLabels[4] = {"LF", "RF", "LR", "RR"};
+        for (int i = 0; i < 4; ++i) {
+          ImGui::TableSetupColumn(kWheelLabels[i], ImGuiTableColumnFlags_WidthStretch);
+        }
+        ImGui::TableHeadersRow();
+        ImGui::TableNextRow();
+        for (int i = 0; i < 4; ++i) {
+          ImGui::TableSetColumnIndex(i);
+          ImGui::Text("%.0f", telemetry.can.speeds.value.wheel_rpm[static_cast<size_t>(i)]);
+        }
+        ImGui::EndTable();
+      }
+      ImGui::Text("Age: %.0f ms", telemetry.can.speeds.age_s * 1000.0);
+    });
+  }
+
+  if (ImGui::CollapsingHeader("Dynamics", ImGuiTreeNodeFlags_DefaultOpen)) {
+    WithFreshnessColor(telemetry.can.dynamics, [&]() {
+      if (!telemetry.can.dynamics.valid) {
+        ImGui::Text("No dynamics frames received");
+        return;
+      }
+      const auto& dyn = telemetry.can.dynamics.value;
+      ImGui::Text("Speed actual/target: %.1f / %.1f km/h", dyn.speed_actual_kph,
+                  dyn.speed_target_kph);
+      ImGui::Text("Steer actual/target: %.1f / %.1f deg", dyn.steer_actual_deg,
+                  dyn.steer_target_deg);
+      ImGui::Text("Brake actual/target: %.1f / %.1f %%", dyn.brake_actual_pct,
+                  dyn.brake_target_pct);
+      ImGui::Text("Drive torque actual/target: %.1f / %.1f %%", dyn.drive_trq_actual_pct,
+                  dyn.drive_trq_target_pct);
+      ImGui::Text("Age: %.0f ms", telemetry.can.dynamics.age_s * 1000.0);
+    });
   }
 
   ImGui::End();
@@ -926,12 +1199,72 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.lap.current_lap_time_s = world.lapTimeSeconds();
     runtime_telemetry.lap.total_distance_m = world.totalDistanceMeters();
     runtime_telemetry.lap.completed_laps = world.completedLaps();
-    runtime_telemetry.can.status = can_interface.RawStatus();
-    runtime_telemetry.can.steer = can_interface.RawSteer();
-    runtime_telemetry.can.front_drive = can_interface.RawFrontDrive();
-    runtime_telemetry.can.rear_drive = can_interface.RawRearDrive();
-    runtime_telemetry.can.brake = can_interface.RawBrake();
-    runtime_telemetry.can.dynamics = can_interface.RawDynamics();
+    runtime_telemetry.can.mode = can_interface.mode();
+    runtime_telemetry.can.endpoint = can_interface.endpoint();
+
+    auto compute_age_seconds = [&](uint64_t timestamp_ns) {
+      if (timestamp_ns == 0 || now_ns == 0 || now_ns < timestamp_ns) {
+        return std::numeric_limits<double>::infinity();
+      }
+      return static_cast<double>(now_ns - timestamp_ns) * 1e-9;
+    };
+
+    runtime_telemetry.can.status.valid = can_interface.HasStatus();
+    if (runtime_telemetry.can.status.valid) {
+      runtime_telemetry.can.status.value = can_interface.RawStatus();
+      runtime_telemetry.can.status.age_s = compute_age_seconds(can_interface.LastStatusTimestampNs());
+    } else {
+      runtime_telemetry.can.status.age_s = std::numeric_limits<double>::infinity();
+    }
+    runtime_telemetry.can.last_heartbeat_age_s = runtime_telemetry.can.status.age_s;
+
+    runtime_telemetry.can.steer.valid = can_interface.HasSteer();
+    if (runtime_telemetry.can.steer.valid) {
+      runtime_telemetry.can.steer.value = can_interface.RawSteer();
+      runtime_telemetry.can.steer.age_s = compute_age_seconds(can_interface.LastSteerTimestampNs());
+    } else {
+      runtime_telemetry.can.steer.age_s = std::numeric_limits<double>::infinity();
+    }
+
+    runtime_telemetry.can.front_drive.valid = can_interface.HasFrontDrive();
+    if (runtime_telemetry.can.front_drive.valid) {
+      runtime_telemetry.can.front_drive.value = can_interface.RawFrontDrive();
+      runtime_telemetry.can.front_drive.age_s = compute_age_seconds(can_interface.LastFrontDriveTimestampNs());
+    } else {
+      runtime_telemetry.can.front_drive.age_s = std::numeric_limits<double>::infinity();
+    }
+
+    runtime_telemetry.can.rear_drive.valid = can_interface.HasRearDrive();
+    if (runtime_telemetry.can.rear_drive.valid) {
+      runtime_telemetry.can.rear_drive.value = can_interface.RawRearDrive();
+      runtime_telemetry.can.rear_drive.age_s = compute_age_seconds(can_interface.LastRearDriveTimestampNs());
+    } else {
+      runtime_telemetry.can.rear_drive.age_s = std::numeric_limits<double>::infinity();
+    }
+
+    runtime_telemetry.can.brake.valid = can_interface.HasBrake();
+    if (runtime_telemetry.can.brake.valid) {
+      runtime_telemetry.can.brake.value = can_interface.RawBrake();
+      runtime_telemetry.can.brake.age_s = compute_age_seconds(can_interface.LastBrakeTimestampNs());
+    } else {
+      runtime_telemetry.can.brake.age_s = std::numeric_limits<double>::infinity();
+    }
+
+    runtime_telemetry.can.speeds.valid = can_interface.HasSpeeds();
+    if (runtime_telemetry.can.speeds.valid) {
+      runtime_telemetry.can.speeds.value = can_interface.RawSpeeds();
+      runtime_telemetry.can.speeds.age_s = compute_age_seconds(can_interface.LastSpeedsTimestampNs());
+    } else {
+      runtime_telemetry.can.speeds.age_s = std::numeric_limits<double>::infinity();
+    }
+
+    runtime_telemetry.can.dynamics.valid = can_interface.HasDynamics();
+    if (runtime_telemetry.can.dynamics.valid) {
+      runtime_telemetry.can.dynamics.value = can_interface.RawDynamics();
+      runtime_telemetry.can.dynamics.age_s = compute_age_seconds(can_interface.LastDynamicsTimestampNs());
+    } else {
+      runtime_telemetry.can.dynamics.age_s = std::numeric_limits<double>::infinity();
+    }
     runtime_telemetry.can.vehicle_state = can_vehicle_state;
     runtime_telemetry.can.imu = can_interface.LatestImu();
     runtime_telemetry.can.gps = can_interface.LatestGps();
@@ -949,6 +1282,7 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.mode.runtime_mode = mode;
 
     DrawSimulationPanel(runtime_telemetry);
+    DrawCanPanel(runtime_telemetry);
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
                                                 sample_noise(sensor_cfg.steering_deg.noise_std)));

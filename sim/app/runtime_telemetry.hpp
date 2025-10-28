@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <limits>
 #include <optional>
 #include <string>
 
@@ -11,6 +12,13 @@
 namespace fsai::sim::app {
 
 struct RuntimeTelemetry {
+  template <typename T>
+  struct TimedSample {
+    T value{};
+    double age_s{std::numeric_limits<double>::infinity()};
+    bool valid{false};
+  };
+
   struct PhysicsData {
     double simulation_time_s{0.0};
     float vehicle_speed_mps{0.0f};
@@ -59,12 +67,16 @@ struct RuntimeTelemetry {
   } lap;
 
   struct CanData {
-    fsai::sim::svcu::dbc::Vcu2AiStatus status{};
-    fsai::sim::svcu::dbc::Vcu2AiSteer steer{};
-    fsai::sim::svcu::dbc::Vcu2AiDrive front_drive{};
-    fsai::sim::svcu::dbc::Vcu2AiDrive rear_drive{};
-    fsai::sim::svcu::dbc::Vcu2AiBrake brake{};
-    fsai::sim::svcu::dbc::Vcu2LogDynamics1 dynamics{};
+    fsai::control::runtime::CanIface::Mode mode{fsai::control::runtime::CanIface::Mode::kSimulation};
+    std::string endpoint;
+    double last_heartbeat_age_s{std::numeric_limits<double>::infinity()};
+    TimedSample<fsai::sim::svcu::dbc::Vcu2AiStatus> status{};
+    TimedSample<fsai::sim::svcu::dbc::Vcu2AiSteer> steer{};
+    TimedSample<fsai::sim::svcu::dbc::Vcu2AiDrive> front_drive{};
+    TimedSample<fsai::sim::svcu::dbc::Vcu2AiDrive> rear_drive{};
+    TimedSample<fsai::sim::svcu::dbc::Vcu2AiBrake> brake{};
+    TimedSample<fsai::sim::svcu::dbc::Vcu2AiSpeeds> speeds{};
+    TimedSample<fsai::sim::svcu::dbc::Vcu2LogDynamics1> dynamics{};
     std::optional<fsai::types::VehicleState> vehicle_state{};
     std::optional<fsai::control::runtime::ImuSample> imu{};
     std::optional<fsai::control::runtime::GpsSample> gps{};

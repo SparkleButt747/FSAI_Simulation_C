@@ -52,23 +52,44 @@ class CanIface {
   std::optional<ImuSample> LatestImu() const;
   std::optional<GpsSample> LatestGps() const;
 
+  Mode mode() const { return mode_; }
+  const std::string& endpoint() const { return endpoint_; }
+
+  bool HasStatus() const { return has_status_; }
+  bool HasSteer() const { return has_steer_; }
+  bool HasFrontDrive() const { return has_front_drive_; }
+  bool HasRearDrive() const { return has_rear_drive_; }
+  bool HasBrake() const { return has_brake_; }
+  bool HasSpeeds() const { return has_speeds_; }
+  bool HasDynamics() const { return has_dyn_; }
+
+  uint64_t LastStatusTimestampNs() const { return last_status_ns_; }
+  uint64_t LastSteerTimestampNs() const { return last_steer_ns_; }
+  uint64_t LastFrontDriveTimestampNs() const { return last_front_drive_ns_; }
+  uint64_t LastRearDriveTimestampNs() const { return last_rear_drive_ns_; }
+  uint64_t LastBrakeTimestampNs() const { return last_brake_ns_; }
+  uint64_t LastSpeedsTimestampNs() const { return last_speeds_ns_; }
+  uint64_t LastDynamicsTimestampNs() const { return last_dyn_ns_; }
+
   const fsai::sim::svcu::dbc::Vcu2AiStatus& RawStatus() const { return feedback_status_; }
   const fsai::sim::svcu::dbc::Vcu2AiSteer& RawSteer() const { return feedback_steer_; }
   const fsai::sim::svcu::dbc::Vcu2AiDrive& RawFrontDrive() const { return feedback_front_drive_; }
   const fsai::sim::svcu::dbc::Vcu2AiDrive& RawRearDrive() const { return feedback_rear_drive_; }
   const fsai::sim::svcu::dbc::Vcu2AiBrake& RawBrake() const { return feedback_brake_; }
   const fsai::sim::svcu::dbc::Vcu2LogDynamics1& RawDynamics() const { return feedback_dyn_; }
+  const fsai::sim::svcu::dbc::Vcu2AiSpeeds& RawSpeeds() const { return feedback_speeds_; }
 
  private:
   bool InitializeSimulation(const Config& config);
   bool InitializeFsAiApi(const Config& config);
   bool TransmitFsAiApi(const Ai2VcuCommandSet& commands);
-  void PollSimulation();
+  void PollSimulation(uint64_t now_ns);
   void PollFsAiApi(uint64_t now_ns);
-  void ProcessFrame(const can_frame& frame);
+  void ProcessFrame(const can_frame& frame, uint64_t timestamp_ns);
 
   Mode mode_{Mode::kSimulation};
   bool initialized_{false};
+  std::string endpoint_{};
   std::unique_ptr<fsai::sim::svcu::ICanLink> sim_link_;
   double wheel_radius_m_{0.25};
 
@@ -81,6 +102,18 @@ class CanIface {
   fsai::sim::svcu::dbc::Ai2LogDynamics2 feedback_imu_{};
   fsai::sim::svcu::dbc::Vcu2AiSpeeds feedback_speeds_{};
   uint64_t last_feedback_ns_{0};
+  uint64_t current_poll_ns_{0};
+  uint64_t last_status_ns_{0};
+  uint64_t last_steer_ns_{0};
+  uint64_t last_front_drive_ns_{0};
+  uint64_t last_rear_drive_ns_{0};
+  uint64_t last_brake_ns_{0};
+  uint64_t last_speeds_ns_{0};
+  uint64_t last_dyn_ns_{0};
+  bool has_steer_{false};
+  bool has_front_drive_{false};
+  bool has_rear_drive_{false};
+  bool has_brake_{false};
   bool has_status_{false};
   bool has_dyn_{false};
   bool has_imu_{false};

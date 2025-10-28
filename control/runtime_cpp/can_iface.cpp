@@ -63,10 +63,29 @@ bool CanIface::Initialize(const Config& config) {
   Shutdown();
   mode_ = config.mode;
   initialized_ = false;
+  endpoint_ = config.endpoint;
   wheel_radius_m_ = std::max(0.01, config.wheel_radius_m);
   last_commands_.reset();
   pending_api_tx_ = false;
   last_api_tx_ns_ = 0;
+  last_feedback_ns_ = 0;
+  current_poll_ns_ = 0;
+  last_status_ns_ = 0;
+  last_steer_ns_ = 0;
+  last_front_drive_ns_ = 0;
+  last_rear_drive_ns_ = 0;
+  last_brake_ns_ = 0;
+  last_speeds_ns_ = 0;
+  last_dyn_ns_ = 0;
+  has_status_ = false;
+  has_steer_ = false;
+  has_front_drive_ = false;
+  has_rear_drive_ = false;
+  has_brake_ = false;
+  has_dyn_ = false;
+  has_imu_ = false;
+  has_speeds_ = false;
+  has_gps_ = false;
 
   switch (mode_) {
     case Mode::kSimulation:
@@ -104,7 +123,12 @@ void CanIface::Shutdown() {
 #endif
   api_.reset();
   initialized_ = false;
+  endpoint_.clear();
   has_status_ = false;
+  has_steer_ = false;
+  has_front_drive_ = false;
+  has_rear_drive_ = false;
+  has_brake_ = false;
   has_dyn_ = false;
   has_imu_ = false;
   has_speeds_ = false;
@@ -112,6 +136,15 @@ void CanIface::Shutdown() {
   last_commands_.reset();
   pending_api_tx_ = false;
   last_api_tx_ns_ = 0;
+  last_feedback_ns_ = 0;
+  current_poll_ns_ = 0;
+  last_status_ns_ = 0;
+  last_steer_ns_ = 0;
+  last_front_drive_ns_ = 0;
+  last_rear_drive_ns_ = 0;
+  last_brake_ns_ = 0;
+  last_speeds_ns_ = 0;
+  last_dyn_ns_ = 0;
 }
 
 bool CanIface::Send(const Ai2VcuCommandSet& commands, uint64_t now_ns) {
@@ -150,9 +183,9 @@ void CanIface::Poll(uint64_t now_ns) {
   if (!initialized_) {
     return;
   }
-  last_feedback_ns_ = now_ns;
+  current_poll_ns_ = now_ns;
   if (mode_ == Mode::kSimulation) {
-    PollSimulation();
+    PollSimulation(now_ns);
   } else {
     PollFsAiApi(now_ns);
   }
@@ -288,16 +321,16 @@ bool CanIface::TransmitFsAiApi(const Ai2VcuCommandSet& commands) {
   return api_->set_fn(&payload) == 0;
 }
 
-void CanIface::PollSimulation() {
+void CanIface::PollSimulation(uint64_t now_ns) {
   if (!sim_link_) {
     return;
   }
   while (auto frame = sim_link_->receive()) {
-    ProcessFrame(*frame);
+    ProcessFrame(*frame, now_ns);
   }
 }
 
-void CanIface::ProcessFrame(const can_frame& frame) {
+void CanIface::ProcessFrame(const can_frame& frame, uint64_t timestamp_ns) {
   fsai::sim::svcu::dbc::Vcu2AiStatus status{};
   fsai::sim::svcu::dbc::Vcu2AiSteer steer{};
   fsai::sim::svcu::dbc::Vcu2AiDrive drive{};
@@ -308,38 +341,57 @@ void CanIface::ProcessFrame(const can_frame& frame) {
   if (fsai::sim::svcu::dbc::decode_vcu2ai_status(frame, status)) {
     feedback_status_ = status;
     has_status_ = true;
+    last_status_ns_ = timestamp_ns;
+    last_feedback_ns_ = timestamp_ns;
     return;
   }
   if (fsai::sim::svcu::dbc::decode_vcu2ai_steer(frame, steer)) {
     feedback_steer_ = steer;
+    has_steer_ = true;
+    last_steer_ns_ = timestamp_ns;
+    last_feedback_ns_ = timestamp_ns;
     return;
   }
   if (fsai::sim::svcu::dbc::decode_vcu2ai_drive_front(frame, drive)) {
     feedback_front_drive_ = drive;
+    has_front_drive_ = true;
+    last_front_drive_ns_ = timestamp_ns;
+    last_feedback_ns_ = timestamp_ns;
     return;
   }
   if (fsai::sim::svcu::dbc::decode_vcu2ai_drive_rear(frame, drive)) {
     feedback_rear_drive_ = drive;
+    has_rear_drive_ = true;
+    last_rear_drive_ns_ = timestamp_ns;
+    last_feedback_ns_ = timestamp_ns;
     return;
   }
   if (fsai::sim::svcu::dbc::decode_vcu2ai_brake(frame, brake)) {
     feedback_brake_ = brake;
+    has_brake_ = true;
+    last_brake_ns_ = timestamp_ns;
+    last_feedback_ns_ = timestamp_ns;
     return;
   }
   if (fsai::sim::svcu::dbc::decode_vcu2ai_speeds(frame, speeds)) {
     feedback_speeds_ = speeds;
     has_speeds_ = true;
+    last_speeds_ns_ = timestamp_ns;
+    last_feedback_ns_ = timestamp_ns;
     return;
   }
   if (fsai::sim::svcu::dbc::decode_vcu2log_dynamics1(frame, dyn)) {
     feedback_dyn_ = dyn;
     gps_speed_mps_ = dyn.speed_actual_kph / 3.6f;
     has_dyn_ = true;
+    last_dyn_ns_ = timestamp_ns;
+    last_feedback_ns_ = timestamp_ns;
     return;
   }
   if (fsai::sim::svcu::dbc::decode_ai2log_dynamics2(frame, imu)) {
     feedback_imu_ = imu;
     has_imu_ = true;
+    last_feedback_ns_ = timestamp_ns;
     return;
   }
 }
@@ -356,8 +408,22 @@ void CanIface::PollFsAiApi(uint64_t now_ns) {
     feedback_rear_drive_ = feedback.rear_drive;
     feedback_brake_ = feedback.brake;
     feedback_dyn_ = feedback.dynamics;
+    feedback_speeds_ = feedback.speeds;
     has_status_ = true;
+    has_steer_ = true;
+    has_front_drive_ = true;
+    has_rear_drive_ = true;
+    has_brake_ = true;
     has_dyn_ = true;
+    has_speeds_ = true;
+    last_status_ns_ = now_ns;
+    last_steer_ns_ = now_ns;
+    last_front_drive_ns_ = now_ns;
+    last_rear_drive_ns_ = now_ns;
+    last_brake_ns_ = now_ns;
+    last_dyn_ns_ = now_ns;
+    last_speeds_ns_ = now_ns;
+    last_feedback_ns_ = now_ns;
   }
   if (api_->imu_fn) {
     FsAiApiImuData imu{};
@@ -366,6 +432,7 @@ void CanIface::PollFsAiApi(uint64_t now_ns) {
       feedback_imu_.accel_lateral_mps2 = imu.accel_lateral_mps2;
       feedback_imu_.yaw_rate_degps = imu.yaw_rate_degps;
       has_imu_ = true;
+      last_feedback_ns_ = now_ns;
     }
   }
   if (api_->gps_fn) {
@@ -373,6 +440,8 @@ void CanIface::PollFsAiApi(uint64_t now_ns) {
     if (api_->gps_fn(&gps) == 0) {
       feedback_dyn_.speed_actual_kph = static_cast<float>(std::max(0.0, gps.speed_mps) * 3.6);
       has_dyn_ = true;
+      last_dyn_ns_ = now_ns;
+      last_feedback_ns_ = now_ns;
     }
   }
   if (last_commands_) {
