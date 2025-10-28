@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "logging.hpp"
+
 namespace fsai::sim::integration {
 
 StereoDisplay::~StereoDisplay() { reset(); }
@@ -23,7 +25,8 @@ bool StereoDisplay::ensureResources(const FsaiStereoFrame& frame) {
                              height_,
                              SDL_WINDOW_SHOWN);
   if (!window_) {
-    std::fprintf(stderr, "Failed to create stereo window: %s\n", SDL_GetError());
+    fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                         "Failed to create stereo window: %s", SDL_GetError());
     reset();
     return false;
   }
@@ -32,7 +35,8 @@ bool StereoDisplay::ensureResources(const FsaiStereoFrame& frame) {
                                  SDL_RENDERER_ACCELERATED |
                                      SDL_RENDERER_PRESENTVSYNC);
   if (!renderer_) {
-    std::fprintf(stderr, "Failed to create stereo renderer: %s\n", SDL_GetError());
+    fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                         "Failed to create stereo renderer: %s", SDL_GetError());
     reset();
     return false;
   }
@@ -44,7 +48,8 @@ bool StereoDisplay::ensureResources(const FsaiStereoFrame& frame) {
                                      SDL_TEXTUREACCESS_STREAMING,
                                      width_, height_);
   if (!left_texture_ || !right_texture_) {
-    std::fprintf(stderr, "Failed to create stereo textures: %s\n", SDL_GetError());
+    fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                         "Failed to create stereo textures: %s", SDL_GetError());
     reset();
     return false;
   }
