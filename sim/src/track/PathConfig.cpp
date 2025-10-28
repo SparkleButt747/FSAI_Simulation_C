@@ -21,7 +21,7 @@ PathConfig::PathConfig() {
     startingStraightLength = 6.0;
     startingStraightDownsample = 2;
     minConeSpacing = 3.0 * M_PI / 16.0;
-    maxConeSpacing = 0.6;
+    maxConeSpacing = 5;
     trackWidth = 5.0;
     coneSpacingBias = 1.0;
     startingConeSpacing = 2.5;
