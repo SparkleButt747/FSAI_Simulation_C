@@ -46,6 +46,8 @@ trap 'kill 0' INT TERM
 SVCU_PID=$!
 
 echo "S-VCU started (pid=$SVCU_PID)"
+echo "Launching fsai_run with the GUI panels (Simulation Stats, Control Panel, CAN Telemetry, Simulation Log)."
+echo "Runtime logs now appear in the Simulation Log panel instead of standard output."
 
 "$FSAI_RUN" --can-if "$CAN_IFACE" --cmd-port "$CMD_PORT" --state-port "$STATE_PORT"
 
