@@ -36,6 +36,7 @@
 #include "can_link.hpp"
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
+#include "runtime_telemetry.hpp"
 
 namespace {
 constexpr double kDefaultDt = 0.01;
@@ -60,6 +61,88 @@ inline double metersToLongitude(double east_meters) {
   const double meters_per_degree_lon =
       kMetersPerDegreeLat * std::max(0.1, cos_lat);
   return kBaseLongitudeDeg + east_meters / meters_per_degree_lon;
+}
+
+void RenderSimulationStats(const fsai::sim::app::RuntimeTelemetry& telemetry) {
+  ImGui::Begin("Simulation Stats");
+  ImGui::Text("Simulation time: %.2f s", telemetry.physics.simulation_time_s);
+  ImGui::Text("Vehicle speed: %.1f km/h", telemetry.physics.vehicle_speed_kph);
+  ImGui::Text("Throttle: %.2f", telemetry.control.applied_throttle);
+  ImGui::Text("Brake: %.2f", telemetry.control.applied_brake);
+  ImGui::Text("Steering: %.1f deg", telemetry.physics.steering_deg);
+  ImGui::Text("Runtime mode: %s", telemetry.mode.runtime_mode.c_str());
+  ImGui::Text("Control mode: %s",
+              telemetry.mode.use_controller ? "automatic" : "manual");
+  ImGui::End();
+}
+
+void DrawWorldScene(Graphics* graphics, const World& world,
+                    const fsai::sim::app::RuntimeTelemetry& telemetry) {
+  (void)telemetry;
+  fsai::time::SimulationStageTimer render_timer("renderer");
+  Graphics_Clear(graphics);
+  Graphics_DrawGrid(graphics, 50);
+
+  const auto& checkpoints = world.checkpointPositionsWorld();
+  if (!checkpoints.empty()) {
+    SDL_SetRenderDrawColor(graphics->renderer, 200, 0, 200, 255);
+    Graphics_DrawFilledCircle(
+        graphics,
+        static_cast<int>(checkpoints.front().x * kRenderScale +
+                         graphics->width / 2.0f),
+        static_cast<int>(checkpoints.front().z * kRenderScale +
+                         graphics->height / 2.0f),
+        static_cast<int>(1.5f * kRenderScale));
+  }
+
+  const auto& lookahead = world.lookahead();
+  SDL_SetRenderDrawColor(graphics->renderer, 120, 120, 120, 255);
+  for (size_t i = 0; i < world.leftConePositions().size(); ++i) {
+    if (i == 0) {
+      SDL_SetRenderDrawColor(graphics->renderer, 0, 255, 0, 255);
+    } else if (static_cast<int>(i) == lookahead.speed) {
+      SDL_SetRenderDrawColor(graphics->renderer, 255, 255, 0, 255);
+    } else if (static_cast<int>(i) == lookahead.steer) {
+      SDL_SetRenderDrawColor(graphics->renderer, 255, 0, 255, 255);
+    } else {
+      SDL_SetRenderDrawColor(graphics->renderer, 120, 120, 120, 255);
+    }
+    const auto& cone = world.leftConePositions()[i];
+    const int cone_x = static_cast<int>(cone.x * kRenderScale +
+                                        graphics->width / 2.0f);
+    const int cone_y = static_cast<int>(cone.z * kRenderScale +
+                                        graphics->height / 2.0f);
+    Graphics_DrawFilledCircle(graphics, cone_x, cone_y,
+                              static_cast<int>(kRenderScale));
+  }
+
+  for (size_t i = 0; i < world.rightConePositions().size(); ++i) {
+    if (i == 0) {
+      SDL_SetRenderDrawColor(graphics->renderer, 0, 255, 0, 255);
+    } else if (static_cast<int>(i) == lookahead.speed) {
+      SDL_SetRenderDrawColor(graphics->renderer, 255, 255, 0, 255);
+    } else if (static_cast<int>(i) == lookahead.steer) {
+      SDL_SetRenderDrawColor(graphics->renderer, 255, 0, 255, 255);
+    } else {
+      SDL_SetRenderDrawColor(graphics->renderer, 80, 80, 80, 255);
+    }
+    const auto& cone = world.rightConePositions()[i];
+    const int cone_x = static_cast<int>(cone.x * kRenderScale +
+                                        graphics->width / 2.0f);
+    const int cone_y = static_cast<int>(cone.z * kRenderScale +
+                                        graphics->height / 2.0f);
+    Graphics_DrawFilledCircle(graphics, cone_x, cone_y,
+                              static_cast<int>(kRenderScale));
+  }
+
+  const auto& transform = world.vehicleTransform();
+  const float car_screen_x = transform.position.x * kRenderScale +
+                             graphics->width / 2.0f;
+  const float car_screen_y = transform.position.z * kRenderScale +
+                             graphics->height / 2.0f;
+  const float car_radius = 2.0f * kRenderScale;
+  Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
+                   transform.yaw);
 }
 
 struct ChannelNoiseConfig {
@@ -549,9 +632,10 @@ int main(int argc, char* argv[]) {
     const double vx = veh_state.velocity.x();
     const double vy = veh_state.velocity.y();
     const float speed_mps = static_cast<float>(std::sqrt(vx * vx + vy * vy));
+    const auto can_vehicle_state = can_interface.LatestVehicleState();
     float measured_speed_mps = speed_mps;
-    if (auto can_state = can_interface.LatestVehicleState()) {
-      measured_speed_mps = std::max(can_state->vx, measured_speed_mps);
+    if (can_vehicle_state) {
+      measured_speed_mps = std::max(can_vehicle_state->vx, measured_speed_mps);
     }
 
     fsai::sim::svcu::CommandPacket command_packet{};
@@ -636,13 +720,34 @@ int main(int argc, char* argv[]) {
     const float actual_steer_deg = static_cast<float>(wheel_info.steering *
         fsai::sim::svcu::dbc::kRadToDeg);
 
-    ImGui::Begin("Simulation Stats");
-    ImGui::Text("Simulation time: %.2f s", sim_time_s);
-    ImGui::Text("Vehicle speed: %.1f km/h", actual_speed_kph);
-    ImGui::Text("Throttle: %.2f", appliedThrottle);
-    ImGui::Text("Brake: %.2f", appliedBrake);
-    ImGui::Text("Steering: %.1f deg", actual_steer_deg);
-    ImGui::End();
+    fsai::sim::app::RuntimeTelemetry runtime_telemetry{};
+    runtime_telemetry.physics.simulation_time_s = sim_time_s;
+    runtime_telemetry.physics.vehicle_speed_mps = static_cast<float>(vehicle_speed_mps);
+    runtime_telemetry.physics.vehicle_speed_kph = actual_speed_kph;
+    runtime_telemetry.physics.steering_deg = actual_steer_deg;
+    runtime_telemetry.can.status = can_interface.RawStatus();
+    runtime_telemetry.can.steer = can_interface.RawSteer();
+    runtime_telemetry.can.front_drive = can_interface.RawFrontDrive();
+    runtime_telemetry.can.rear_drive = can_interface.RawRearDrive();
+    runtime_telemetry.can.brake = can_interface.RawBrake();
+    runtime_telemetry.can.dynamics = can_interface.RawDynamics();
+    runtime_telemetry.can.vehicle_state = can_vehicle_state;
+    runtime_telemetry.can.imu = can_interface.LatestImu();
+    runtime_telemetry.can.gps = can_interface.LatestGps();
+
+    runtime_telemetry.control.control_cmd = control_cmd;
+    runtime_telemetry.control.applied_throttle = appliedThrottle;
+    runtime_telemetry.control.applied_brake = appliedBrake;
+    runtime_telemetry.control.applied_steer_rad = appliedSteer;
+    runtime_telemetry.control.has_last_command = has_last_ai_command;
+    if (has_last_ai_command) {
+      runtime_telemetry.control.last_command = last_ai2vcu_commands;
+    }
+
+    runtime_telemetry.mode.use_controller = world.useController != 0;
+    runtime_telemetry.mode.runtime_mode = mode;
+
+    RenderSimulationStats(runtime_telemetry);
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
                                                 sample_noise(sensor_cfg.steering_deg.noise_std)));
@@ -880,75 +985,10 @@ int main(int argc, char* argv[]) {
       stereo_display.present(frame);
     }
 
-    {
-      fsai::time::SimulationStageTimer render_timer("renderer");
-      Graphics_Clear(&graphics);
-      Graphics_DrawGrid(&graphics, 50);
-
-      const auto& checkpoints = world.checkpointPositionsWorld();
-      if (!checkpoints.empty()) {
-        SDL_SetRenderDrawColor(graphics.renderer, 200, 0, 200, 255);
-        Graphics_DrawFilledCircle(
-            &graphics,
-            static_cast<int>(checkpoints.front().x * kRenderScale +
-                             graphics.width / 2.0f),
-            static_cast<int>(checkpoints.front().z * kRenderScale +
-                             graphics.height / 2.0f),
-            static_cast<int>(1.5f * kRenderScale));
-      }
-
-      const auto& lookahead = world.lookahead();
-      SDL_SetRenderDrawColor(graphics.renderer, 120, 120, 120, 255);
-      for (size_t i = 0; i < world.leftConePositions().size(); ++i) {
-        if (i == 0) {
-          SDL_SetRenderDrawColor(graphics.renderer, 0, 255, 0, 255);
-        } else if (static_cast<int>(i) == lookahead.speed) {
-          SDL_SetRenderDrawColor(graphics.renderer, 255, 255, 0, 255);
-        } else if (static_cast<int>(i) == lookahead.steer) {
-          SDL_SetRenderDrawColor(graphics.renderer, 255, 0, 255, 255);
-        } else {
-          SDL_SetRenderDrawColor(graphics.renderer, 120, 120, 120, 255);
-        }
-        const auto& cone = world.leftConePositions()[i];
-        const int cone_x = static_cast<int>(cone.x * kRenderScale +
-                                            graphics.width / 2.0f);
-        const int cone_y = static_cast<int>(cone.z * kRenderScale +
-                                            graphics.height / 2.0f);
-        Graphics_DrawFilledCircle(&graphics, cone_x, cone_y,
-                                  static_cast<int>(kRenderScale));
-      }
-
-      for (size_t i = 0; i < world.rightConePositions().size(); ++i) {
-        if (i == 0) {
-          SDL_SetRenderDrawColor(graphics.renderer, 0, 255, 0, 255);
-        } else if (static_cast<int>(i) == lookahead.speed) {
-          SDL_SetRenderDrawColor(graphics.renderer, 255, 255, 0, 255);
-        } else if (static_cast<int>(i) == lookahead.steer) {
-          SDL_SetRenderDrawColor(graphics.renderer, 255, 0, 255, 255);
-        } else {
-          SDL_SetRenderDrawColor(graphics.renderer, 80, 80, 80, 255);
-        }
-        const auto& cone = world.rightConePositions()[i];
-        const int cone_x = static_cast<int>(cone.x * kRenderScale +
-                                            graphics.width / 2.0f);
-        const int cone_y = static_cast<int>(cone.z * kRenderScale +
-                                            graphics.height / 2.0f);
-        Graphics_DrawFilledCircle(&graphics, cone_x, cone_y,
-                                  static_cast<int>(kRenderScale));
-      }
-
-      const auto& transform = world.vehicleTransform();
-      const float car_screen_x = transform.position.x * kRenderScale +
-                                 graphics.width / 2.0f;
-      const float car_screen_y = transform.position.z * kRenderScale +
-                                 graphics.height / 2.0f;
-      const float car_radius = 2.0f * kRenderScale;
-      Graphics_DrawCar(&graphics, car_screen_x, car_screen_y, car_radius,
-                       transform.yaw);
-      ImGui::Render();
-      ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), graphics.renderer);
-      Graphics_Present(&graphics);
-    }
+    DrawWorldScene(&graphics, world, runtime_telemetry);
+    ImGui::Render();
+    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), graphics.renderer);
+    Graphics_Present(&graphics);
 
     SDL_Delay(static_cast<Uint32>(step_seconds * 1000.0));
 
