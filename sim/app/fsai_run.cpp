@@ -47,6 +47,7 @@ constexpr float kRenderScale = 5.0f;
 constexpr uint16_t kDefaultCommandPort = fsai::sim::svcu::kDefaultCommandPort;
 constexpr uint16_t kDefaultTelemetryPort = fsai::sim::svcu::kDefaultTelemetryPort;
 constexpr double kCommandStaleSeconds = 0.1;
+constexpr double kAckLagWarningSeconds = 0.25;
 constexpr double kBaseLatitudeDeg = 37.4275;
 constexpr double kBaseLongitudeDeg = -122.1697;
 constexpr double kMetersPerDegreeLat = 111111.0;
@@ -337,6 +338,121 @@ void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
     draw_plot("Accel lon [m/s^2]", accel_long_history, 0.5f);
     draw_plot("Accel lat [m/s^2]", accel_lat_history, 0.5f);
     draw_plot("Yaw rate [deg/s]", yaw_rate_history, 1.0f);
+  }
+
+  ImGui::End();
+}
+
+void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
+  ImGui::Begin("Control Panel");
+
+  const bool ai_enabled = telemetry.control.ai_command_enabled;
+  const bool ai_applied = telemetry.control.ai_command_applied;
+  const bool fallback_manual = telemetry.control.fallback_to_manual;
+
+  ImGui::Text("Control mode: %s",
+              telemetry.mode.use_controller ? "automatic" : "manual");
+  ImGui::Text("AI command stream: %s", ai_enabled ? "enabled" : "disabled");
+
+  ImGui::Separator();
+  ImGui::Text("Manual inputs");
+  ImGui::Text("Throttle: %.2f | Brake: %.2f | Steer: %.1f deg",
+              telemetry.control.manual_throttle, telemetry.control.manual_brake,
+              telemetry.control.manual_steer_rad * fsai::sim::svcu::dbc::kRadToDeg);
+
+  ImGui::Separator();
+  ImGui::Text("AI request");
+  if (telemetry.control.ai_command.valid) {
+    const ImVec4 ai_color = ColorForFreshness(
+        telemetry.control.ai_command.age_s,
+        telemetry.control.ai_command.valid && ai_enabled);
+    const float ai_steer_deg =
+        telemetry.control.ai_command.value.steer_rad *
+        fsai::sim::svcu::dbc::kRadToDeg;
+    ImGui::TextColored(ai_color,
+                       "Throttle: %.2f | Brake: %.2f | Steer: %.1f deg",
+                       telemetry.control.ai_command.value.throttle,
+                       telemetry.control.ai_command.value.brake, ai_steer_deg);
+  } else {
+    const ImVec4 stale_color =
+        ColorForFreshness(std::numeric_limits<double>::infinity(), false);
+    ImGui::TextColored(stale_color, "No AI command received");
+  }
+
+  if (fallback_manual) {
+    ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f),
+                       "Falling back to manual inputs");
+  } else if (ai_applied) {
+    ImGui::TextColored(ImVec4(0.2f, 0.75f, 0.2f, 1.0f), "AI command applied");
+  } else {
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.25f, 1.0f),
+                       "Manual control active");
+  }
+
+  ImGui::Separator();
+  ImGui::Text("Applied command");
+  ImGui::Text("Throttle: %.2f | Brake: %.2f | Steer: %.1f deg",
+              telemetry.control.applied_throttle,
+              telemetry.control.applied_brake,
+              telemetry.control.applied_steer_rad *
+                  fsai::sim::svcu::dbc::kRadToDeg);
+  ImGui::Text("Source: %s", ai_applied ? "AI" : "Manual");
+
+  if (telemetry.control.has_last_command && telemetry.control.last_command) {
+    const auto& last = *telemetry.control.last_command;
+    ImGui::Separator();
+    ImGui::Text("Last CAN command");
+    ImGui::Text("Steer target: %.1f deg | Throttle: %.0f %% | Brake: %.0f %%",
+                last.steer.steer_deg, last.throttle_clamped * 100.0f,
+                last.brake_clamped * 100.0f);
+    ImGui::Text("Torque request F/R: %.0f / %.0f Nm",
+                last.front_drive.axle_torque_request_nm,
+                last.rear_drive.axle_torque_request_nm);
+  }
+
+  if (ImGui::CollapsingHeader("Staleness timers", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (telemetry.control.ai_command.valid) {
+      const ImVec4 color = ColorForFreshness(
+          telemetry.control.ai_command.age_s,
+          telemetry.control.ai_command.valid && ai_enabled);
+      ImGui::TextColored(color, "AI request age: %.0f ms",
+                         telemetry.control.ai_command.age_s * 1000.0);
+    } else {
+      const ImVec4 color =
+          ColorForFreshness(std::numeric_limits<double>::infinity(), false);
+      ImGui::TextColored(color, "AI request age: no data");
+    }
+
+    auto draw_ack_age = [&](const char* label, const auto& sample) {
+      WithFreshnessColor(sample, [&]() {
+        if (!sample.valid) {
+          ImGui::Text("%s ack age: no data", label);
+        } else {
+          ImGui::Text("%s ack age: %.0f ms", label, sample.age_s * 1000.0);
+        }
+      });
+    };
+
+    draw_ack_age("Steer", telemetry.can.steer);
+    draw_ack_age("Front drive", telemetry.can.front_drive);
+    draw_ack_age("Rear drive", telemetry.can.rear_drive);
+    draw_ack_age("Brake", telemetry.can.brake);
+  }
+
+  const auto ack_lagging = [](const auto& sample) {
+    return !sample.valid || sample.age_s > kAckLagWarningSeconds;
+  };
+  const bool ack_delayed = ack_lagging(telemetry.can.steer) ||
+                           ack_lagging(telemetry.can.front_drive) ||
+                           ack_lagging(telemetry.can.rear_drive) ||
+                           ack_lagging(telemetry.can.brake);
+
+  if (ack_delayed) {
+    ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f),
+                       "CAN acknowledgements lagging");
+  } else {
+    ImGui::TextColored(ImVec4(0.2f, 0.75f, 0.2f, 1.0f),
+                       "CAN acknowledgements healthy");
   }
 
   ImGui::End();
@@ -1042,6 +1158,10 @@ int main(int argc, char* argv[]) {
       }
     }
 
+    const float manualThrottleInput = world.throttleInput;
+    const float manualBrakeInput = world.brakeInput;
+    const float manualSteerInput = world.steeringAngle;
+
     can_interface.Poll(fsai_clock_now());
 
     float autopThrottle = world.throttleInput;
@@ -1081,17 +1201,41 @@ int main(int argc, char* argv[]) {
 
     const uint64_t now_ns = fsai_clock_advance(step_ns);
 
+    auto compute_age_seconds = [&](uint64_t timestamp_ns) {
+      if (timestamp_ns == 0 || now_ns == 0 || now_ns < timestamp_ns) {
+        return std::numeric_limits<double>::infinity();
+      }
+      return static_cast<double>(now_ns - timestamp_ns) * 1e-9;
+    };
+
     float appliedThrottle = autopThrottle;
     float appliedBrake = autopBrake;
     float appliedSteer = autopSteer;
+    bool ai_command_applied = false;
+    const bool ai_command_enabled = latest_command && latest_command->enabled != 0;
     if (latest_command) {
       if (latest_command->t_ns <= now_ns &&
           now_ns - latest_command->t_ns <= stale_threshold_ns) {
         appliedThrottle = latest_command->throttle;
         appliedBrake = latest_command->brake;
         appliedSteer = latest_command->steer_rad;
+        ai_command_applied = true;
       }
     }
+
+    fsai::sim::app::RuntimeTelemetry::TimedSample<fsai::types::ControlCmd>
+        ai_command_sample{};
+    if (latest_command) {
+      ai_command_sample.valid = true;
+      ai_command_sample.value.steer_rad = latest_command->steer_rad;
+      ai_command_sample.value.throttle = latest_command->throttle;
+      ai_command_sample.value.brake = latest_command->brake;
+      ai_command_sample.value.t_ns = latest_command->t_ns;
+      ai_command_sample.age_s = compute_age_seconds(latest_command->t_ns);
+    } else {
+      ai_command_sample.age_s = std::numeric_limits<double>::infinity();
+    }
+    const bool fallback_to_manual = ai_command_enabled && !ai_command_applied;
 
     appliedThrottle = std::clamp(appliedThrottle, 0.0f, 1.0f);
     appliedBrake = std::clamp(appliedBrake, 0.0f, 1.0f);
@@ -1202,13 +1346,6 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.can.mode = can_interface.mode();
     runtime_telemetry.can.endpoint = can_interface.endpoint();
 
-    auto compute_age_seconds = [&](uint64_t timestamp_ns) {
-      if (timestamp_ns == 0 || now_ns == 0 || now_ns < timestamp_ns) {
-        return std::numeric_limits<double>::infinity();
-      }
-      return static_cast<double>(now_ns - timestamp_ns) * 1e-9;
-    };
-
     runtime_telemetry.can.status.valid = can_interface.HasStatus();
     if (runtime_telemetry.can.status.valid) {
       runtime_telemetry.can.status.value = can_interface.RawStatus();
@@ -1273,6 +1410,13 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.control.applied_throttle = appliedThrottle;
     runtime_telemetry.control.applied_brake = appliedBrake;
     runtime_telemetry.control.applied_steer_rad = appliedSteer;
+    runtime_telemetry.control.manual_throttle = manualThrottleInput;
+    runtime_telemetry.control.manual_brake = manualBrakeInput;
+    runtime_telemetry.control.manual_steer_rad = manualSteerInput;
+    runtime_telemetry.control.ai_command = ai_command_sample;
+    runtime_telemetry.control.ai_command_enabled = ai_command_enabled;
+    runtime_telemetry.control.ai_command_applied = ai_command_applied;
+    runtime_telemetry.control.fallback_to_manual = fallback_to_manual;
     runtime_telemetry.control.has_last_command = has_last_ai_command;
     if (has_last_ai_command) {
       runtime_telemetry.control.last_command = last_ai2vcu_commands;
@@ -1282,6 +1426,7 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.mode.runtime_mode = mode;
 
     DrawSimulationPanel(runtime_telemetry);
+    DrawControlPanel(runtime_telemetry);
     DrawCanPanel(runtime_telemetry);
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
