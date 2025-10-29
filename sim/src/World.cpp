@@ -81,8 +81,8 @@ void World::init(const char* yamlFilePath) {
     regenTrack = 1;
 
     // Racing algorithm configuration
-    racingConfig.speedLookAheadSensitivity = 0.7f;
-    racingConfig.steeringLookAheadSensitivity = 0.1f;
+    racingConfig.speedLookAheadSensitivity = 0.6f;
+    racingConfig.steeringLookAheadSensitivity = 0.05f;
     racingConfig.accelerationFactor = 0.002f;
 
     // Make sure car starts on the track
