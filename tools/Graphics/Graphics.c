@@ -12,7 +12,8 @@ int Graphics_Init(Graphics* g, const char* title, int width, int height) {
     }
     g->width = width;
     g->height = height;
-    g->window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, SDL_WINDOW_SHOWN);
+    g->window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height,
+                                 SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     if (!g->window) {
         fprintf(stderr, "SDL_CreateWindow Error: %s\n", SDL_GetError());
         SDL_Quit();
@@ -26,6 +27,36 @@ int Graphics_Init(Graphics* g, const char* title, int width, int height) {
         return -1;
     }
     return 0;
+}
+
+void Graphics_HandleWindowEvent(Graphics* g, const SDL_Event* event) {
+    if (!g || !event) {
+        return;
+    }
+    if (event->type != SDL_WINDOWEVENT) {
+        return;
+    }
+    if (event->window.windowID != SDL_GetWindowID(g->window)) {
+        return;
+    }
+    switch (event->window.event) {
+        case SDL_WINDOWEVENT_SIZE_CHANGED:
+        case SDL_WINDOWEVENT_RESIZED: {
+            int output_w = 0;
+            int output_h = 0;
+            if (SDL_GetRendererOutputSize(g->renderer, &output_w, &output_h) == 0) {
+                g->width = output_w;
+                g->height = output_h;
+            } else {
+                g->width = event->window.data1;
+                g->height = event->window.data2;
+            }
+            SDL_RenderSetViewport(g->renderer, NULL);
+            break;
+        }
+        default:
+            break;
+    }
 }
 
 // Clears the screen with a white background.

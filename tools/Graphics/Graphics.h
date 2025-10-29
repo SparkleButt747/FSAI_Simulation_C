@@ -33,6 +33,9 @@ void Graphics_DrawFilledCircle(Graphics* g, int centreX, int centreY, int radius
 // Presents the current frame.
 void Graphics_Present(Graphics* g);
 
+// Handles window-specific SDL events to keep renderer state synchronized.
+void Graphics_HandleWindowEvent(Graphics* g, const SDL_Event* event);
+
 // Cleans up SDL resources.
 void Graphics_Cleanup(Graphics* g);
 
