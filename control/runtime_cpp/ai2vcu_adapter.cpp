@@ -142,8 +142,17 @@ Ai2VcuCommandSet Ai2VcuAdapter::Adapt(
 
   const bool allow_motion = state_ == State::kRunning && feedback.go_signal;
 
-  const float throttle = allow_motion ? std::clamp(cmd.throttle, 0.0f, 1.0f) : 0.0f;
-  const float brake = allow_motion ? std::clamp(cmd.brake, 0.0f, 1.0f) : 0.0f;
+  float requested_throttle =
+      allow_motion ? std::clamp(cmd.throttle, 0.0f, 1.0f) : 0.0f;
+  float requested_brake =
+      allow_motion ? std::clamp(cmd.brake, 0.0f, 1.0f) : 0.0f;
+
+  // The simulated VCU expects mutually exclusive throttle/brake requests.  When
+  // both arrive non-zero we project them onto the 1D acceleration axis so that
+  // only the dominant command is applied.
+  const float net_accel = requested_throttle - requested_brake;
+  const float throttle = std::clamp(net_accel, 0.0f, 1.0f);
+  const float brake = std::clamp(-net_accel, 0.0f, 1.0f);
 
   status_.veh_speed_demand_kph = allow_motion
                                      ? std::clamp(config_.max_speed_kph * throttle, 0.0f, 255.0f)

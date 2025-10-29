@@ -35,6 +35,10 @@ powertrain:
   regen_efficiency: 0.70
   max_power_kw: 17.0
   max_regen_kw: 17.0
+  torque_split_front: 1.0
+  torque_split_rear: 1.0
+  torque_front_max_nm: 195.0
+  torque_rear_max_nm: 195.0
   drive_curve:
     rpm: [0, 1000, 3000, 4000, 4500]
     torque: [55.7, 55.7, 55.7, 40.6, 0.0]
