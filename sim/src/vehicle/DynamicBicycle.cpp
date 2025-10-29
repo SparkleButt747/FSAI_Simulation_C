@@ -104,9 +104,10 @@ double DynamicBicycle::calculateMagnitude(double x, double y){ return std::sqrt(
 
 DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, const VehicleInput& u_in, double dt) const {
     // lazy init powertrain/brake with config
-    if (pt_.soc() == 0.f && param_.powertrain.battery.soc_init > 0.f) {
+    if (!systems_configured_) {
         pt_.configure(param_.powertrain, static_cast<float>(param_.tire.radius));
         br_ = BrakeController(param_.brakes);
+        systems_configured_ = true;
     }
 
     // Actuator lags

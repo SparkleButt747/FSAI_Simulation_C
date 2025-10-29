@@ -45,6 +45,7 @@ private:
   mutable BrakeController   br_;
   mutable PowertrainStatus  last_pt_status_{};
   mutable BrakeStatus       last_brake_status_{};
+  mutable bool              systems_configured_{false};
 
   Forces computeForces(const VehicleState& state, const VehicleInput& input, double dt) const;
 
