@@ -109,9 +109,9 @@ void CanIface::Shutdown() {
     return;
   }
 
-  if (mode_ == Mode::kSimulation && sim_link_) {
-    sim_link_->close();
-    sim_link_.reset();
+  if (mode_ == Mode::kSimulation && transport_) {
+    transport_->close();
+    transport_.reset();
   }
 
 #if defined(__unix__) || defined(__APPLE__)
@@ -155,14 +155,14 @@ bool CanIface::Send(const Ai2VcuCommandSet& commands, uint64_t now_ns) {
   last_commands_ = commands;
 
   if (mode_ == Mode::kSimulation) {
-    if (!sim_link_) {
+    if (!transport_) {
       return false;
     }
-    sim_link_->send(fsai::sim::svcu::dbc::encode_ai2vcu_status(commands.status));
-    sim_link_->send(fsai::sim::svcu::dbc::encode_ai2vcu_steer(commands.steer));
-    sim_link_->send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_front(commands.front_drive));
-    sim_link_->send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_rear(commands.rear_drive));
-    sim_link_->send(fsai::sim::svcu::dbc::encode_ai2vcu_brake(commands.brake));
+    transport_->send(fsai::sim::svcu::dbc::encode_ai2vcu_status(commands.status));
+    transport_->send(fsai::sim::svcu::dbc::encode_ai2vcu_steer(commands.steer));
+    transport_->send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_front(commands.front_drive));
+    transport_->send(fsai::sim::svcu::dbc::encode_ai2vcu_drive_rear(commands.rear_drive));
+    transport_->send(fsai::sim::svcu::dbc::encode_ai2vcu_brake(commands.brake));
     return true;
   }
 
@@ -192,10 +192,10 @@ void CanIface::Poll(uint64_t now_ns) {
 }
 
 bool CanIface::SendSimulationFrame(const can_frame& frame) {
-  if (!initialized_ || mode_ != Mode::kSimulation || !sim_link_) {
+  if (!initialized_ || mode_ != Mode::kSimulation || !transport_) {
     return false;
   }
-  return sim_link_->send(frame);
+  return transport_->send(frame);
 }
 
 void CanIface::SetSimulationGpsSample(double lat_deg, double lon_deg, double speed_mps) {
@@ -259,14 +259,14 @@ std::optional<GpsSample> CanIface::LatestGps() const {
 }
 
 bool CanIface::InitializeSimulation(const Config& config) {
-  auto link = fsai::sim::svcu::make_can_link(config.endpoint);
+  auto link = fsai::io::can::MakeTransport(config.endpoint);
   if (!link) {
     return false;
   }
   if (!link->open(config.endpoint, config.enable_loopback)) {
     return false;
   }
-  sim_link_ = std::move(link);
+  transport_ = std::move(link);
   has_status_ = false;
   has_dyn_ = false;
   has_imu_ = false;
@@ -322,10 +322,10 @@ bool CanIface::TransmitFsAiApi(const Ai2VcuCommandSet& commands) {
 }
 
 void CanIface::PollSimulation(uint64_t now_ns) {
-  if (!sim_link_) {
+  if (!transport_) {
     return;
   }
-  while (auto frame = sim_link_->receive()) {
+  while (auto frame = transport_->receive()) {
     ProcessFrame(*frame, now_ns);
   }
 }

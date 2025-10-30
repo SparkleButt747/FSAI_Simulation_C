@@ -103,27 +103,27 @@ void Ai2VcuAdapter::UpdateState(const fsai::sim::svcu::dbc::Vcu2AiStatus& feedba
 void Ai2VcuAdapter::UpdateStatusFlags(
     const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback,
     bool allow_motion) {
+  const bool wants_motion = state_ == State::kRunning || state_ == State::kArmed;
+
   switch (state_) {
     case State::kIdle:
       status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kNotSelected;
       break;
     case State::kArmed:
-      status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kSelected;
+      status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kRunning;
       break;
     case State::kRunning:
-      status_.mission_status = allow_motion
-                                   ? fsai::sim::svcu::dbc::MissionStatus::kRunning
-                                   : fsai::sim::svcu::dbc::MissionStatus::kSelected;
+      status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kRunning;
       break;
     case State::kSafeStop:
       status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kFinished;
       break;
   }
 
-  status_.estop_request = !allow_motion;
-  status_.direction_request =
-      allow_motion ? fsai::sim::svcu::dbc::DirectionRequest::kForward
-                   : fsai::sim::svcu::dbc::DirectionRequest::kNeutral;
+  status_.estop_request = (state_ == State::kSafeStop);
+  status_.direction_request = wants_motion
+                                  ? fsai::sim::svcu::dbc::DirectionRequest::kForward
+                                  : fsai::sim::svcu::dbc::DirectionRequest::kNeutral;
 }
 
 Ai2VcuCommandSet Ai2VcuAdapter::Adapt(

@@ -34,6 +34,7 @@
 #include "adsdv_dbc.hpp"
 #include "link.hpp"
 #include "can_link.hpp"
+#include "io/can/can_transport.hpp"
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
 #include "runtime_telemetry.hpp"
@@ -893,7 +894,7 @@ int main(int argc, char* argv[]) {
   };
 
   double dt = kDefaultDt;
-  std::string can_iface = fsai::sim::svcu::default_can_endpoint();
+  std::string can_iface = fsai::io::can::DefaultEndpoint();
   std::string mode = "sim";
   bool can_iface_overridden = false;
   uint16_t command_port = kDefaultCommandPort;
@@ -942,8 +943,8 @@ int main(int argc, char* argv[]) {
       can_iface = "can0";
     }
   }
-  can_iface = fsai::sim::svcu::canonicalize_can_endpoint(can_iface);
-  const bool can_is_udp = fsai::sim::svcu::is_udp_endpoint(can_iface);
+  can_iface = fsai::io::can::CanonicalizeEndpoint(can_iface);
+  const bool can_is_udp = fsai::io::can::IsUdpEndpoint(can_iface);
   fsai::sim::log::Logf(
       fsai::sim::log::Level::kInfo,
       "Using dt = %.4f seconds, mode=%s, CAN %s (%s), cmd-port %u, state-port %u",
@@ -1088,7 +1089,7 @@ int main(int argc, char* argv[]) {
   fsai::control::runtime::CanIface can_interface;
   if (!can_interface.Initialize(can_cfg)) {
     if (mode == "sim" && !can_iface_overridden) {
-      const std::string fallback = fsai::sim::svcu::default_can_endpoint();
+      const std::string fallback = fsai::io::can::DefaultEndpoint();
       fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
                            "Falling back to CAN endpoint %s", fallback.c_str());
       can_cfg.endpoint = fallback;
