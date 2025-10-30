@@ -26,7 +26,7 @@ Ubuntu/Debian example:
 ```sh
 sudo apt-get update
 sudo apt-get install build-essential cmake pkg-config libsdl2-dev libyaml-cpp-dev \
-     libeigen3-dev libopengl-dev libcgal-dev libcgal-qt6-dev
+     libeigen3-dev libopengl-dev libcgal-dev libcgal-qt6-dev qt6-base-dev
 ```
 
 macOS (Homebrew) example:
@@ -48,6 +48,7 @@ brew install cmake sdl2 yaml-cpp eigen cgal
    ```
 
    The provided `build.sh` and `rebuild.sh` scripts wrap the same steps.
+
 3. `CMakeLists.txt` will automatically detect the host architecture (ARM vs. x86) and pick the correct library paths.
 
 ## Runtime GUI and controls

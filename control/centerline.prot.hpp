@@ -7,12 +7,16 @@
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
 #include "Transform.h"
+#include "types.h"
 
 #include <typeinfo>
 #include <cmath>
 #include <chrono>
 #include <iostream>
 #include <vector>
+#include <deque>
+#include <map>
+#include <set>
 #include <cstring>
 
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;

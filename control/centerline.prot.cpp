@@ -9,9 +9,28 @@ using AllEdgeIterator=Triangulation::All_edges_iterator;
 using FiniteEdgeIterator=Triangulation::Finite_edges_iterator;
 using VertexHandle=Triangulation::Vertex_handle;
 
+class PathNode {
+  public:
+    Point midpoint;
+    Point first;
+    Point second;
+    std::vector<PathNode*> children;
+
+    bool operator==(const PathNode& other) const
+    {
+        return midpoint == other.midpoint && first == other.first;
+    }
+
+    bool operator<(const PathNode& other) const
+    {
+        return midpoint < other.midpoint;
+    }
+};
+
+
 // Debug method, leaving this here because iterating triangulation edges is weird in CGAL
 void printEdges(Triangulation& T) {
-  for (auto it = T.all_edges_begin(); it != T.all_edges_end(); ++it) {
+  for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
         auto face_handle = it->first;
         int edge_index = it->second;
 
@@ -28,6 +47,66 @@ void printEdges(Triangulation& T) {
     }
     std::cout << std::endl;
   }
+
+std::pair<std::vector<PathNode>, std::map<PathNode, std::set<PathNode>>> generateGraph(
+  Triangulation& T,
+  CGAL::Graphics_scene& scene,
+  Point carFront
+) {
+  std::vector<PathNode> nodes {};
+  std::map<Point, std::vector<PathNode>> vertex_to_nodes {};
+  scene.add_text(carFront, "car");
+  for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
+        auto face_handle = it->first;
+        int edge_index = it->second;
+
+        // Get the two vertices of the edge
+        auto v1 = face_handle->vertex((edge_index + 1) % 3);
+        auto v2 = face_handle->vertex((edge_index + 2) % 3);
+
+        // Get coordinates
+        auto p1 = v1->point();
+        auto p2 = v2->point();
+
+        PathNode node = {{(p1.x() + p2.x())/2, (p1.y() + p2.y())/2}, p1, p2, {}};
+        nodes.push_back(node);
+        vertex_to_nodes[p1].push_back(node);
+        vertex_to_nodes[p2].push_back(node);
+    }
+
+    std::map<PathNode, std::set<PathNode>> adjacency {};
+    for (auto & [v, incident]: vertex_to_nodes) {
+      for (int i = 0; i < incident.size(); i++) {
+        for (int j = i+1; j < incident.size(); j++) {
+          auto node1 = incident[i];
+          auto node2 = incident[j];
+          adjacency[node1].insert(node2);
+          adjacency[node2].insert(node1);
+        }
+      }
+    }
+
+    PathNode startNode = nodes[0];
+    double dist = INFINITY;
+    for (auto node: nodes) {
+      double currentDist = std::hypot(node.midpoint.x() - carFront.x(), node.midpoint.y() - carFront.y());
+      if (currentDist < dist) {
+        dist = currentDist;
+        startNode = node;
+      }
+    }
+
+    scene.add_segment(startNode.first, startNode.second, CGAL::IO::Color(250, 15, 15));
+    return {nodes, adjacency};
+  }
+
+void drawEdges(std::map<PathNode, std::set<PathNode>>& adjacency, CGAL::Graphics_scene& scene, CGAL::Color color) {
+  for (auto & [node, adj_nodes]: adjacency) {
+    for (auto adj_node: adj_nodes) {
+      scene.add_segment(node.midpoint, adj_node.midpoint, color);
+    }
+  }
+}
 
 void drawEdges(Triangulation& T, CGAL::Graphics_scene& scene, CGAL::Color color) {
   for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
@@ -152,9 +231,10 @@ int main(int argc, char* argv[])
 
     Triangulation visibleT;
     getVisibleTrackTriangulation(visibleT, carFront, track);
-
-    // Optional viewing with car position and visible cones
     CGAL::Graphics_scene scene;
+    std::map<PathNode, std::set<PathNode>> adjacency = generateGraph(visibleT, scene, carFront).second;
+    drawEdges(adjacency, scene, CGAL::IO::Color(15, 250, 15));
+    // Optional viewing with car position and visible cones
     drawEdges(visibleT, scene, CGAL::IO::Color(15, 15, 250));
     drawEdges(T, scene);
     CGAL::add_to_graphics_scene(CarT, scene);

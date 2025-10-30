@@ -53,3 +53,7 @@ std::vector<Vector2> getCenterline(
  * see table 3 here: https://arxiv.org/pdf/1905.05150
  */
 float calculateCost(std::vector<PathNode> path);
+
+
+// Ideas
+// Work out left and right cones relative to the car with cross product
