@@ -1519,7 +1519,7 @@ int main(int argc, char* argv[]) {
     status_msg.handshake = true;
     status_msg.as_switch_on = true;
     status_msg.ts_switch_on = true;
-    status_msg.go_signal = ai_command_enabled;
+    status_msg.go_signal = true;
     status_msg.as_state = ai_command_applied
                               ? fsai::sim::svcu::dbc::AsState::kDriving
                               : fsai::sim::svcu::dbc::AsState::kReady;
