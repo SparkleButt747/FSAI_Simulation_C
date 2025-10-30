@@ -28,7 +28,6 @@
 #include "logging.hpp"
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
-#include "terminal_keyboard.hpp"
 #include "sim_stereo_source.hpp"
 #include "types.h"
 #include "World.hpp"
@@ -214,8 +213,12 @@ void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   ImGui::Text("Runtime mode: %s",
               telemetry.mode.runtime_mode.empty() ? "N/A"
                                                   : telemetry.mode.runtime_mode.c_str());
-  ImGui::Text("Control mode: %s",
-              telemetry.mode.use_controller ? "automatic" : "manual");
+  ImGui::Text("AI command stream: %s",
+              telemetry.control.ai_command_enabled ? "enabled" : "disabled");
+  const char* ai_status = telemetry.control.ai_command_applied
+                              ? "active"
+                              : (telemetry.control.ai_command_enabled ? "waiting" : "inactive");
+  ImGui::Text("AI control state: %s", ai_status);
   ImGui::Text("Simulation time: %.2f s", telemetry.physics.simulation_time_s);
 
   if (ImGui::CollapsingHeader("Vehicle Pose", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -349,17 +352,15 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
 
   const bool ai_enabled = telemetry.control.ai_command_enabled;
   const bool ai_applied = telemetry.control.ai_command_applied;
-  const bool fallback_manual = telemetry.control.fallback_to_manual;
-
-  ImGui::Text("Control mode: %s",
-              telemetry.mode.use_controller ? "automatic" : "manual");
   ImGui::Text("AI command stream: %s", ai_enabled ? "enabled" : "disabled");
-
-  ImGui::Separator();
-  ImGui::Text("Manual inputs");
-  ImGui::Text("Throttle: %.2f | Brake: %.2f | Steer: %.1f deg",
-              telemetry.control.manual_throttle, telemetry.control.manual_brake,
-              telemetry.control.manual_steer_rad * fsai::sim::svcu::dbc::kRadToDeg);
+  if (ai_applied) {
+    ImGui::TextColored(ImVec4(0.2f, 0.75f, 0.2f, 1.0f), "AI command applied");
+  } else if (ai_enabled) {
+    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.25f, 1.0f),
+                       "Waiting for valid AI command (failsafe braking)");
+  } else {
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "AI control disabled");
+  }
 
   ImGui::Separator();
   ImGui::Text("AI request");
@@ -380,16 +381,6 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
     ImGui::TextColored(stale_color, "No AI command received");
   }
 
-  if (fallback_manual) {
-    ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f),
-                       "Falling back to manual inputs");
-  } else if (ai_applied) {
-    ImGui::TextColored(ImVec4(0.2f, 0.75f, 0.2f, 1.0f), "AI command applied");
-  } else {
-    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.25f, 1.0f),
-                       "Manual control active");
-  }
-
   ImGui::Separator();
   ImGui::Text("Applied command");
   ImGui::Text("Throttle: %.2f | Brake: %.2f | Steer: %.1f deg",
@@ -397,7 +388,7 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
               telemetry.control.applied_brake,
               telemetry.control.applied_steer_rad *
                   fsai::sim::svcu::dbc::kRadToDeg);
-  ImGui::Text("Source: %s", ai_applied ? "AI" : "Manual");
+  ImGui::Text("Source: %s", ai_applied ? "AI command" : "Failsafe");
 
   if (telemetry.control.has_last_command && telemetry.control.last_command) {
     const auto& last = *telemetry.control.last_command;
@@ -1061,7 +1052,6 @@ int main(int argc, char* argv[]) {
     ImGui::DestroyContext();
   };
 
-  fsai::sim::integration::TerminalKeyboard keyboard{};
   fsai::sim::integration::CsvLogger logger("CarStateLog.csv", "RALog.csv");
   if (!logger.valid()) {
     std::fprintf(stderr, "Failed to open CSV logs\n");
@@ -1185,52 +1175,7 @@ int main(int argc, char* argv[]) {
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
 
-    const int key = keyboard.poll();
-    if (key == 'q' || key == 'Q') {
-      running = false;
-    } else if (key == 'm' || key == 'M') {
-      world.useController = world.useController ? 0 : 1;
-      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
-                           "Switched to %s control mode.",
-                           world.useController ? "automatic" : "manual");
-    } else if (!world.useController && key != -1) {
-      if (key == 'w' || key == 'W') {
-        world.throttleInput = 1.0f;
-        world.brakeInput = 0.0f;
-      } else if (key == 's' || key == 'S') {
-        world.throttleInput = 0.0f;
-        world.brakeInput = 1.0f;
-      }
-      if (key == 'a' || key == 'A') {
-        world.steeringAngle = -1.0f;
-      } else if (key == 'd' || key == 'D') {
-        world.steeringAngle = 1.0f;
-      }
-    }
-
-    const float manualThrottleInput = world.throttleInput;
-    const float manualBrakeInput = world.brakeInput;
-    const float manualSteerInput = world.steeringAngle;
-
     can_interface.Poll(fsai_clock_now());
-
-    float autopThrottle = world.throttleInput;
-    float autopBrake = world.brakeInput;
-    float autopSteer = world.steeringAngle;
-    if (world.useController) {
-      float raThrottle = 0.0f;
-      float raSteer = 0.0f;
-      if (world.computeRacingControl(step_seconds, raThrottle, raSteer)) {
-        autopSteer = raSteer;
-        if (raThrottle >= 0.0f) {
-          autopThrottle = raThrottle;
-          autopBrake = 0.0f;
-        } else {
-          autopThrottle = 0.0f;
-          autopBrake = -raThrottle;
-        }
-      }
-    }
 
     const VehicleState& veh_state = world.vehicleState();
     const double vx = veh_state.velocity.x();
@@ -1258,9 +1203,9 @@ int main(int argc, char* argv[]) {
       return static_cast<double>(now_ns - timestamp_ns) * 1e-9;
     };
 
-    float appliedThrottle = autopThrottle;
-    float appliedBrake = autopBrake;
-    float appliedSteer = autopSteer;
+    float appliedThrottle = 0.0f;
+    float appliedBrake = 0.0f;
+    float appliedSteer = 0.0f;
     bool ai_command_applied = false;
     const bool ai_command_enabled = latest_command && latest_command->enabled != 0;
     if (latest_command) {
@@ -1271,6 +1216,12 @@ int main(int argc, char* argv[]) {
         appliedSteer = latest_command->steer_rad;
         ai_command_applied = true;
       }
+    }
+
+    if (ai_command_enabled && !ai_command_applied) {
+      appliedThrottle = 0.0f;
+      appliedBrake = 1.0f;
+      appliedSteer = 0.0f;
     }
 
     fsai::sim::app::RuntimeTelemetry::TimedSample<fsai::types::ControlCmd>
@@ -1285,8 +1236,6 @@ int main(int argc, char* argv[]) {
     } else {
       ai_command_sample.age_s = std::numeric_limits<double>::infinity();
     }
-    const bool fallback_to_manual = ai_command_enabled && !ai_command_applied;
-
     appliedThrottle = std::clamp(appliedThrottle, 0.0f, 1.0f);
     appliedBrake = std::clamp(appliedBrake, 0.0f, 1.0f);
 
@@ -1460,19 +1409,14 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.control.applied_throttle = appliedThrottle;
     runtime_telemetry.control.applied_brake = appliedBrake;
     runtime_telemetry.control.applied_steer_rad = appliedSteer;
-    runtime_telemetry.control.manual_throttle = manualThrottleInput;
-    runtime_telemetry.control.manual_brake = manualBrakeInput;
-    runtime_telemetry.control.manual_steer_rad = manualSteerInput;
     runtime_telemetry.control.ai_command = ai_command_sample;
     runtime_telemetry.control.ai_command_enabled = ai_command_enabled;
     runtime_telemetry.control.ai_command_applied = ai_command_applied;
-    runtime_telemetry.control.fallback_to_manual = fallback_to_manual;
     runtime_telemetry.control.has_last_command = has_last_ai_command;
     if (has_last_ai_command) {
       runtime_telemetry.control.last_command = last_ai2vcu_commands;
     }
 
-    runtime_telemetry.mode.use_controller = world.useController != 0;
     runtime_telemetry.mode.runtime_mode = mode;
 
     DrawSimulationPanel(runtime_telemetry);
@@ -1574,8 +1518,8 @@ int main(int argc, char* argv[]) {
     status_msg.handshake = true;
     status_msg.as_switch_on = true;
     status_msg.ts_switch_on = true;
-    status_msg.go_signal = true;
-    status_msg.as_state = world.useController
+    status_msg.go_signal = ai_command_enabled;
+    status_msg.as_state = ai_command_applied
                               ? fsai::sim::svcu::dbc::AsState::kDriving
                               : fsai::sim::svcu::dbc::AsState::kReady;
     status_msg.steering_status = fsai::sim::svcu::dbc::SteeringStatus::kActive;
@@ -1688,7 +1632,15 @@ int main(int argc, char* argv[]) {
     telemetry.gps_speed_mps = static_cast<float>(
         std::sqrt(vehicle_state.velocity.x() * vehicle_state.velocity.x() +
                   vehicle_state.velocity.y() * vehicle_state.velocity.y()));
-    telemetry.status_flags = static_cast<uint8_t>(world.useController ? 0x3 : 0x1);
+    constexpr uint8_t kTelemetryFlagHvilClosed = 0x01;
+    constexpr uint8_t kTelemetryFlagEbsReleased = 0x02;
+    telemetry.status_flags = 0u;
+    if (ai_command_enabled) {
+      telemetry.status_flags |= kTelemetryFlagHvilClosed;
+    }
+    if (ai_command_applied) {
+      telemetry.status_flags |= kTelemetryFlagEbsReleased;
+    }
     telemetry_tx.send(&telemetry, sizeof(telemetry));
 
     logger.logState(sim_time_s, world.vehicleState());
