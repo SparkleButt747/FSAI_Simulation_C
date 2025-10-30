@@ -1,11 +1,27 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include "fsai_clock.h"
-#include "World.hpp"
+#include <common/time/fsai_clock.h>
+#include <common/types.h>
+#include <sim/World.hpp>
 
 static Vector3 transformToVector3(const Transform& t) {
     return {t.position.x, t.position.y, t.position.z};
+}
+
+static fsai::types::VehicleState toTelemetryState(const VehicleState& state) {
+    fsai::types::VehicleState out{};
+    out.t_ns = state.timestampNs;
+    out.x = static_cast<float>(state.position.x());
+    out.y = static_cast<float>(state.position.z());
+    out.yaw = static_cast<float>(state.yaw);
+    out.vx = static_cast<float>(state.velocity.x());
+    out.vy = static_cast<float>(state.velocity.z());
+    out.yaw_rate = static_cast<float>(state.rotation.y());
+    out.ax = static_cast<float>(state.acceleration.x());
+    out.ay = static_cast<float>(state.acceleration.z());
+    out.steer_rad = 0.0f;
+    return out;
 }
 
 bool World::computeRacingControl(double dt, float& throttle_out, float& steering_out) {
@@ -198,7 +214,7 @@ bool World::detectCollisions() {
 }
 
 void World::telemetry() const {
-    Telemetry_Update(carState, carTransform,
+    Telemetry_Update(toTelemetryState(carState), carTransform,
                      fsai_clock_now(), totalTime, totalDistance, lapCount);
 }
 

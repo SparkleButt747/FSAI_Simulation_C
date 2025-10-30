@@ -1,9 +1,9 @@
 #include <iostream>
 #include <fstream>
 #include <ctime>
-#include "PathConfig.hpp"
-#include "PathGenerator.hpp"
-#include "TrackGenerator.hpp"
+#include <sim/track/PathConfig.hpp>
+#include <sim/track/PathGenerator.hpp>
+#include <sim/track/TrackGenerator.hpp>
 
 int main() {
     std::srand(static_cast<unsigned>(std::time(nullptr)));

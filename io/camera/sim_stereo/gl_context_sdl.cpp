@@ -1,4 +1,4 @@
-#include "gl_context_sdl.hpp"
+#include <io/camera/sim_stereo/gl_context_sdl.hpp>
 
 #include <stdexcept>
 #include <utility>

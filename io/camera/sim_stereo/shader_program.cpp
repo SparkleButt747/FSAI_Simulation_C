@@ -1,4 +1,4 @@
-#include "shader_program.hpp"
+#include <io/camera/sim_stereo/shader_program.hpp>
 
 #include <stdexcept>
 #include <utility>

@@ -1,5 +1,5 @@
 #include <iostream>
-#include "DynamicBicycle.hpp"
+#include <sim/vehicle/DynamicBicycle.hpp>
 
 int main() {
     try {

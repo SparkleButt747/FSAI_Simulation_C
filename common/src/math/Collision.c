@@ -1,4 +1,4 @@
-#include "Collision.h"
+#include <common/math/Collision.h>
 #include <math.h>
 
 int Collision_CheckPoint(const Vector3* a, const Vector3* b, float threshold) {

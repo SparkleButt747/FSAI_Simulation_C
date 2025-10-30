@@ -1,4 +1,4 @@
-#include "ground_plane.hpp"
+#include <io/camera/sim_stereo/ground_plane.hpp>
 
 #include <utility>
 

@@ -1,4 +1,4 @@
-#include "cone_mesh.hpp"
+#include <io/camera/sim_stereo/cone_mesh.hpp>
 
 #include <cmath>
 #include <stdexcept>

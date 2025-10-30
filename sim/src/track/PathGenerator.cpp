@@ -1,4 +1,4 @@
-#include "PathGenerator.hpp"
+#include <sim/track/PathGenerator.hpp>
 #include <cmath>
 #include <random>
 

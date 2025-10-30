@@ -27,7 +27,7 @@ void fsai_budget_report_all(void);
 #endif
 
 #ifdef __cplusplus
-#include "fsai_clock.h"
+#include <common/time/fsai_clock.h>
 
 namespace fsai {
 namespace time {

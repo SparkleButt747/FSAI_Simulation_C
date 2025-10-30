@@ -1,5 +1,5 @@
 #pragma once
-#include "VehicleParam.hpp"
+#include <sim/vehicle/VehicleParam.hpp>
 #include <algorithm>
 
 class BrakeController {

@@ -1,8 +1,8 @@
-#include "stereo_display.hpp"
+#include <sim/integration/stereo_display.hpp>
 
 #include <cstdio>
 
-#include "logging.hpp"
+#include <sim/logging.hpp>
 
 namespace fsai::sim::integration {
 

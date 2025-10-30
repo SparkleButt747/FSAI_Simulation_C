@@ -1,4 +1,4 @@
-#include "sim_stereo_source.hpp"
+#include <io/camera/sim_stereo/sim_stereo_source.hpp>
 
 #include <algorithm>
 #include <array>

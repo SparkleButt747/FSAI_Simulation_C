@@ -1,4 +1,4 @@
-#include "fbo_stereo.hpp"
+#include <io/camera/sim_stereo/fbo_stereo.hpp>
 
 #include <stdexcept>
 #include <utility>

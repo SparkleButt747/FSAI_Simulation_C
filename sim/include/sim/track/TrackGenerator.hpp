@@ -1,7 +1,8 @@
 #pragma once
-#include "PathConfig.hpp"
-#include "PathGenerator.hpp"
-#include "Transform.h"
+#include <sim/track/PathConfig.hpp>
+#include <sim/track/PathGenerator.hpp>
+#include <common/math/Transform.h>
+#include <common/math/Vector.h>
 #include <vector>
 #include <complex>
 

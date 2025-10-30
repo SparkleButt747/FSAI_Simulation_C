@@ -1,6 +1,6 @@
-#include "terminal_keyboard.hpp"
+#include <sim/integration/terminal_keyboard.hpp>
 
-#include "KeyboardInputHandler.h"
+#include <common/ui/KeyboardInputHandler.h>
 
 namespace fsai::sim::integration {
 

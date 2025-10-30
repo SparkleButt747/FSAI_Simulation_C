@@ -2,16 +2,16 @@
 
 #include <vector>
 #include <Eigen/Dense>
-#include "DynamicBicycle.hpp"
-#include "VehicleState.hpp"
-#include "VehicleInput.hpp"
-#include "Telemetry.hpp"
-#include "controller.prot.h"
-#include "Transform.h"
-#include "Vector.h"
-#include "PathConfig.hpp"
-#include "PathGenerator.hpp"
-#include "TrackGenerator.hpp"
+#include <sim/vehicle/DynamicBicycle.hpp>
+#include <sim/vehicle/VehicleState.hpp>
+#include <sim/vehicle/VehicleInput.hpp>
+#include <common/telemetry/Telemetry.hpp>
+#include <control/controller.prot.h>
+#include <common/math/Transform.h>
+#include <common/math/Vector.h>
+#include <sim/track/PathConfig.hpp>
+#include <sim/track/PathGenerator.hpp>
+#include <sim/track/TrackGenerator.hpp>
 
 class World {
 public:

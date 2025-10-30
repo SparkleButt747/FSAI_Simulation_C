@@ -1,4 +1,4 @@
-#include "WheelsInfo.h"
+#include <sim/vehicle/WheelsInfo.h>
 #include <stdio.h>
 
 WheelsInfo WheelsInfo_create(float lf_speed, float rf_speed, float lb_speed, float rb_speed, float steering) {

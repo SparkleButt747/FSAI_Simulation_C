@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <string>
 
-#include "VehicleState.hpp"
+#include <sim/vehicle/VehicleState.hpp>
 
 namespace fsai::sim::integration {
 

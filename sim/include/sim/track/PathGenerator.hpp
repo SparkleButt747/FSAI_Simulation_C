@@ -1,5 +1,5 @@
 #pragma once
-#include "PathConfig.hpp"
+#include <sim/track/PathConfig.hpp>
 #include <vector>
 #include <complex>
 #include <Eigen/Core>

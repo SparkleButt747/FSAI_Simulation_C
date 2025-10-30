@@ -1,4 +1,4 @@
-#include "provider_registry.hpp"
+#include <sim/integration/provider_registry.hpp>
 
 #include <memory>
 #include <mutex>

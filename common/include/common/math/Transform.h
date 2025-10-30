@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-#include "Vector.h"
+#include <common/math/Vector.h>
 
 // A simple transform: a 3D position and a yaw rotation (in radians)
 typedef struct {

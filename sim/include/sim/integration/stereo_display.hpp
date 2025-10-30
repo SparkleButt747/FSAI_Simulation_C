@@ -4,7 +4,7 @@
 
 #include <SDL.h>
 
-#include "types.h"
+#include <common/types.h>
 
 namespace fsai::sim::integration {
 

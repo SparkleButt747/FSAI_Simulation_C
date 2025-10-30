@@ -1,4 +1,4 @@
-#include "Vector.h"
+#include <common/math/Vector.h>
 #include <math.h>
 
 Vector2 Vector2_Add(const Vector2 a, const Vector2 b) {

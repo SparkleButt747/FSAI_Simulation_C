@@ -1,4 +1,4 @@
-#include "DynamicBicycle.hpp"
+#include <sim/vehicle/DynamicBicycle.hpp>
 #include <yaml.h>
 #include <stdexcept>
 #include <cmath>

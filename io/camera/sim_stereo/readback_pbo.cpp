@@ -1,4 +1,4 @@
-#include "readback_pbo.hpp"
+#include <io/camera/sim_stereo/readback_pbo.hpp>
 
 #include <stdexcept>
 #include <utility>
