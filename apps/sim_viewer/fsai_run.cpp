@@ -28,12 +28,11 @@
 #include "logging.hpp"
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
-#include "terminal_keyboard.hpp"
 #include "sim_stereo_source.hpp"
 #include "types.h"
 #include "World.hpp"
 #include "adsdv_dbc.hpp"
-#include "link.hpp"
+#include "udp_link.hpp"
 #include "can_link.hpp"
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
@@ -1061,7 +1060,6 @@ int main(int argc, char* argv[]) {
     ImGui::DestroyContext();
   };
 
-  fsai::sim::integration::TerminalKeyboard keyboard{};
   fsai::sim::integration::CsvLogger logger("CarStateLog.csv", "RALog.csv");
   if (!logger.valid()) {
     std::fprintf(stderr, "Failed to open CSV logs\n");
@@ -1184,29 +1182,6 @@ int main(int argc, char* argv[]) {
     ImGui_ImplSDLRenderer2_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
-
-    const int key = keyboard.poll();
-    if (key == 'q' || key == 'Q') {
-      running = false;
-    } else if (key == 'm' || key == 'M') {
-      world.useController = world.useController ? 0 : 1;
-      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
-                           "Switched to %s control mode.",
-                           world.useController ? "automatic" : "manual");
-    } else if (!world.useController && key != -1) {
-      if (key == 'w' || key == 'W') {
-        world.throttleInput = 1.0f;
-        world.brakeInput = 0.0f;
-      } else if (key == 's' || key == 'S') {
-        world.throttleInput = 0.0f;
-        world.brakeInput = 1.0f;
-      }
-      if (key == 'a' || key == 'A') {
-        world.steeringAngle = -1.0f;
-      } else if (key == 'd' || key == 'D') {
-        world.steeringAngle = 1.0f;
-      }
-    }
 
     const float manualThrottleInput = world.throttleInput;
     const float manualBrakeInput = world.brakeInput;

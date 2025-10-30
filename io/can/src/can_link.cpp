@@ -15,6 +15,7 @@
 #if defined(__linux__)
 #include "socketcan.hpp"
 #endif
+#include "loopback_can.hpp"
 
 namespace fsai::sim::svcu {
 namespace {
@@ -214,6 +215,9 @@ class UdpCanLink final : public ICanLink {
 
 std::unique_ptr<ICanLink> make_can_link(const std::string& endpoint_hint) {
   const std::string canonical = canonicalize_can_endpoint(endpoint_hint);
+  if (starts_with_ignore_case(canonical, "loopback")) {
+    return std::make_unique<LoopbackCanLink>();
+  }
   if (is_udp_endpoint(canonical)) {
     return std::make_unique<UdpCanLink>();
   }
@@ -233,6 +237,9 @@ std::string canonicalize_can_endpoint(const std::string& endpoint_hint) {
 #else
     return "udp:" + std::to_string(kDefaultCanUdpPort);
 #endif
+  }
+  if (starts_with_ignore_case(endpoint_hint, "loopback")) {
+    return "loopback";
   }
   if (starts_with_ignore_case(endpoint_hint, "udp:")) {
     const auto ports = parse_udp_ports(endpoint_hint, kDefaultCanUdpPort);

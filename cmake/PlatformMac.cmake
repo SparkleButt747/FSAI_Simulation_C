@@ -1,0 +1,22 @@
+if(NOT DEFINED CMAKE_OSX_ARCHITECTURES)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "" FORCE)
+  endif()
+endif()
+
+find_program(BREW brew PATHS /opt/homebrew/bin /usr/local/bin NO_DEFAULT_PATH)
+if(BREW)
+  execute_process(
+    COMMAND "${BREW}" --prefix
+    OUTPUT_VARIABLE HOMEBREW_PREFIX
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(EXISTS "${HOMEBREW_PREFIX}")
+    list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}")
+    set(ENV{PKG_CONFIG_PATH}
+        "${HOMEBREW_PREFIX}/lib/pkgconfig:${HOMEBREW_PREFIX}/share/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+  endif()
+endif()
+
+set(FSAI_PLATFORM "macOS" CACHE STRING "Target platform" FORCE)
