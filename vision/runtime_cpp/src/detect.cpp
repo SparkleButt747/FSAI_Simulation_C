@@ -23,7 +23,7 @@ std::vector<BoxBound> detect_cones(cv::Mat image){
     //load model using onnx
     Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "YOLO_DETECTOR");
     Ort::SessionOptions session_options;
-    const char* model_path  =  "../model/best.onnx";
+    const char* model_path  =  "../../model/cone_model.onnx";
     Ort::Session session(env,model_path,session_options);
 
     std::cout << "--- ONNX model loaded ---" << std::endl;
@@ -169,4 +169,17 @@ std::vector<BoxBound> detect_cones(cv::Mat image){
 
     return bounds;
     
+}
+
+int main(){
+    char* path_to_image = "../../resources/image.jpeg";
+    cv::Mat image;
+    image = cv::imread(path_to_image);
+
+
+    std::vector<BoxBound> detect_cones(image);
+
+    return 0;
+
+
 }
