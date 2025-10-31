@@ -28,7 +28,6 @@
 #include "logging.hpp"
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
-#include "terminal_keyboard.hpp"
 #include "sim_stereo_source.hpp"
 #include "types.h"
 #include "World.hpp"
@@ -354,12 +353,6 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   ImGui::Text("Control mode: %s",
               telemetry.mode.use_controller ? "automatic" : "manual");
   ImGui::Text("AI command stream: %s", ai_enabled ? "enabled" : "disabled");
-
-  ImGui::Separator();
-  ImGui::Text("Manual inputs");
-  ImGui::Text("Throttle: %.2f | Brake: %.2f | Steer: %.1f deg",
-              telemetry.control.manual_throttle, telemetry.control.manual_brake,
-              telemetry.control.manual_steer_rad * fsai::sim::svcu::dbc::kRadToDeg);
 
   ImGui::Separator();
   ImGui::Text("AI request");
@@ -1061,7 +1054,6 @@ int main(int argc, char* argv[]) {
     ImGui::DestroyContext();
   };
 
-  fsai::sim::integration::TerminalKeyboard keyboard{};
   fsai::sim::integration::CsvLogger logger("CarStateLog.csv", "RALog.csv");
   if (!logger.valid()) {
     std::fprintf(stderr, "Failed to open CSV logs\n");
@@ -1184,33 +1176,6 @@ int main(int argc, char* argv[]) {
     ImGui_ImplSDLRenderer2_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
-
-    const int key = keyboard.poll();
-    if (key == 'q' || key == 'Q') {
-      running = false;
-    } else if (key == 'm' || key == 'M') {
-      world.useController = world.useController ? 0 : 1;
-      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
-                           "Switched to %s control mode.",
-                           world.useController ? "automatic" : "manual");
-    } else if (!world.useController && key != -1) {
-      if (key == 'w' || key == 'W') {
-        world.throttleInput = 1.0f;
-        world.brakeInput = 0.0f;
-      } else if (key == 's' || key == 'S') {
-        world.throttleInput = 0.0f;
-        world.brakeInput = 1.0f;
-      }
-      if (key == 'a' || key == 'A') {
-        world.steeringAngle = -1.0f;
-      } else if (key == 'd' || key == 'D') {
-        world.steeringAngle = 1.0f;
-      }
-    }
-
-    const float manualThrottleInput = world.throttleInput;
-    const float manualBrakeInput = world.brakeInput;
-    const float manualSteerInput = world.steeringAngle;
 
     can_interface.Poll(fsai_clock_now());
 
@@ -1460,9 +1425,6 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.control.applied_throttle = appliedThrottle;
     runtime_telemetry.control.applied_brake = appliedBrake;
     runtime_telemetry.control.applied_steer_rad = appliedSteer;
-    runtime_telemetry.control.manual_throttle = manualThrottleInput;
-    runtime_telemetry.control.manual_brake = manualBrakeInput;
-    runtime_telemetry.control.manual_steer_rad = manualSteerInput;
     runtime_telemetry.control.ai_command = ai_command_sample;
     runtime_telemetry.control.ai_command_enabled = ai_command_enabled;
     runtime_telemetry.control.ai_command_applied = ai_command_applied;
