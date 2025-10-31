@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <ctime>
 #include <deque>
+#include <atomic>
+#include <thread>
 #include <memory>
 #include <optional>
 #include <random>
@@ -38,6 +40,7 @@
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
 #include "runtime_telemetry.hpp"
+#include "svcu_runner.hpp"
 
 namespace {
 constexpr double kDefaultDt = 0.01;
@@ -806,13 +809,6 @@ struct TorqueSample {
   float rear_nm{0.0f};
 };
 
-struct BrakeSample {
-  float front_pct{0.0f};
-  float rear_pct{0.0f};
-  float front_req_pct{0.0f};
-  float rear_req_pct{0.0f};
-};
-
 struct GpsSample {
   double lat_deg{0.0};
   double lon_deg{0.0};
@@ -974,16 +970,12 @@ int main(int argc, char* argv[]) {
   SensorDelayLine<float> steer_delay;
   SensorDelayLine<std::array<float, 4>> wheel_delay;
   SensorDelayLine<TorqueSample> torque_delay;
-  SensorDelayLine<BrakeSample> brake_delay;
-  SensorDelayLine<float> speed_delay;
   SensorDelayLine<fsai::sim::svcu::dbc::Ai2LogDynamics2> imu_delay;
   SensorDelayLine<GpsSample> gps_delay;
 
   steer_delay.set_latency(fsai_clock_from_seconds(sensor_cfg.steering_deg.latency_s));
   wheel_delay.set_latency(fsai_clock_from_seconds(sensor_cfg.wheel_rpm.latency_s));
   torque_delay.set_latency(fsai_clock_from_seconds(sensor_cfg.drive_torque.latency_s));
-  brake_delay.set_latency(fsai_clock_from_seconds(sensor_cfg.brake_pct.latency_s));
-  speed_delay.set_latency(fsai_clock_from_seconds(sensor_cfg.speed_kph.latency_s));
   imu_delay.set_latency(fsai_clock_from_seconds(sensor_cfg.imu.latency_s));
   gps_delay.set_latency(fsai_clock_from_seconds(sensor_cfg.gps.latency_s));
 
@@ -993,10 +985,6 @@ int main(int argc, char* argv[]) {
   bool has_wheel_meas = false;
   TorqueSample torque_meas{};
   bool has_torque_meas = false;
-  BrakeSample brake_meas{};
-  bool has_brake_meas = false;
-  float speed_meas_kph = 0.0f;
-  bool has_speed_meas = false;
   fsai::sim::svcu::dbc::Ai2LogDynamics2 imu_meas{};
   bool has_imu_meas = false;
   GpsSample gps_meas{};
@@ -1018,8 +1006,10 @@ int main(int argc, char* argv[]) {
       FSAI_BUDGET_SUBSYSTEM_CAN,
       "CAN transport not wired; pending hardware integration.");
 
+  const std::string vehicle_config_path = "../configs/vehicle/configDry.yaml";
+
   World world;
-  world.init("../configs/vehicle/configDry.yaml");
+  world.init(vehicle_config_path.c_str());
 
   Graphics graphics{};
   if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,
@@ -1151,6 +1141,37 @@ int main(int argc, char* argv[]) {
       static_cast<float>(vehicle_param.input_ranges.vel.max * 3.6);
   fsai::control::runtime::Ai2VcuAdapter ai2vcu_adapter(adapter_cfg);
 
+  const std::string svcu_endpoint =
+      fsai::sim::svcu::canonicalize_can_endpoint(can_cfg.endpoint);
+  fsai::sim::svcu::RunConfig svcu_config{};
+  svcu_config.vehicle_config = vehicle_config_path;
+  svcu_config.can_endpoint = svcu_endpoint;
+  svcu_config.command_port = command_port;
+  svcu_config.telemetry_port = telemetry_port;
+  svcu_config.can_loopback = can_cfg.enable_loopback;
+
+  std::atomic_bool svcu_keep_running{true};
+  std::atomic_bool svcu_thread_active{true};
+  std::optional<fsai::sim::svcu::RunStats> svcu_stats;
+  std::atomic<uint64_t> svcu_last_command_ns{0};
+
+  fsai::sim::svcu::RunCallbacks svcu_callbacks{};
+  svcu_callbacks.on_command =
+      [&svcu_last_command_ns](const fsai::sim::svcu::CommandSample& sample) {
+        svcu_last_command_ns.store(sample.t_ns, std::memory_order_relaxed);
+      };
+
+  std::thread svcu_thread([svcu_config, &svcu_keep_running, &svcu_thread_active,
+                           &svcu_stats, svcu_callbacks]() mutable {
+    fsai::sim::svcu::RunLimits svcu_limits{};
+    svcu_limits.stop_flag = &svcu_keep_running;
+    svcu_limits.sleep_interval = std::chrono::milliseconds(1);
+    const auto stats = fsai::sim::svcu::RunSvcu(svcu_config, svcu_limits,
+                                                svcu_callbacks);
+    svcu_stats = stats;
+    svcu_thread_active.store(false, std::memory_order_release);
+  });
+
   fsai::control::runtime::Ai2VcuCommandSet last_ai2vcu_commands{};
   bool has_last_ai_command = false;
 
@@ -1178,6 +1199,19 @@ int main(int argc, char* argv[]) {
 
     can_interface.Poll(fsai_clock_now());
 
+    if (!svcu_thread_active.load(std::memory_order_acquire) &&
+        svcu_keep_running.load(std::memory_order_relaxed)) {
+      if (svcu_stats.has_value() && !svcu_stats->ok) {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                             "SVCU control loop exited unexpectedly");
+      } else {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                             "SVCU control loop stopped");
+      }
+      running = false;
+      continue;
+    }
+
     const VehicleState& veh_state = world.vehicleState();
     const double vx = veh_state.velocity.x();
     const double vy = veh_state.velocity.y();
@@ -1187,6 +1221,27 @@ int main(int argc, char* argv[]) {
     if (can_vehicle_state) {
       measured_speed_mps = std::max(can_vehicle_state->vx, measured_speed_mps);
     }
+
+    float desiredThrottle = 0.0f;
+    float desiredBrake = 0.0f;
+    float desiredSteer = 0.0f;
+    {
+      float controller_throttle = 0.0f;
+      float controller_steer = 0.0f;
+      if (world.computeRacingControl(step_seconds, controller_throttle,
+                                     controller_steer)) {
+        desiredSteer = controller_steer;
+        if (controller_throttle >= 0.0f) {
+          desiredThrottle = controller_throttle;
+          desiredBrake = 0.0f;
+        } else {
+          desiredThrottle = 0.0f;
+          desiredBrake = -controller_throttle;
+        }
+      }
+    }
+    desiredThrottle = std::clamp(desiredThrottle, 0.0f, 1.0f);
+    desiredBrake = std::clamp(desiredBrake, 0.0f, 1.0f);
 
     fsai::sim::svcu::CommandPacket command_packet{};
     while (auto bytes = command_rx.receive(&command_packet, sizeof(command_packet))) {
@@ -1204,29 +1259,16 @@ int main(int argc, char* argv[]) {
       return static_cast<double>(now_ns - timestamp_ns) * 1e-9;
     };
 
-    float appliedThrottle = 0.0f;
-    float appliedBrake = 0.0f;
-    float appliedSteer = 0.0f;
+    float appliedThrottle = desiredThrottle;
+    float appliedBrake = desiredBrake;
+    float appliedSteer = desiredSteer;
     bool ai_command_applied = false;
-    const bool ai_command_enabled = latest_command && latest_command->enabled != 0;
-    if (latest_command) {
-      if (latest_command->t_ns <= now_ns &&
-          now_ns - latest_command->t_ns <= stale_threshold_ns) {
-        appliedThrottle = latest_command->throttle;
-        appliedBrake = latest_command->brake;
-        appliedSteer = latest_command->steer_rad;
-        ai_command_applied = true;
-      }
-    }
-
-    if (ai_command_enabled && !ai_command_applied) {
-      appliedThrottle = 0.0f;
-      appliedBrake = 1.0f;
-      appliedSteer = 0.0f;
-    }
+    bool ai_command_enabled = false;
 
     fsai::sim::app::RuntimeTelemetry::TimedSample<fsai::types::ControlCmd>
         ai_command_sample{};
+    ai_command_sample.age_s = std::numeric_limits<double>::infinity();
+
     if (latest_command) {
       ai_command_sample.valid = true;
       ai_command_sample.value.steer_rad = latest_command->steer_rad;
@@ -1234,17 +1276,43 @@ int main(int argc, char* argv[]) {
       ai_command_sample.value.brake = latest_command->brake;
       ai_command_sample.value.t_ns = latest_command->t_ns;
       ai_command_sample.age_s = compute_age_seconds(latest_command->t_ns);
+
+      ai_command_enabled = latest_command->enabled != 0;
+      const bool command_fresh = latest_command->t_ns <= now_ns &&
+                                 now_ns - latest_command->t_ns <= stale_threshold_ns;
+      if (command_fresh) {
+        appliedThrottle = latest_command->throttle;
+        appliedBrake = latest_command->brake;
+        appliedSteer = latest_command->steer_rad;
+        ai_command_applied = true;
+      } else if (ai_command_enabled) {
+        appliedThrottle = 0.0f;
+        appliedBrake = 1.0f;
+        appliedSteer = 0.0f;
+      } else {
+        appliedThrottle = latest_command->throttle;
+        appliedBrake = latest_command->brake;
+        appliedSteer = latest_command->steer_rad;
+      }
     } else {
-      ai_command_sample.age_s = std::numeric_limits<double>::infinity();
+      ai_command_enabled = true;
+      ai_command_applied = true;
+      ai_command_sample.valid = true;
+      ai_command_sample.value.steer_rad = desiredSteer;
+      ai_command_sample.value.throttle = desiredThrottle;
+      ai_command_sample.value.brake = desiredBrake;
+      ai_command_sample.value.t_ns = now_ns;
+      ai_command_sample.age_s = 0.0;
     }
+
     appliedThrottle = std::clamp(appliedThrottle, 0.0f, 1.0f);
     appliedBrake = std::clamp(appliedBrake, 0.0f, 1.0f);
 
-    fsai::types::ControlCmd control_cmd{};
-    control_cmd.throttle = appliedThrottle;
-    control_cmd.brake = appliedBrake;
-    control_cmd.steer_rad = appliedSteer;
-    control_cmd.t_ns = now_ns;
+    fsai::types::ControlCmd ai_control_cmd{};
+    ai_control_cmd.throttle = desiredThrottle;
+    ai_control_cmd.brake = desiredBrake;
+    ai_control_cmd.steer_rad = desiredSteer;
+    ai_control_cmd.t_ns = now_ns;
 
     if (now_ns - last_ai2vcu_tx_ns >= ai2vcu_period_ns) {
       fsai::control::runtime::Ai2VcuAdapter::AdapterTelemetry adapter_telemetry{};
@@ -1259,7 +1327,7 @@ int main(int argc, char* argv[]) {
       }
 
       auto command_frames = ai2vcu_adapter.Adapt(
-          control_cmd, can_interface.RawStatus(), adapter_telemetry);
+          ai_control_cmd, can_interface.RawStatus(), adapter_telemetry);
       if (can_interface.Send(command_frames, now_ns)) {
         last_ai2vcu_tx_ns = now_ns;
         last_ai2vcu_commands = command_frames;
@@ -1406,7 +1474,7 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.can.imu = can_interface.LatestImu();
     runtime_telemetry.can.gps = can_interface.LatestGps();
 
-    runtime_telemetry.control.control_cmd = control_cmd;
+    runtime_telemetry.control.control_cmd = ai_control_cmd;
     runtime_telemetry.control.applied_throttle = appliedThrottle;
     runtime_telemetry.control.applied_brake = appliedBrake;
     runtime_telemetry.control.applied_steer_rad = appliedSteer;
@@ -1459,28 +1527,6 @@ int main(int argc, char* argv[]) {
       has_torque_meas = true;
     }
 
-    BrakeSample brake_sample{};
-    const double front_pct_raw = (std::max(0.0, brake_status.front_force) / front_max_force) * 100.0;
-    const double rear_pct_raw = (std::max(0.0, brake_status.rear_force) / rear_max_force) * 100.0;
-    brake_sample.front_pct = static_cast<float>(std::clamp(front_pct_raw +
-                                           sample_noise(sensor_cfg.brake_pct.noise_std), 0.0, 100.0));
-    brake_sample.rear_pct = static_cast<float>(std::clamp(rear_pct_raw +
-                                          sample_noise(sensor_cfg.brake_pct.noise_std), 0.0, 100.0));
-    brake_sample.front_req_pct = has_last_ai_command ? last_ai2vcu_commands.brake.front_pct : 0.0f;
-    brake_sample.rear_req_pct = has_last_ai_command ? last_ai2vcu_commands.brake.rear_pct : 0.0f;
-    brake_delay.push(now_ns, brake_sample);
-    if (auto sample = brake_delay.poll(now_ns)) {
-      brake_meas = *sample;
-      has_brake_meas = true;
-    }
-
-    speed_delay.push(now_ns, static_cast<float>(std::max(0.0, actual_speed_kph +
-                                     sample_noise(sensor_cfg.speed_kph.noise_std))));
-    if (auto sample = speed_delay.poll(now_ns)) {
-      speed_meas_kph = *sample;
-      has_speed_meas = true;
-    }
-
     fsai::sim::svcu::dbc::Ai2LogDynamics2 imu_sample{};
     imu_sample.accel_longitudinal_mps2 = static_cast<float>(
         vehicle_state.acceleration.x() + sample_noise(sensor_cfg.imu.accel_longitudinal_std));
@@ -1508,131 +1554,62 @@ int main(int argc, char* argv[]) {
       has_gps_meas = true;
     }
 
-    const float steer_for_msg = has_steer_meas ? steer_meas_deg : 0.0f;
-    const std::array<float, 4> wheel_for_msg = has_wheel_meas ? wheel_meas_rpm
-                                                              : std::array<float, 4>{0.0f, 0.0f, 0.0f, 0.0f};
-    const TorqueSample torque_for_msg = has_torque_meas ? torque_meas : TorqueSample{};
-    const BrakeSample brake_for_msg = has_brake_meas ? brake_meas : BrakeSample{};
-    const float speed_for_msg_kph = has_speed_meas ? speed_meas_kph : actual_speed_kph;
-
-    fsai::sim::svcu::dbc::Vcu2AiStatus status_msg{};
-    status_msg.handshake = true;
-    status_msg.as_switch_on = true;
-    status_msg.ts_switch_on = true;
-    status_msg.go_signal = true;
-    status_msg.as_state = ai_command_applied
-                              ? fsai::sim::svcu::dbc::AsState::kDriving
-                              : fsai::sim::svcu::dbc::AsState::kReady;
-    status_msg.steering_status = fsai::sim::svcu::dbc::SteeringStatus::kActive;
-
-    fsai::sim::svcu::dbc::Vcu2AiSteer steer_msg{};
-    steer_msg.angle_deg = steer_for_msg;
-    steer_msg.angle_max_deg = fsai::sim::svcu::dbc::kMaxSteerDeg;
-    steer_msg.angle_request_deg = has_last_ai_command
-                                      ? last_ai2vcu_commands.steer.steer_deg
-                                      : steer_for_msg;
-
-    fsai::sim::svcu::dbc::Vcu2AiDrive front_drive_msg{};
-    front_drive_msg.axle_trq_nm = torque_for_msg.front_nm;
-    front_drive_msg.axle_trq_max_nm = fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
-    front_drive_msg.axle_trq_request_nm = has_last_ai_command
-        ? last_ai2vcu_commands.front_drive.axle_torque_request_nm
-        : std::max(0.0f, torque_for_msg.front_nm);
-
-    fsai::sim::svcu::dbc::Vcu2AiDrive rear_drive_msg{};
-    rear_drive_msg.axle_trq_nm = torque_for_msg.rear_nm;
-    rear_drive_msg.axle_trq_max_nm = fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
-    rear_drive_msg.axle_trq_request_nm = has_last_ai_command
-        ? last_ai2vcu_commands.rear_drive.axle_torque_request_nm
-        : std::max(0.0f, torque_for_msg.rear_nm);
-
-    fsai::sim::svcu::dbc::Vcu2AiSpeeds speed_msg{};
-    for (size_t i = 0; i < wheel_for_msg.size(); ++i) {
-      speed_msg.wheel_rpm[i] = wheel_for_msg[i];
-    }
-
-    fsai::sim::svcu::dbc::Vcu2AiBrake brake_msg{};
-    brake_msg.front_pct = brake_for_msg.front_pct;
-    brake_msg.rear_pct = brake_for_msg.rear_pct;
-    brake_msg.front_req_pct = brake_for_msg.front_req_pct;
-    brake_msg.rear_req_pct = brake_for_msg.rear_req_pct;
-    brake_msg.status_brk = fsai::sim::svcu::dbc::BrakeStatus::kReady;
-    brake_msg.status_ebs = fsai::sim::svcu::dbc::EbsStatus::kArmed;
-
-    fsai::sim::svcu::dbc::Vcu2LogDynamics1 dyn_msg{};
-    dyn_msg.speed_actual_kph = speed_for_msg_kph;
-    dyn_msg.speed_target_kph = has_last_ai_command
-                                   ? last_ai2vcu_commands.status.veh_speed_demand_kph
-                                   : speed_for_msg_kph;
-    dyn_msg.steer_actual_deg = steer_for_msg;
-    dyn_msg.steer_target_deg = has_last_ai_command
-                                   ? last_ai2vcu_commands.steer.steer_deg
-                                   : steer_for_msg;
-    const float brake_target_pct = has_last_ai_command
-        ? (last_ai2vcu_commands.brake.front_pct + last_ai2vcu_commands.brake.rear_pct) * 0.5f
-        : (brake_for_msg.front_req_pct + brake_for_msg.rear_req_pct) * 0.5f;
-    dyn_msg.brake_actual_pct = (brake_for_msg.front_pct + brake_for_msg.rear_pct) * 0.5f;
-    dyn_msg.brake_target_pct = brake_target_pct;
-    const double total_req_torque_nm = has_last_ai_command
-        ? static_cast<double>(last_ai2vcu_commands.front_drive.axle_torque_request_nm +
-                              last_ai2vcu_commands.rear_drive.axle_torque_request_nm)
-        : 0.0;
-    const double total_actual_torque_nm = std::abs(static_cast<double>(torque_for_msg.front_nm)) +
-                                          std::abs(static_cast<double>(torque_for_msg.rear_nm));
-    auto torque_to_pct = [](double torque_nm) {
-      return static_cast<float>(std::clamp(torque_nm /
-                                           (2.0 * fsai::sim::svcu::dbc::kMaxAxleTorqueNm) * 100.0,
-                                           0.0, 255.0));
-    };
-    dyn_msg.drive_trq_actual_pct = torque_to_pct(total_actual_torque_nm);
-    dyn_msg.drive_trq_target_pct = torque_to_pct(total_req_torque_nm);
-
-    auto send_sim_frame = [&](const can_frame& frame) {
-      if (!can_interface.SendSimulationFrame(frame)) {
-        fsai::sim::log::Logf(fsai::sim::log::Level::kError,
-                             "Failed to send simulation CAN frame id=%u", frame.can_id);
-      }
-    };
-
-    send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2ai_status(status_msg));
-    send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2ai_steer(steer_msg));
-    send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2ai_drive_front(front_drive_msg));
-    send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2ai_drive_rear(rear_drive_msg));
-    send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2ai_speeds(speed_msg));
-    send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2ai_brake(brake_msg));
-    send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2log_dynamics1(dyn_msg));
-    send_sim_frame(fsai::sim::svcu::dbc::encode_ai2log_dynamics2(imu_meas));
-
     if (has_gps_meas) {
       can_interface.SetSimulationGpsSample(gps_meas.lat_deg, gps_meas.lon_deg,
                                           gps_meas.speed_mps);
+    } else {
+      const double lat_deg = metersToLatitude(vehicle_state.position.y());
+      const double lon_deg = metersToLongitude(vehicle_state.position.x());
+      const double speed_mps_est =
+          std::sqrt(vehicle_state.velocity.x() * vehicle_state.velocity.x() +
+                    vehicle_state.velocity.y() * vehicle_state.velocity.y());
+      can_interface.SetSimulationGpsSample(lat_deg, lon_deg, speed_mps_est);
     }
 
     can_interface.Poll(now_ns);
 
     fsai::sim::svcu::TelemetryPacket telemetry{};
     telemetry.t_ns = now_ns;
-    telemetry.steer_angle_rad = appliedSteer;
-    telemetry.front_axle_torque_nm = static_cast<float>(front_net_force * wheel_radius);
-    telemetry.rear_axle_torque_nm = static_cast<float>(rear_net_force * wheel_radius);
-    telemetry.wheel_speed_rpm[0] = wheel_info.lf_speed;
-    telemetry.wheel_speed_rpm[1] = wheel_info.rf_speed;
-    telemetry.wheel_speed_rpm[2] = wheel_info.lb_speed;
-    telemetry.wheel_speed_rpm[3] = wheel_info.rb_speed;
+    telemetry.steer_angle_rad = has_steer_meas
+                                    ? static_cast<float>(steer_meas_deg *
+                                                        fsai::sim::svcu::dbc::kDegToRad)
+                                    : appliedSteer;
+    telemetry.front_axle_torque_nm = has_torque_meas
+                                         ? torque_meas.front_nm
+                                         : static_cast<float>(front_net_force * wheel_radius);
+    telemetry.rear_axle_torque_nm = has_torque_meas
+                                        ? torque_meas.rear_nm
+                                        : static_cast<float>(rear_net_force * wheel_radius);
+    telemetry.wheel_speed_rpm[0] = has_wheel_meas ? wheel_meas_rpm[0] : wheel_info.lf_speed;
+    telemetry.wheel_speed_rpm[1] = has_wheel_meas ? wheel_meas_rpm[1] : wheel_info.rf_speed;
+    telemetry.wheel_speed_rpm[2] = has_wheel_meas ? wheel_meas_rpm[2] : wheel_info.lb_speed;
+    telemetry.wheel_speed_rpm[3] = has_wheel_meas ? wheel_meas_rpm[3] : wheel_info.rb_speed;
     telemetry.brake_pressure_front_bar =
         static_cast<float>(std::max(0.0, brake_status.front_force) / 1000.0);
     telemetry.brake_pressure_rear_bar =
         static_cast<float>(std::max(0.0, brake_status.rear_force) / 1000.0);
-    telemetry.imu_ax_mps2 = static_cast<float>(vehicle_state.acceleration.x());
-    telemetry.imu_ay_mps2 = static_cast<float>(vehicle_state.acceleration.y());
-    telemetry.imu_yaw_rate_rps = static_cast<float>(vehicle_state.rotation.z());
-    telemetry.gps_lat_deg = static_cast<float>(
-        metersToLatitude(vehicle_state.position.y()));
-    telemetry.gps_lon_deg = static_cast<float>(
-        metersToLongitude(vehicle_state.position.x()));
-    telemetry.gps_speed_mps = static_cast<float>(
-        std::sqrt(vehicle_state.velocity.x() * vehicle_state.velocity.x() +
-                  vehicle_state.velocity.y() * vehicle_state.velocity.y()));
+    telemetry.imu_ax_mps2 = has_imu_meas ? imu_meas.accel_longitudinal_mps2
+                                         : static_cast<float>(vehicle_state.acceleration.x());
+    telemetry.imu_ay_mps2 = has_imu_meas ? imu_meas.accel_lateral_mps2
+                                         : static_cast<float>(vehicle_state.acceleration.y());
+    telemetry.imu_yaw_rate_rps = has_imu_meas
+                                     ? static_cast<float>(imu_meas.yaw_rate_degps *
+                                                         fsai::sim::svcu::dbc::kDegToRad)
+                                     : static_cast<float>(vehicle_state.rotation.z());
+    const bool use_measured_gps = has_gps_meas;
+    telemetry.gps_lat_deg = use_measured_gps
+                                ? static_cast<float>(gps_meas.lat_deg)
+                                : static_cast<float>(metersToLatitude(vehicle_state.position.y()));
+    telemetry.gps_lon_deg = use_measured_gps
+                                ? static_cast<float>(gps_meas.lon_deg)
+                                : static_cast<float>(metersToLongitude(vehicle_state.position.x()));
+    telemetry.gps_speed_mps = use_measured_gps
+                                  ? static_cast<float>(gps_meas.speed_mps)
+                                  : static_cast<float>(
+                                        std::sqrt(vehicle_state.velocity.x() *
+                                                  vehicle_state.velocity.x() +
+                                                  vehicle_state.velocity.y() *
+                                                      vehicle_state.velocity.y()));
     constexpr uint8_t kTelemetryFlagHvilClosed = 0x01;
     constexpr uint8_t kTelemetryFlagEbsReleased = 0x02;
     telemetry.status_flags = 0u;
@@ -1675,6 +1652,17 @@ int main(int argc, char* argv[]) {
     SDL_Delay(static_cast<Uint32>(step_seconds * 1000.0));
 
     frame_counter++;
+  }
+
+  svcu_keep_running.store(false, std::memory_order_relaxed);
+  if (svcu_thread.joinable()) {
+    svcu_thread.join();
+  }
+  if (svcu_stats.has_value() && !svcu_stats->ok) {
+    fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                         "SVCU runner exited with errors (command_tx=%llu, telemetry_rx=%llu)",
+                         static_cast<unsigned long long>(svcu_stats->command_packets_sent),
+                         static_cast<unsigned long long>(svcu_stats->telemetry_packets_processed));
   }
 
   shutdown_imgui();
