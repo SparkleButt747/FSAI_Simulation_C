@@ -120,7 +120,7 @@ void copyStereoFrame(const FsaiStereoFrame& source,
 }
 
 FrameRingBuffer::FrameHandle cloneStereoFrame(const FsaiStereoFrame& source) {
-  FrameHandle handle;
+  FrameRingBuffer::FrameHandle handle{};
   copyStereoFrame(source, handle);
   return handle;
 }

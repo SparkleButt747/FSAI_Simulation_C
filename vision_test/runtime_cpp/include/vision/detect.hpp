@@ -1,10 +1,10 @@
 #pragma once
 
+#include "common/include/common/types.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <vector>
-
-#include "common/include/common/types.h"
 
 namespace fsai::vision {
 
@@ -18,14 +18,15 @@ struct BoxBound {
 };
 
 struct EdgeDetectorOptions {
-  int gradient_threshold = 60;
-  int min_component_pixels = 48;
-  float confidence_normalizer = 256.0f;
+  int gradient_threshold = 32;
+  int min_component_pixels = 50;
+  float confidence_normalizer = 128.0f;
 };
 
 class EdgeDetector {
  public:
-  explicit EdgeDetector(EdgeDetectorOptions options = {});
+  EdgeDetector() = default;
+  explicit EdgeDetector(EdgeDetectorOptions options);
 
   std::vector<BoxBound> process(const FsaiStereoFrame& frame) const;
 

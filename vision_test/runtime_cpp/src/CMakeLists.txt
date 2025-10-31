@@ -8,5 +8,11 @@ add_library(fsai_vision_runtime STATIC ${VISION_RUNTIME_SOURCES})
 target_include_directories(fsai_vision_runtime
   PUBLIC
     ${HEADER_DIRS}
+    ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(fsai_vision_runtime
+  PUBLIC
+    ${OpenCV_LIBS}
 )
 

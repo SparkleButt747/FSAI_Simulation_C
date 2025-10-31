@@ -60,6 +60,7 @@ if(SDL2_IMPORTED_TARGET STREQUAL "")
 endif()
 find_package(yaml-cpp REQUIRED)
 find_package(OpenGL REQUIRED)
+find_package(OpenCV REQUIRED)
 
 # CGAL and its components
 find_package(CGAL QUIET COMPONENTS)
@@ -131,6 +132,8 @@ list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/.git/.*")
 # Drop everything under vision/
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision/.*")
+list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision_test/.*")
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
 
 
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
