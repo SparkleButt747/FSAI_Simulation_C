@@ -87,19 +87,14 @@ struct RuntimeTelemetry {
     float applied_throttle{0.0f};
     float applied_brake{0.0f};
     float applied_steer_rad{0.0f};
-    float manual_throttle{0.0f};
-    float manual_brake{0.0f};
-    float manual_steer_rad{0.0f};
     TimedSample<fsai::types::ControlCmd> ai_command{};
     bool ai_command_enabled{false};
     bool ai_command_applied{false};
-    bool fallback_to_manual{false};
     bool has_last_command{false};
     std::optional<fsai::control::runtime::Ai2VcuCommandSet> last_command{};
   } control;
 
   struct ModeData {
-    bool use_controller{false};
     std::string runtime_mode;
   } mode;
 };

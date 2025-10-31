@@ -1,4 +1,4 @@
-#include "can_link.hpp"
+#include "can_transport.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -12,15 +12,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#if defined(__linux__)
-#include "socketcan.hpp"
-#endif
-
-#include "io/can/can_transport.hpp"
-
-namespace fsai::sim::svcu {
+namespace fsai::io::can {
 namespace {
-
 #pragma pack(push, 1)
 struct PackedCanFrame {
   uint32_t id_be;
@@ -28,9 +21,9 @@ struct PackedCanFrame {
   uint8_t data[CAN_MAX_DLEN];
 };
 #pragma pack(pop)
-static_assert(sizeof(PackedCanFrame) == 13, "PackedCanFrame must be 13 bytes");
+static_assert(sizeof(PackedCanFrame) == 13, "PackedCanFrame size unexpected");
 
-bool starts_with_ignore_case(const std::string& value, const char* prefix) {
+bool StartsWithIgnoreCase(const std::string& value, const char* prefix) {
   const std::size_t prefix_len = std::strlen(prefix);
   if (value.size() < prefix_len) {
     return false;
@@ -45,7 +38,7 @@ bool starts_with_ignore_case(const std::string& value, const char* prefix) {
   return true;
 }
 
-uint16_t parse_port(const std::string& text, uint16_t fallback) {
+uint16_t ParsePort(const std::string& text, uint16_t fallback) {
   if (text.empty()) {
     return fallback;
   }
@@ -65,9 +58,22 @@ struct UdpPorts {
   uint16_t peer;
 };
 
-UdpPorts parse_udp_ports(const std::string& endpoint, uint16_t fallback) {
+std::string Trim(std::string value) {
+  std::size_t start = 0;
+  while (start < value.size() &&
+         std::isspace(static_cast<unsigned char>(value[start]))) {
+    ++start;
+  }
+  std::size_t end = value.size();
+  while (end > start && std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+    --end;
+  }
+  return value.substr(start, end - start);
+}
+
+UdpPorts ParseUdpPorts(const std::string& endpoint, uint16_t fallback) {
   std::string work = endpoint;
-  if (starts_with_ignore_case(work, "udp:")) {
+  if (StartsWithIgnoreCase(work, "udp:")) {
     work = work.substr(4);
     if (!work.empty() && work[0] == '/') {
       if (work.size() > 1 && work[1] == '/') {
@@ -78,19 +84,6 @@ UdpPorts parse_udp_ports(const std::string& endpoint, uint16_t fallback) {
     }
   }
 
-  auto trim = [](std::string value) {
-    std::size_t start = 0;
-    while (start < value.size() &&
-           std::isspace(static_cast<unsigned char>(value[start]))) {
-      ++start;
-    }
-    std::size_t end = value.size();
-    while (end > start && std::isspace(static_cast<unsigned char>(value[end - 1]))) {
-      --end;
-    }
-    return value.substr(start, end - start);
-  };
-
   std::string bind_str = work;
   std::string peer_str = work;
   const auto at_pos = work.find('@');
@@ -99,22 +92,22 @@ UdpPorts parse_udp_ports(const std::string& endpoint, uint16_t fallback) {
     peer_str = work.substr(at_pos + 1);
   }
 
-  bind_str = trim(bind_str);
-  peer_str = trim(peer_str);
+  bind_str = Trim(bind_str);
+  peer_str = Trim(peer_str);
 
-  const uint16_t bind_port = parse_port(bind_str, fallback);
-  const uint16_t peer_port = parse_port(peer_str, bind_port);
+  const uint16_t bind_port = ParsePort(bind_str, fallback);
+  const uint16_t peer_port = ParsePort(peer_str, bind_port);
   return UdpPorts{bind_port, peer_port};
 }
 
-class UdpCanLink final : public ICanLink {
+class UdpTransport final : public ICanTransport {
  public:
-  UdpCanLink() = default;
-  ~UdpCanLink() override { close(); }
+  UdpTransport() = default;
+  ~UdpTransport() override { close(); }
 
   bool open(const std::string& endpoint, bool /*enable_loopback*/) override {
     close();
-    const auto ports = parse_udp_ports(endpoint, kDefaultCanUdpPort);
+    const auto ports = ParseUdpPorts(endpoint, kDefaultCanUdpPort);
     port_ = ports.bind;
     peer_port_ = ports.peer;
 
@@ -154,7 +147,6 @@ class UdpCanLink final : public ICanLink {
     };
     set_non_blocking(recv_fd_);
     set_non_blocking(send_fd_);
-
     return true;
   }
 
@@ -168,6 +160,7 @@ class UdpCanLink final : public ICanLink {
       send_fd_ = -1;
     }
     port_ = 0;
+    peer_port_ = 0;
     std::memset(&peer_addr_, 0, sizeof(peer_addr_));
   }
 
@@ -214,29 +207,84 @@ class UdpCanLink final : public ICanLink {
 
 }  // namespace
 
-std::unique_ptr<ICanLink> make_can_link(const std::string& endpoint_hint) {
-  const std::string canonical = canonicalize_can_endpoint(endpoint_hint);
-  if (is_udp_endpoint(canonical)) {
-    return std::make_unique<UdpCanLink>();
+std::unique_ptr<ICanTransport> MakeUdpTransport() {
+  return std::make_unique<UdpTransport>();
+}
+
+std::string CanonicalizeEndpoint(const std::string& endpoint_hint) {
+  if (endpoint_hint.empty()) {
+#if defined(__linux__)
+    return "udp:" + std::to_string(kDefaultCanUdpPort) + "@" +
+           std::to_string(static_cast<uint16_t>(kDefaultCanUdpPort + 1));
+#else
+    return "udp:" + std::to_string(kDefaultCanUdpPort) + "@" +
+           std::to_string(static_cast<uint16_t>(kDefaultCanUdpPort + 1));
+#endif
+  }
+  if (StartsWithIgnoreCase(endpoint_hint, "udp:")) {
+    const auto ports = ParseUdpPorts(endpoint_hint, kDefaultCanUdpPort);
+    if (ports.peer != ports.bind) {
+      return "udp:" + std::to_string(ports.bind) + "@" + std::to_string(ports.peer);
+    }
+    return "udp:" + std::to_string(ports.bind);
   }
 #if defined(__linux__)
-  (void)canonical;
-  return std::make_unique<SocketCanLink>();
+  return endpoint_hint;
 #else
-  (void)canonical;
-  return std::make_unique<UdpCanLink>();
+  const auto ports = ParseUdpPorts(endpoint_hint, kDefaultCanUdpPort);
+  if (ports.peer != ports.bind) {
+    return "udp:" + std::to_string(ports.bind) + "@" + std::to_string(ports.peer);
+  }
+  return "udp:" + std::to_string(ports.bind);
 #endif
 }
 
-std::string canonicalize_can_endpoint(const std::string& endpoint_hint) {
-  return fsai::io::can::CanonicalizeEndpoint(endpoint_hint);
+std::string DefaultEndpoint() { return CanonicalizeEndpoint(""); }
+
+bool IsUdpEndpoint(const std::string& endpoint) {
+  return StartsWithIgnoreCase(endpoint, "udp:");
 }
 
-std::string default_can_endpoint() { return fsai::io::can::DefaultEndpoint(); }
+EndpointPair ResolveEndpointPair(const std::string& endpoint_hint) {
+  EndpointPair result{};
+  result.ai_endpoint = CanonicalizeEndpoint(endpoint_hint);
+  result.svcu_endpoint = result.ai_endpoint;
+  result.is_udp = IsUdpEndpoint(result.ai_endpoint);
+  if (!result.is_udp) {
+    return result;
+  }
 
-bool is_udp_endpoint(const std::string& endpoint) {
-  return fsai::io::can::IsUdpEndpoint(endpoint);
+  const std::string descriptor = result.ai_endpoint.substr(4);
+  auto split = descriptor.find('@');
+  auto parse_port = [](const std::string& value, uint16_t fallback) {
+    if (value.empty()) {
+      return fallback;
+    }
+    char* end = nullptr;
+    long parsed = std::strtol(value.c_str(), &end, 10);
+    if (end == value.c_str() || *end != '\0' || parsed <= 0 || parsed > 65535) {
+      return fallback;
+    }
+    return static_cast<uint16_t>(parsed);
+  };
+
+  uint16_t ai_bind = 0;
+  uint16_t ai_peer = 0;
+  if (split == std::string::npos) {
+    ai_bind = parse_port(descriptor, kDefaultCanUdpPort);
+    ai_peer = static_cast<uint16_t>(ai_bind + 1);
+  } else {
+    const std::string bind_part = descriptor.substr(0, split);
+    const std::string peer_part = descriptor.substr(split + 1);
+    ai_bind = parse_port(bind_part, kDefaultCanUdpPort);
+    ai_peer = parse_port(peer_part, static_cast<uint16_t>(ai_bind + 1));
+  }
+  if (ai_peer == ai_bind) {
+    ai_peer = static_cast<uint16_t>(ai_bind + 1);
+  }
+  result.ai_endpoint = "udp:" + std::to_string(ai_bind) + "@" + std::to_string(ai_peer);
+  result.svcu_endpoint = "udp:" + std::to_string(ai_peer) + "@" + std::to_string(ai_bind);
+  return result;
 }
 
-}  // namespace fsai::sim::svcu
-
+}  // namespace fsai::io::can
