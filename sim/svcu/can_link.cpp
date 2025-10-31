@@ -16,8 +16,6 @@
 #include "socketcan.hpp"
 #endif
 
-#include "io/can/can_transport.hpp"
-
 namespace fsai::sim::svcu {
 namespace {
 
@@ -229,13 +227,35 @@ std::unique_ptr<ICanLink> make_can_link(const std::string& endpoint_hint) {
 }
 
 std::string canonicalize_can_endpoint(const std::string& endpoint_hint) {
-  return fsai::io::can::CanonicalizeEndpoint(endpoint_hint);
+  if (endpoint_hint.empty()) {
+#if defined(__linux__)
+    return "vcan0";
+#else
+    return "udp:" + std::to_string(kDefaultCanUdpPort);
+#endif
+  }
+  if (starts_with_ignore_case(endpoint_hint, "udp:")) {
+    const auto ports = parse_udp_ports(endpoint_hint, kDefaultCanUdpPort);
+    if (ports.peer != ports.bind) {
+      return "udp:" + std::to_string(ports.bind) + "@" + std::to_string(ports.peer);
+    }
+    return "udp:" + std::to_string(ports.bind);
+  }
+#if defined(__linux__)
+  return endpoint_hint;
+#else
+  const auto ports = parse_udp_ports(endpoint_hint, kDefaultCanUdpPort);
+  if (ports.peer != ports.bind) {
+    return "udp:" + std::to_string(ports.bind) + "@" + std::to_string(ports.peer);
+  }
+  return "udp:" + std::to_string(ports.bind);
+#endif
 }
 
-std::string default_can_endpoint() { return fsai::io::can::DefaultEndpoint(); }
+std::string default_can_endpoint() { return canonicalize_can_endpoint(""); }
 
 bool is_udp_endpoint(const std::string& endpoint) {
-  return fsai::io::can::IsUdpEndpoint(endpoint);
+  return starts_with_ignore_case(endpoint, "udp:");
 }
 
 }  // namespace fsai::sim::svcu

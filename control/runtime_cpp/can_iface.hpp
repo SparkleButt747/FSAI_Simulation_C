@@ -7,7 +7,7 @@
 
 #include "ai2vcu_adapter.hpp"
 #include "adsdv_dbc.hpp"
-#include "io/can/can_transport.hpp"
+#include "can_link.hpp"
 #include "types.h"
 
 namespace fsai::control::runtime {
@@ -90,7 +90,7 @@ class CanIface {
   Mode mode_{Mode::kSimulation};
   bool initialized_{false};
   std::string endpoint_{};
-  std::unique_ptr<fsai::io::can::ICanTransport> transport_;
+  std::unique_ptr<fsai::sim::svcu::ICanLink> sim_link_;
   double wheel_radius_m_{0.25};
 
   fsai::sim::svcu::dbc::Vcu2AiStatus feedback_status_{};

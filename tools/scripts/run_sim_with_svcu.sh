@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OS_NAME=$(uname -s)
-DEFAULT_UDP_PORT=${CAN_UDP_PORT:-47010}
+DEFAULT_UDP_PORT=${CAN_UDP_PORT:-47000}
 
 if [[ "$OS_NAME" == "Darwin" ]]; then
   CAN_IFACE=${CAN_IFACE:-udp:$DEFAULT_UDP_PORT}

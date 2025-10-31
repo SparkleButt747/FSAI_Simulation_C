@@ -95,6 +95,7 @@ struct RuntimeTelemetry {
   } control;
 
   struct ModeData {
+    bool use_controller{false};
     std::string runtime_mode;
   } mode;
 };

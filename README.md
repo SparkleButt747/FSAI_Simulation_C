@@ -62,15 +62,13 @@ Launch the simulator GUI from the build directory so that assets such as `config
 The executable opens an SDL window with Dear ImGui panels:
 
 - **Simulation Stats** – vehicle pose, kinematics, axle torques, brake system, wheel RPM, accelerations, and lap timing. Click the collapsing headers to expand/collapse individual sections.
-- **Control Panel** – shows manual inputs, AI requests, applied commands, and CAN acknowledgement timers. Color highlights indicate data freshness.
+- **Control Panel** – shows AI requests, applied commands, command source, and CAN acknowledgement timers. Color highlights indicate data freshness.
 - **CAN Telemetry** – streaming feedback from the simulated VCU. Each section is collapsible; stale data is colored amber/red.
 - **Simulation Log** – the scrolling log console that previously streamed to stdout. Use the `Clear` button to flush messages, toggle `Auto-scroll` to stay at the newest entry, and scroll with the mouse wheel to review history.
 
 Keyboard and mouse interactions:
 
-- Press **`M`** to toggle between automatic (controller) and manual driving modes.
-- In manual mode use **`W`** (throttle), **`S`** (brake), and **`A` / `D`** (steering). Keep the terminal window focused for these inputs because they are read from standard input.
-- Press **`Q`** to quit the simulator.
+- Close the SDL window or use the window manager controls to exit the simulator.
 - Click and drag inside any panel to scroll; right-click a panel title bar to access the standard ImGui window options.
 
 When running with the S-VCU stub, the helper script wires everything together:

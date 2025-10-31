@@ -8,7 +8,7 @@
 
 namespace fsai::sim::svcu {
 
-constexpr uint16_t kDefaultCanUdpPort = 47010;
+constexpr uint16_t kDefaultCanUdpPort = 47000;
 
 class ICanLink {
  public:
