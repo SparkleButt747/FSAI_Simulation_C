@@ -104,6 +104,8 @@ endforeach()
 list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
+add_subdirectory(vision/runtime_cpp/src)
+
 # ------------------------------------------------------------------------------
 # Simulation libraries
 # ------------------------------------------------------------------------------
@@ -219,6 +221,10 @@ file(GLOB_RECURSE SIM_APP_SOURCES CONFIGURE_DEPENDS
 
 add_executable(fsai_run ${SIM_APP_SOURCES})
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
+
+if(TARGET fsai_vision_runtime)
+  target_link_libraries(fsai_run PRIVATE fsai_vision_runtime)
+endif()
 
 file(GLOB_RECURSE CONTROL_RUNTIME_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/control/runtime_cpp/*.cpp"

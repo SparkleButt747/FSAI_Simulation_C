@@ -1,7 +1,9 @@
 #pragma once
-#include <vector> 
+#include <vector>
 #include <opencv2/opencv.hpp>
-#include "detect.hpp"
+#include "vision/detect.hpp"
+
+using fsai::vision::BoxBound;
 struct feature
 {
     /* data */
