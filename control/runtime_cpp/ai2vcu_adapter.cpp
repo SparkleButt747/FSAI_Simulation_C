@@ -40,7 +40,7 @@ Ai2VcuAdapter::Ai2VcuAdapter(const Ai2VcuAdapterConfig& config)
 }
 
 void Ai2VcuAdapter::ToggleHandshake() {
-  handshake_level_ = !handshake_level_;
+  handshake_level_ = true;
   status_.handshake = handshake_level_;
 }
 
@@ -85,15 +85,14 @@ void Ai2VcuAdapter::UpdateState(const fsai::sim::svcu::dbc::Vcu2AiStatus& feedba
 
   switch (feedback.as_state) {
     case fsai::sim::svcu::dbc::AsState::kDriving:
-      state_ = feedback.go_signal ? State::kRunning : State::kArmed;
-      break;
     case fsai::sim::svcu::dbc::AsState::kReady:
-      state_ = feedback.go_signal ? State::kRunning : State::kArmed;
+      state_ = State::kRunning;
+      break;
+    case fsai::sim::svcu::dbc::AsState::kFinished:
+      state_ = State::kSafeStop;
       break;
     case fsai::sim::svcu::dbc::AsState::kOff:
     case fsai::sim::svcu::dbc::AsState::kR2d:
-      state_ = State::kIdle;
-      break;
     default:
       state_ = State::kIdle;
       break;
@@ -103,27 +102,17 @@ void Ai2VcuAdapter::UpdateState(const fsai::sim::svcu::dbc::Vcu2AiStatus& feedba
 void Ai2VcuAdapter::UpdateStatusFlags(
     const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback,
     bool allow_motion) {
-  switch (state_) {
-    case State::kIdle:
-      status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kNotSelected;
-      break;
-    case State::kArmed:
-      status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kSelected;
-      break;
-    case State::kRunning:
-      status_.mission_status = allow_motion
-                                   ? fsai::sim::svcu::dbc::MissionStatus::kRunning
-                                   : fsai::sim::svcu::dbc::MissionStatus::kSelected;
-      break;
-    case State::kSafeStop:
-      status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kFinished;
-      break;
+  if (state_ == State::kSafeStop) {
+    status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kFinished;
+    status_.estop_request = true;
+    status_.direction_request = fsai::sim::svcu::dbc::DirectionRequest::kNeutral;
+    return;
   }
 
+  (void)feedback;
+  status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kRunning;
   status_.estop_request = !allow_motion;
-  status_.direction_request =
-      allow_motion ? fsai::sim::svcu::dbc::DirectionRequest::kForward
-                   : fsai::sim::svcu::dbc::DirectionRequest::kNeutral;
+  status_.direction_request = fsai::sim::svcu::dbc::DirectionRequest::kForward;
 }
 
 Ai2VcuCommandSet Ai2VcuAdapter::Adapt(
@@ -140,7 +129,7 @@ Ai2VcuCommandSet Ai2VcuAdapter::Adapt(
   UpdateTelemetry(telemetry);
   UpdateState(feedback);
 
-  const bool allow_motion = state_ == State::kRunning && feedback.go_signal;
+  const bool allow_motion = state_ != State::kSafeStop;
 
   float requested_throttle =
       allow_motion ? std::clamp(cmd.throttle, 0.0f, 1.0f) : 0.0f;
