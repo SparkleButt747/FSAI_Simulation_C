@@ -9,7 +9,9 @@
 
 namespace fsai::io::can {
 
-constexpr uint16_t kDefaultCanUdpPort = 47000;
+// Reserve the default CAN UDP pair away from the command (47001) and telemetry
+// (47002) sockets so the embedded SVCU can run without port conflicts.
+constexpr uint16_t kDefaultCanUdpPort = 47010;
 
 class ICanTransport {
  public:

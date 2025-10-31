@@ -103,6 +103,26 @@ inline double metersToLongitude(double east_meters) {
   return kBaseLongitudeDeg + east_meters / meters_per_degree_lon;
 }
 
+std::optional<uint16_t> ParseUdpBindPort(const std::string& endpoint) {
+  if (!fsai::io::can::IsUdpEndpoint(endpoint)) {
+    return std::nullopt;
+  }
+  std::string descriptor = endpoint.substr(4);
+  const auto at_pos = descriptor.find('@');
+  if (at_pos != std::string::npos) {
+    descriptor = descriptor.substr(0, at_pos);
+  }
+  if (descriptor.empty()) {
+    return std::nullopt;
+  }
+  char* end = nullptr;
+  long parsed = std::strtol(descriptor.c_str(), &end, 10);
+  if (end == descriptor.c_str() || *end != '\0' || parsed <= 0 || parsed > 65535) {
+    return std::nullopt;
+  }
+  return static_cast<uint16_t>(parsed);
+}
+
 const char* CanModeToString(fsai::control::runtime::CanIface::Mode mode) {
   switch (mode) {
     case fsai::control::runtime::CanIface::Mode::kSimulation:
@@ -895,6 +915,8 @@ int main(int argc, char* argv[]) {
   bool can_iface_overridden = false;
   uint16_t command_port = kDefaultCommandPort;
   uint16_t telemetry_port = kDefaultTelemetryPort;
+  bool command_port_overridden = false;
+  bool telemetry_port_overridden = false;
   std::string sensor_config_path = kDefaultSensorConfig;
 
   for (int i = 1; i < argc; ++i) {
@@ -908,8 +930,10 @@ int main(int argc, char* argv[]) {
       mode = argv[++i];
     } else if (arg == "--cmd-port" && i + 1 < argc) {
       command_port = parse_port(argv[++i], command_port);
+      command_port_overridden = true;
     } else if (arg == "--state-port" && i + 1 < argc) {
       telemetry_port = parse_port(argv[++i], telemetry_port);
+      telemetry_port_overridden = true;
     } else if (arg == "--sensor-config" && i + 1 < argc) {
       sensor_config_path = argv[++i];
     } else if (arg == "--help") {
@@ -944,6 +968,99 @@ int main(int argc, char* argv[]) {
   std::string ai_can_endpoint = endpoint_pair.ai_endpoint;
   std::string svcu_can_endpoint = endpoint_pair.svcu_endpoint;
   bool can_is_udp = endpoint_pair.is_udp;
+
+  const auto ai_bind_port = ParseUdpBindPort(ai_can_endpoint);
+  const auto svcu_bind_port = ParseUdpBindPort(svcu_can_endpoint);
+
+  auto port_conflicts = [&](uint32_t candidate, uint16_t other_port) {
+    if (candidate == other_port) {
+      return true;
+    }
+    if (ai_bind_port && candidate == *ai_bind_port) {
+      return true;
+    }
+    if (svcu_bind_port && candidate == *svcu_bind_port) {
+      return true;
+    }
+    return false;
+  };
+
+  auto ensure_runtime_port = [&](uint16_t& port, bool overridden,
+                                 uint16_t other_port, const char* cli_flag,
+                                 const char* label) -> bool {
+    if (!can_is_udp) {
+      if (port == other_port && !overridden) {
+        uint32_t candidate = static_cast<uint32_t>(port);
+        bool updated = false;
+        while (candidate < 65535) {
+          ++candidate;
+          if (candidate != other_port) {
+            port = static_cast<uint16_t>(candidate);
+            fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                                 "Adjusted %s UDP port to %u to avoid runtime socket conflict.",
+                                 label, port);
+            updated = true;
+            break;
+          }
+        }
+        if (!updated) {
+          fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                               "Unable to choose %s UDP port distinct from %u",
+                               label, other_port);
+          return false;
+        }
+      } else if (port == other_port) {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                             "%s UDP port %u conflicts with other runtime socket."
+                             " Specify a different value with --%s.",
+                             label, port, cli_flag);
+        return false;
+      }
+      return true;
+    }
+
+    if (!port_conflicts(port, other_port)) {
+      return true;
+    }
+
+    if (overridden) {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                           "%s UDP port %u conflicts with CAN endpoints (%s / %s)."
+                           " Specify a different value with --%s.",
+                           label, port, ai_can_endpoint.c_str(),
+                           svcu_can_endpoint.c_str(), cli_flag);
+      return false;
+    }
+
+    uint32_t candidate = static_cast<uint32_t>(port);
+    bool updated = false;
+    while (candidate < 65535) {
+      ++candidate;
+      if (!port_conflicts(candidate, other_port)) {
+        port = static_cast<uint16_t>(candidate);
+        fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                             "Adjusted %s UDP port to %u to avoid CAN endpoint conflict.",
+                             label, port);
+        updated = true;
+        break;
+      }
+    }
+    if (!updated) {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                           "Unable to select a %s UDP port distinct from CAN endpoints",
+                           label);
+    }
+    return updated;
+  };
+
+  if (!ensure_runtime_port(command_port, command_port_overridden,
+                           telemetry_port, "cmd-port", "Command")) {
+    return EXIT_FAILURE;
+  }
+  if (!ensure_runtime_port(telemetry_port, telemetry_port_overridden,
+                           command_port, "state-port", "Telemetry")) {
+    return EXIT_FAILURE;
+  }
 
   fsai::sim::log::Logf(
       fsai::sim::log::Level::kInfo,
