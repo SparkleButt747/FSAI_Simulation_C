@@ -104,7 +104,7 @@ endforeach()
 list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
-add_subdirectory(vision/runtime_cpp/src)
+add_subdirectory(vision_test/runtime_cpp/src)
 
 # ------------------------------------------------------------------------------
 # Simulation libraries
