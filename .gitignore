@@ -3,4 +3,5 @@
 .DS_Store
 .history/
 build/
+build-linux/
 venv/
