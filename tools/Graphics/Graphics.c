@@ -99,13 +99,18 @@ void Graphics_DrawCar(Graphics* g, float x, float y, float radius, float yaw) {
     // Draw the car (blue filled circle).
     SDL_SetRenderDrawColor(g->renderer, 0, 0, 255, 255);
     drawFilledCircle(g->renderer, (int)x, (int)y, (int)radius);
-    
+
     // Draw heading: a red line from the center extending in the yaw direction.
     float lineLength = radius;
     int x2 = (int)(x + lineLength * cos(yaw));
     int y2 = (int)(y + lineLength * sin(yaw));
     SDL_SetRenderDrawColor(g->renderer, 255, 0, 0, 255);
     SDL_RenderDrawLine(g->renderer, (int)x, (int)y, x2, y2);
+}
+
+void Graphics_DrawSegment(Graphics* g, float x1, float y1,  float x2, float y2) {
+    SDL_SetRenderDrawColor(g->renderer, 50, 0, 255, 0);
+    SDL_RenderDrawLine(g->renderer, x1, y1, x2, y2);
 }
 
 // Presents the rendered frame.

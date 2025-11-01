@@ -116,9 +116,6 @@ list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/third_party/imgui/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/third_party/imgui/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(c)$")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(cpp)$")
-list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/centerline.prot.cpp$")
-list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/control/.*")
-list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/sim/svcu/svcu_main.cpp$")
@@ -153,6 +150,7 @@ target_link_libraries(fsai_sim
     yaml-cpp::yaml-cpp
     OpenGL::GL
     Threads::Threads
+    CGAL::CGAL
     m
 )
 
