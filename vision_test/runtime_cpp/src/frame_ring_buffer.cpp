@@ -110,6 +110,16 @@ class DefaultFrameRingBuffer : public FrameRingBuffer {
   std::condition_variable not_full_;
 };
 
+std::mutex& activeMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::weak_ptr<FrameRingBuffer>& activeBuffer() {
+  static std::weak_ptr<FrameRingBuffer> buffer;
+  return buffer;
+}
+
 }  // namespace
 
 void copyStereoFrame(const FsaiStereoFrame& source,
@@ -125,8 +135,18 @@ FrameRingBuffer::FrameHandle cloneStereoFrame(const FsaiStereoFrame& source) {
   return handle;
 }
 
-std::unique_ptr<FrameRingBuffer> makeFrameRingBuffer(std::size_t capacity) {
-  return std::make_unique<DefaultFrameRingBuffer>(capacity);
+std::shared_ptr<FrameRingBuffer> makeFrameRingBuffer(std::size_t capacity) {
+  return std::make_shared<DefaultFrameRingBuffer>(capacity);
+}
+
+void setActiveFrameRingBuffer(std::shared_ptr<FrameRingBuffer> buffer) {
+  std::lock_guard<std::mutex> lock(activeMutex());
+  activeBuffer() = std::move(buffer);
+}
+
+std::shared_ptr<FrameRingBuffer> getActiveFrameRingBuffer() {
+  std::lock_guard<std::mutex> lock(activeMutex());
+  return activeBuffer().lock();
 }
 
 }  // namespace fsai::vision
