@@ -87,7 +87,12 @@ bool EdgePreview::start(SDL_Renderer* renderer,
     height_ = 0;
     last_frame_timestamp_ns_ = 0;
     last_error_.clear();
-    upload_buffer_.clear();
+    worker_buffer_.clear();
+    pending_buffer_.clear();
+    pending_ready_ = false;
+    pending_width_ = 0;
+    pending_height_ = 0;
+    pending_timestamp_ns_ = 0;
   }
 
   running_.store(true);
@@ -117,13 +122,35 @@ void EdgePreview::stop() {
   width_ = 0;
   height_ = 0;
   last_frame_timestamp_ns_ = 0;
-  upload_buffer_.clear();
+  worker_buffer_.clear();
+  pending_buffer_.clear();
+  pending_ready_ = false;
+  pending_width_ = 0;
+  pending_height_ = 0;
+  pending_timestamp_ns_ = 0;
 }
 
 bool EdgePreview::running() const { return running_.load(); }
 
-EdgePreview::Snapshot EdgePreview::snapshot() const {
+EdgePreview::Snapshot EdgePreview::snapshot() {
   std::lock_guard<std::mutex> lock(mutex_);
+
+  if (pending_ready_) {
+    if (!ensureTextureLocked(pending_width_, pending_height_)) {
+      pending_ready_ = false;
+    } else if (SDL_UpdateTexture(texture_.get(), nullptr, pending_buffer_.data(),
+                                 pending_width_ * 4) != 0) {
+      last_error_ = SDL_GetError();
+      pending_ready_ = false;
+    } else {
+      last_error_.clear();
+      width_ = pending_width_;
+      height_ = pending_height_;
+      last_frame_timestamp_ns_ = pending_timestamp_ns_;
+      pending_ready_ = false;
+    }
+  }
+
   Snapshot snapshot;
   snapshot.texture = texture_;
   snapshot.width = width_;
@@ -207,23 +234,21 @@ void EdgePreview::workerLoop() {
 
     const std::size_t pixel_count =
         static_cast<std::size_t>(left.w) * static_cast<std::size_t>(left.h);
-    upload_buffer_.resize(pixel_count * 4u);
-    cv::Mat rgba(left.h, left.w, CV_8UC4, upload_buffer_.data(),
+    worker_buffer_.resize(pixel_count * 4u);
+    cv::Mat rgba(left.h, left.w, CV_8UC4, worker_buffer_.data(),
                  static_cast<size_t>(left.w) * 4u);
     cv::cvtColor(edges, rgba, cv::COLOR_GRAY2RGBA);
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!ensureTextureLocked(left.w, left.h)) {
-      continue;
-    }
-    if (SDL_UpdateTexture(texture_.get(), nullptr, upload_buffer_.data(), left.w * 4) != 0) {
-      last_error_ = SDL_GetError();
-      continue;
-    }
-    last_error_.clear();
-    last_frame_timestamp_ns_ = frame_handle.frame.t_sync_ns != 0
+    const uint64_t timestamp = frame_handle.frame.t_sync_ns != 0
                                    ? frame_handle.frame.t_sync_ns
                                    : left.t_ns;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    pending_buffer_.swap(worker_buffer_);
+    pending_width_ = left.w;
+    pending_height_ = left.h;
+    pending_timestamp_ns_ = timestamp;
+    pending_ready_ = true;
   }
 #endif
 }

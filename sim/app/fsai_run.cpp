@@ -665,7 +665,7 @@ void DrawLogConsole() {
   ImGui::End();
 }
 
-void DrawEdgePreviewPanel(const fsai::vision::EdgePreview& preview, uint64_t now_ns) {
+void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
   ImGui::Begin("Edge Preview");
 
   const auto snapshot = preview.snapshot();

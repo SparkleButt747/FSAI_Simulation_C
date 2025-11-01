@@ -46,7 +46,7 @@ class EdgePreview {
   void stop();
 
   [[nodiscard]] bool running() const;
-  [[nodiscard]] Snapshot snapshot() const;
+  [[nodiscard]] Snapshot snapshot();
   [[nodiscard]] std::string statusMessage() const;
 
  private:
@@ -64,7 +64,12 @@ class EdgePreview {
   int height_ = 0;
   uint64_t last_frame_timestamp_ns_ = 0;
   std::string last_error_;
-  std::vector<uint8_t> upload_buffer_;
+  std::vector<uint8_t> worker_buffer_;
+  std::vector<uint8_t> pending_buffer_;
+  bool pending_ready_ = false;
+  int pending_width_ = 0;
+  int pending_height_ = 0;
+  uint64_t pending_timestamp_ns_ = 0;
 };
 
 }  // namespace fsai::vision
