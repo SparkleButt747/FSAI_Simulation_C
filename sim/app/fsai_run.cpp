@@ -30,6 +30,7 @@
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
 #include "sim_stereo_source.hpp"
+#include "vision/edge_preview.hpp"
 #include "vision/frame_ring_buffer.hpp"
 #include "types.h"
 #include "World.hpp"
@@ -664,6 +665,56 @@ void DrawLogConsole() {
   ImGui::End();
 }
 
+void DrawEdgePreviewPanel(const fsai::vision::EdgePreview& preview, uint64_t now_ns) {
+  ImGui::Begin("Edge Preview");
+
+  const auto snapshot = preview.snapshot();
+  if (!snapshot.texture) {
+    const std::string status = preview.statusMessage();
+    if (!status.empty()) {
+      ImGui::TextWrapped("%s", status.c_str());
+    } else {
+      ImGui::TextUnformatted("Waiting for edge frames...");
+    }
+    ImGui::End();
+    return;
+  }
+
+  ImGui::Text("Resolution: %d x %d", snapshot.width, snapshot.height);
+  double age_ms = std::numeric_limits<double>::infinity();
+  if (snapshot.frame_timestamp_ns != 0 && now_ns >= snapshot.frame_timestamp_ns) {
+    age_ms = static_cast<double>(now_ns - snapshot.frame_timestamp_ns) * 1e-6;
+  }
+  if (std::isfinite(age_ms)) {
+    ImGui::Text("Frame age: %.1f ms", age_ms);
+  } else {
+    ImGui::Text("Frame age: n/a");
+  }
+
+  float display_width = static_cast<float>(snapshot.width);
+  float display_height = static_cast<float>(snapshot.height);
+  if (display_width <= 0.0f || display_height <= 0.0f) {
+    display_width = 1.0f;
+    display_height = 1.0f;
+  }
+  const float max_width = 480.0f;
+  const float max_height = 360.0f;
+  if (display_width > max_width) {
+    const float scale = max_width / display_width;
+    display_width *= scale;
+    display_height *= scale;
+  }
+  if (display_height > max_height) {
+    const float scale = max_height / display_height;
+    display_width *= scale;
+    display_height *= scale;
+  }
+
+  ImGui::Image(snapshot.texture.get(), ImVec2(display_width, display_height));
+
+  ImGui::End();
+}
+
 void DrawWorldScene(Graphics* graphics, const World& world,
                     const fsai::sim::app::RuntimeTelemetry& telemetry) {
   (void)telemetry;
@@ -1103,6 +1154,23 @@ int main(int argc, char* argv[]) {
     stereo_display = std::make_unique<fsai::sim::integration::StereoDisplay>();
   }
 
+  fsai::vision::EdgePreview edge_preview;
+  if (edge_preview_enabled && !stereo_frame_buffer) {
+    fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                         "Edge preview disabled: stereo source unavailable");
+    edge_preview_enabled = false;
+  } else if (edge_preview_enabled && stereo_frame_buffer) {
+    std::string preview_error;
+    if (!edge_preview.start(graphics.renderer, stereo_frame_buffer, preview_error)) {
+      if (preview_error.empty()) {
+        preview_error = "edge worker initialization failed";
+      }
+      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                           "Edge preview disabled: %s", preview_error.c_str());
+      edge_preview_enabled = false;
+    }
+  }
+
   std::vector<std::array<float, 3>> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
@@ -1473,6 +1541,9 @@ int main(int argc, char* argv[]) {
     DrawControlPanel(runtime_telemetry);
     DrawCanPanel(runtime_telemetry);
     DrawLogConsole();
+    if (edge_preview_enabled && edge_preview.running()) {
+      DrawEdgePreviewPanel(edge_preview, now_ns);
+    }
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
                                                 sample_noise(sensor_cfg.steering_deg.noise_std)));
@@ -1727,6 +1798,7 @@ int main(int argc, char* argv[]) {
     frame_counter++;
   }
 
+  edge_preview.stop();
   stereo_display.reset();
   if (stereo_frame_buffer) {
     while (stereo_frame_buffer->tryPop().has_value()) {

@@ -1,4 +1,5 @@
 set(VISION_RUNTIME_SOURCES
+  edge_preview.cpp
   detect.cpp
   frame_ring_buffer.cpp
 )
@@ -11,10 +12,12 @@ target_include_directories(fsai_vision_runtime
     ${CMAKE_SOURCE_DIR}/common/include
     ${CMAKE_SOURCE_DIR}/common/include/common
     ${OpenCV_INCLUDE_DIRS}
+    ${SDL2_INCLUDE_DIRS}
 )
 
 target_link_libraries(fsai_vision_runtime
   PUBLIC
     ${OpenCV_LIBS}
+    ${SDL2_IMPORTED_TARGET}
 )
 
