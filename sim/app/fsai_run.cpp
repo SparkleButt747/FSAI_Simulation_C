@@ -3,6 +3,7 @@
 #include <chrono>
 #include <numbers>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -29,6 +30,7 @@
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
 #include "sim_stereo_source.hpp"
+#include "vision/frame_ring_buffer.hpp"
 #include "types.h"
 #include "World.hpp"
 #include "adsdv_dbc.hpp"
@@ -765,6 +767,7 @@ struct SensorNoiseConfig {
   ChannelNoiseConfig speed_kph{};
   ImuNoiseConfig imu{};
   GpsNoiseConfig gps{};
+  bool edge_preview_enabled{true};
 };
 
 template <typename T>
@@ -874,6 +877,11 @@ SensorNoiseConfig LoadSensorNoiseConfig(const std::string& path) {
         cfg.gps.latency_s = latency.as<double>(0.0) * 1e-3;
       }
     }
+    if (auto vision = root["vision"]) {
+      if (auto preview = vision["edge_preview"]) {
+        cfg.edge_preview_enabled = preview.as<bool>(cfg.edge_preview_enabled);
+      }
+    }
   } catch (const std::exception& e) {
     std::fprintf(stderr, "Failed to load sensor config '%s': %s\n", path.c_str(), e.what());
   }
@@ -901,6 +909,7 @@ int main(int argc, char* argv[]) {
   uint16_t command_port = kDefaultCommandPort;
   uint16_t telemetry_port = kDefaultTelemetryPort;
   std::string sensor_config_path = kDefaultSensorConfig;
+  std::optional<bool> edge_preview_override;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -917,11 +926,15 @@ int main(int argc, char* argv[]) {
       telemetry_port = parse_port(argv[++i], telemetry_port);
     } else if (arg == "--sensor-config" && i + 1 < argc) {
       sensor_config_path = argv[++i];
+    } else if (arg == "--edge-preview") {
+      edge_preview_override = true;
+    } else if (arg == "--no-edge-preview") {
+      edge_preview_override = false;
     } else if (arg == "--help") {
       fsai::sim::log::LogfToStdout(
           fsai::sim::log::Level::kInfo,
           "Usage: fsai_run [--dt seconds] [--can-if iface|udp:port] [--cmd-port p] "
-          "[--state-port p] [--sensor-config path]");
+          "[--state-port p] [--sensor-config path] [--edge-preview|--no-edge-preview]");
       return EXIT_SUCCESS;
     } else if (i == 1 && argc == 2) {
       dt = std::atof(arg.c_str());
@@ -953,6 +966,13 @@ int main(int argc, char* argv[]) {
       command_port, telemetry_port);
 
   SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(sensor_config_path);
+  bool edge_preview_enabled = sensor_cfg.edge_preview_enabled;
+  if (edge_preview_override.has_value()) {
+    edge_preview_enabled = *edge_preview_override;
+  }
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                       "Edge-detection preview %s",
+                       edge_preview_enabled ? "enabled" : "disabled");
   std::mt19937 noise_rng(sensor_cfg.seed);
   auto sample_noise = [&noise_rng](double stddev) {
     if (stddev <= 0.0) {
@@ -1066,10 +1086,22 @@ int main(int argc, char* argv[]) {
   auto stereo_factory =
       fsai::sim::integration::lookupStereoProvider("sim_stereo");
   std::unique_ptr<fsai::io::camera::sim_stereo::SimStereoSource> stereo_source;
+  std::shared_ptr<fsai::vision::FrameRingBuffer> stereo_frame_buffer;
   if (stereo_factory) {
     stereo_source = stereo_factory();
+    if (stereo_source) {
+      constexpr std::size_t kFrameRingCapacity = 4;
+      stereo_frame_buffer = fsai::vision::makeFrameRingBuffer(kFrameRingCapacity);
+      fsai::vision::setActiveFrameRingBuffer(stereo_frame_buffer);
+    }
   }
-  fsai::sim::integration::StereoDisplay stereo_display;
+  if (!stereo_frame_buffer) {
+    fsai::vision::setActiveFrameRingBuffer(nullptr);
+  }
+  std::unique_ptr<fsai::sim::integration::StereoDisplay> stereo_display;
+  if (edge_preview_enabled) {
+    stereo_display = std::make_unique<fsai::sim::integration::StereoDisplay>();
+  }
 
   std::vector<std::array<float, 3>> cone_positions;
   bool running = true;
@@ -1673,7 +1705,16 @@ int main(int argc, char* argv[]) {
       }
       stereo_source->setCones(cone_positions);
       const FsaiStereoFrame& frame = stereo_source->capture(now_ns);
-      stereo_display.present(frame);
+      if (stereo_frame_buffer) {
+        while (!stereo_frame_buffer->tryPush(frame)) {
+          if (!stereo_frame_buffer->tryPop().has_value()) {
+            break;
+          }
+        }
+      }
+      if (stereo_display) {
+        stereo_display->present(frame);
+      }
     }
 
     DrawWorldScene(&graphics, world, runtime_telemetry);
@@ -1686,6 +1727,13 @@ int main(int argc, char* argv[]) {
     frame_counter++;
   }
 
+  stereo_display.reset();
+  if (stereo_frame_buffer) {
+    while (stereo_frame_buffer->tryPop().has_value()) {
+    }
+    fsai::vision::setActiveFrameRingBuffer(nullptr);
+    stereo_frame_buffer.reset();
+  }
   shutdown_imgui();
   Graphics_Cleanup(&graphics);
   fsai::sim::log::LogInfoToStdout(

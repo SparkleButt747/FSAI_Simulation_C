@@ -33,7 +33,9 @@ class FrameRingBuffer {
 void copyStereoFrame(const FsaiStereoFrame& source,
                      FrameRingBuffer::FrameHandle& destination);
 FrameRingBuffer::FrameHandle cloneStereoFrame(const FsaiStereoFrame& source);
-std::unique_ptr<FrameRingBuffer> makeFrameRingBuffer(std::size_t capacity);
+std::shared_ptr<FrameRingBuffer> makeFrameRingBuffer(std::size_t capacity);
+void setActiveFrameRingBuffer(std::shared_ptr<FrameRingBuffer> buffer);
+std::shared_ptr<FrameRingBuffer> getActiveFrameRingBuffer();
 
 }  // namespace fsai::vision
 
