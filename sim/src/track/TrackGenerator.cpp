@@ -372,6 +372,17 @@ TrackResult TrackGenerator::generateTrack(const PathConfig& config, const PathRe
         rightConesC.erase(rightConesC.begin());
     }
 
+    if (leftConesC.size() > 1 && rightConesC.size() > 1) {
+        const cdouble center0 = 0.5 * (leftConesC[0] + rightConesC[0]);
+        const cdouble center1 = 0.5 * (leftConesC[1] + rightConesC[1]);
+        const cdouble forward = center1 - center0;
+        const cdouble to_left = leftConesC[0] - center0;
+        const double cross = forward.real() * to_left.imag() - forward.imag() * to_left.real();
+        if (cross < 0.0) {
+            leftConesC.swap(rightConesC);
+        }
+    }
+
     int nResample = static_cast<int>(std::min(leftConesC.size(), rightConesC.size()));
     if (nResample < 2) throw std::runtime_error("Not enough cones on one side to compute a racing line.");
 

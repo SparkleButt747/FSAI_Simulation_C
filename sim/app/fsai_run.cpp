@@ -48,6 +48,7 @@ constexpr int kWindowWidth = 800;
 constexpr int kWindowHeight = 600;
 constexpr int kReportIntervalFrames = 120;
 constexpr float kRenderScale = 5.0f;
+constexpr float kConeDisplayScale = 12.0f;
 constexpr uint16_t kDefaultCommandPort = fsai::sim::svcu::kDefaultCommandPort;
 constexpr uint16_t kDefaultTelemetryPort = fsai::sim::svcu::kDefaultTelemetryPort;
 constexpr double kCommandStaleSeconds = 0.1;
@@ -718,73 +719,20 @@ void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
 
 namespace {
 
-struct ConeRenderStyle {
-  SDL_Color body{0, 0, 0, 255};
-  SDL_Color stripe{0, 0, 0, 255};
-  int stripe_count{0};
-};
-
-void DrawConePrimitive(Graphics* graphics, int center_x, int center_y,
-                       float base_width_m, float height_m,
-                       const ConeRenderStyle& style) {
+void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
+                    float base_width_m, const SDL_Color& color) {
   if (graphics == nullptr || graphics->renderer == nullptr) {
     return;
   }
 
-  const float base_width_px = base_width_m * kRenderScale;
-  const float half_base_px = base_width_px * 0.5f;
-  const float height_px = height_m * kRenderScale;
-  const int half_height_px =
-      std::max(1, static_cast<int>(std::round(height_px * 0.5f)));
-  const int top_y = center_y - half_height_px;
-  const int base_y = center_y + half_height_px;
-  const int total_height = std::max(1, base_y - top_y);
+  const float base_radius_px =
+      0.5f * base_width_m * kRenderScale * kConeDisplayScale;
+  const int radius_px =
+      std::max(1, static_cast<int>(std::lround(base_radius_px)));
 
-  SDL_SetRenderDrawColor(graphics->renderer, style.body.r, style.body.g,
-                         style.body.b, style.body.a);
-  for (int row = 0; row <= total_height; ++row) {
-    const float t = static_cast<float>(row) /
-                    static_cast<float>(total_height);
-    const float half_width_row = half_base_px * t;
-    const int y = top_y + row;
-    const int left = static_cast<int>(std::round(center_x - half_width_row));
-    const int right = static_cast<int>(std::round(center_x + half_width_row));
-    SDL_RenderDrawLine(graphics->renderer, left, y, right, y);
-  }
-
-  if (style.stripe_count <= 0 || style.stripe.a == 0) {
-    return;
-  }
-
-  SDL_SetRenderDrawColor(graphics->renderer, style.stripe.r, style.stripe.g,
-                         style.stripe.b, style.stripe.a);
-  const float stripe_half_fraction =
-      fsai::sim::kConeStripeWidthFraction * 0.5f;
-  const float stripe_denom = static_cast<float>(style.stripe_count + 1);
-  const float total_height_f = static_cast<float>(total_height);
-
-  for (int stripe_index = 0; stripe_index < style.stripe_count; ++stripe_index) {
-    const float center_fraction =
-        (static_cast<float>(stripe_index) + 1.0f) / stripe_denom;
-    const float min_fraction =
-        std::max(0.0f, center_fraction - stripe_half_fraction);
-    const float max_fraction =
-        std::min(1.0f, center_fraction + stripe_half_fraction);
-
-    const int start_row = std::max(
-        0, static_cast<int>(std::floor(min_fraction * total_height_f)));
-    const int end_row = std::min(
-        total_height, static_cast<int>(std::ceil(max_fraction * total_height_f)));
-
-    for (int row = start_row; row <= end_row; ++row) {
-      const float t = static_cast<float>(row) / total_height_f;
-      const float half_width_row = half_base_px * t;
-      const int y = top_y + row;
-      const int left = static_cast<int>(std::round(center_x - half_width_row));
-      const int right = static_cast<int>(std::round(center_x + half_width_row));
-      SDL_RenderDrawLine(graphics->renderer, left, y, right, y);
-    }
-  }
+  SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
+                         color.a);
+  Graphics_DrawFilledCircle(graphics, center_x, center_y, radius_px);
 }
 
 }  // namespace
@@ -811,52 +759,49 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   const auto& lookahead = world.lookahead();
 
   const auto& start_cones = world.startConePositions();
-  const ConeRenderStyle start_style{{255, 140, 0, 255}, {255, 255, 255, 255}, 2};
+  const SDL_Color start_color{255, 140, 0, 255};
   for (const auto& cone : start_cones) {
     const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f,
-                      fsai::sim::kLargeConeHeightMeters, start_style);
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, start_color);
   }
 
-  ConeRenderStyle left_style{{0, 102, 204, 255}, {255, 255, 255, 255}, 1};
+  const SDL_Color left_base{0, 102, 204, 255};
   for (size_t i = 0; i < world.leftConePositions().size(); ++i) {
-    ConeRenderStyle style = left_style;
+    SDL_Color color = left_base;
     if (i == 0) {
-      style.body = SDL_Color{0, 255, 0, 255};
+      color = SDL_Color{0, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.speed) {
-      style.body = SDL_Color{255, 255, 0, 255};
+      color = SDL_Color{255, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.steer) {
-      style.body = SDL_Color{255, 0, 255, 255};
+      color = SDL_Color{255, 0, 255, 255};
     }
     const auto& cone = world.leftConePositions()[i];
     const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f,
-                      fsai::sim::kSmallConeHeightMeters, style);
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
 
-  ConeRenderStyle right_style{{255, 214, 0, 255}, {50, 50, 50, 255}, 1};
+  const SDL_Color right_base{255, 214, 0, 255};
   for (size_t i = 0; i < world.rightConePositions().size(); ++i) {
-    ConeRenderStyle style = right_style;
+    SDL_Color color = right_base;
     if (i == 0) {
-      style.body = SDL_Color{0, 255, 0, 255};
+      color = SDL_Color{0, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.speed) {
-      style.body = SDL_Color{255, 255, 0, 255};
+      color = SDL_Color{255, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.steer) {
-      style.body = SDL_Color{255, 0, 255, 255};
+      color = SDL_Color{255, 0, 255, 255};
     }
     const auto& cone = world.rightConePositions()[i];
     const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f,
-                      fsai::sim::kSmallConeHeightMeters, style);
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
 
   const auto& transform = world.vehicleTransform();
