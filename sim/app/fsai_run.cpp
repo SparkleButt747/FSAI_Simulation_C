@@ -767,8 +767,8 @@ void DrawWorldScene(Graphics* graphics, const World& world,
                                         graphics->height / 2.0f);
     DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, start_color);
   }
-
-  const SDL_Color left_base{0, 102, 204, 255};
+  // Blue 0, 102, 204, 255
+  const SDL_Color left_base{255, 214, 0, 255};
   for (size_t i = 0; i < world.leftConePositions().size(); ++i) {
     SDL_Color color = left_base;
     if (i == 0) {
@@ -785,8 +785,8 @@ void DrawWorldScene(Graphics* graphics, const World& world,
                                         graphics->height / 2.0f);
     DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
-
-  const SDL_Color right_base{255, 214, 0, 255};
+  // Yellow 255, 214, 0, 255
+  const SDL_Color right_base{0, 102, 204, 255};
   for (size_t i = 0; i < world.rightConePositions().size(); ++i) {
     SDL_Color color = right_base;
     if (i == 0) {
@@ -1807,12 +1807,13 @@ int main(int argc, char* argv[]) {
         return std::array<float, 3>{r * color_scale, g * color_scale,
                                     b * color_scale};
       };
+
       const auto start_body = makeColor(255, 140, 0);
       const auto start_stripe = makeColor(255, 255, 255);
-      const auto left_body = makeColor(0, 102, 204);
-      const auto left_stripe = makeColor(255, 255, 255);
-      const auto right_body = makeColor(255, 214, 0);
-      const auto right_stripe = makeColor(50, 50, 50);
+      const auto left_body = makeColor(255, 214, 0);
+      const auto left_stripe = makeColor(50, 50, 50);
+      const auto right_body = makeColor(0, 102, 204);
+      const auto right_stripe = makeColor(255, 255, 255);
 
       auto appendCone = [&](const Cone& cone) {
         fsai::io::camera::sim_stereo::SimConeInstance instance{};
