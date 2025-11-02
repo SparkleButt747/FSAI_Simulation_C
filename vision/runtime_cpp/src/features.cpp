@@ -22,6 +22,12 @@ std::vector<pseudofeature> extract_features(cv::Mat frame, cv::Ptr<cv::ORB> orb)
     // extract all features from a frame. If using for left frame, pass in results from extract_boundimg 
     // each pseudofeature has xy coordinates in coordinate system of right frame, and a descriptor matrix used for ORB or SIFT 
 
+    //Empty frame check
+    if (frame.empty()) {
+        std: cerr << "Warning: Empty frame recieved" << std::endl;
+        return {};
+    }
+
     // declare keypoints and descriptors matrix
     std::vector<KeyPoint> keypoints; 
     cv::Mat descriptors; 
