@@ -87,9 +87,6 @@ struct RuntimeTelemetry {
     float applied_throttle{0.0f};
     float applied_brake{0.0f};
     float applied_steer_rad{0.0f};
-    float manual_throttle{0.0f};
-    float manual_brake{0.0f};
-    float manual_steer_rad{0.0f};
     TimedSample<fsai::types::ControlCmd> ai_command{};
     bool ai_command_enabled{false};
     bool ai_command_applied{false};

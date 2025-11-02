@@ -46,10 +46,14 @@ void World::init(const char* yamlFilePath) {
 
     // Store checkpoint and cone data
     checkpointPositions.clear();
+    startCones.clear();
     leftCones.clear();
     rightCones.clear();
     for (const auto& cp : track.checkpoints) {
         checkpointPositions.push_back(transformToVector3(cp));
+    }
+    for (const auto& sc : track.startCones) {
+        startCones.push_back(transformToVector3(sc));
     }
     for (const auto& lc : track.leftCones) {
         leftCones.push_back(transformToVector3(lc));
@@ -173,6 +177,16 @@ bool World::detectCollisions() {
         totalDistance = 0.0;
     }
 
+    for (const auto& cone : startCones) {
+        float cdx = carTransform.position.x - cone.x;
+        float cdz = carTransform.position.z - cone.z;
+        float cdist = std::sqrt(cdx * cdx + cdz * cdz);
+        if (cdist < config.coneCollisionThreshold) {
+            std::printf("Collision with a cone detected.\n");
+            reset();
+            return false;
+        }
+    }
     for (const auto& cone : leftCones) {
         float cdx = carTransform.position.x - cone.x;
         float cdz = carTransform.position.z - cone.z;
@@ -229,10 +243,14 @@ void World::reset() {
         TrackResult track = trackGen.generateTrack(pathConfig, path);
 
         checkpointPositions.clear();
+        startCones.clear();
         leftCones.clear();
         rightCones.clear();
         for (const auto& cp : track.checkpoints) {
             checkpointPositions.push_back(transformToVector3(cp));
+        }
+        for (const auto& sc : track.startCones) {
+            startCones.push_back(transformToVector3(sc));
         }
         for (const auto& lc : track.leftCones) {
             leftCones.push_back(transformToVector3(lc));

@@ -180,6 +180,7 @@ Triangulation getVisibleTrackTriangulation(
       }
     };
 
+    addCones(fullTrack.startCones);
     addCones(fullTrack.leftCones);
     addCones(fullTrack.rightCones);
 
@@ -217,6 +218,9 @@ int main(int argc, char* argv[])
     Point carFront = generateVehicleTriangulation(CarT, track);
 
     auto t1 = high_resolution_clock::now();
+    for (int i = 0; i < track.startCones.size(); i++) {
+      T.insert(Point(track.startCones[i].position.x, track.startCones[i].position.z));
+    }
     for (int i = 0; i < track.leftCones.size(); i++) {
       T.insert(Point(track.leftCones[i].position.x, track.leftCones[i].position.z));
     }

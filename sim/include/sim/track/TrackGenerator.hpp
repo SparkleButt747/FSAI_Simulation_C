@@ -6,6 +6,8 @@
 #include <complex>
 
 struct TrackResult {
+    // Large orange cones marking the start line (two pairs).
+    std::vector<Transform> startCones;
     std::vector<Transform> leftCones;
     std::vector<Transform> rightCones;
     std::vector<Transform> checkpoints;
@@ -26,8 +28,13 @@ private:
     static std::vector<std::complex<double>> resampleBoundary(const std::vector<std::complex<double>>& points, int nResample);
     static Vector3 complexToVector3(const std::complex<double>& z);
     static double complexToAngle(const std::complex<double>& z);
-    static int placeCones(const std::vector<std::complex<double>>& points, const std::vector<double>& radii, int side,
-                          double minConeSpacing, double maxConeSpacing, double minCornerRadius, double trackWidth,
-                          double coneSpacingBias, std::vector<std::complex<double>>& selectedPoints);
+    static std::vector<std::complex<double>> placeCones(const std::vector<std::complex<double>>& points,
+                                                        const std::vector<double>& radii,
+                                                        int side,
+                                                        double minConeSpacing,
+                                                        double maxConeSpacing,
+                                                        double minCornerRadius,
+                                                        double trackWidth,
+                                                        double coneSpacingBias);
 };
 
