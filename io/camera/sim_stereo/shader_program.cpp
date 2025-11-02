@@ -159,7 +159,9 @@ flat in float v_stripe_count;
 
 out vec4 out_color;
 
-const float kStripeHalfWidth = 0.08;
+const float kStripeHalfHeight = 0.11;
+const float kBaseHeight = 0.15;
+const float kTipHeight = 1.05;
 const int kMaxStripes = 4;
 
 void main() {
@@ -171,19 +173,16 @@ void main() {
   vec3 color = v_body_color;
   int stripes = int(round(clamp(v_stripe_count, 0.0, float(kMaxStripes))));
   if (stripes > 0) {
-    const float pi = 3.1415926535897932384626433832795;
-    float angle = atan(v_local_pos.z, v_local_pos.x);
-    float norm_angle = (angle + pi) / (2.0 * pi);
+    float normalized_height = (v_local_pos.y - kBaseHeight) / (kTipHeight - kBaseHeight);
+    normalized_height = clamp(normalized_height, 0.0, 1.0);
+    float denom = float(stripes) + 1.0;
     for (int i = 0; i < kMaxStripes; ++i) {
       if (i >= stripes) {
         break;
       }
-      float center = (float(i) + 0.5) / float(stripes);
-      float delta = abs(norm_angle - center);
-      if (delta > 0.5) {
-        delta = 1.0 - delta;
-      }
-      if (delta < kStripeHalfWidth) {
+      float center = (float(i) + 1.0) / denom;
+      float delta = abs(normalized_height - center);
+      if (delta < kStripeHalfHeight) {
         color = v_stripe_color;
         break;
       }
