@@ -1,4 +1,5 @@
 #include "TrackGenerator.hpp"
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -85,11 +86,20 @@ double TrackGenerator::complexToAngle(const cdouble& z) {
     return std::atan2(z.imag(), z.real());
 }
 
-int TrackGenerator::placeCones(const std::vector<cdouble>& points, const std::vector<double>& radii, int side,
-                               double minConeSpacing, double maxConeSpacing, double minCornerRadius, double trackWidth,
-                               double coneSpacingBias, std::vector<cdouble>& selectedPoints) {
-    int nPoints = points.size();
-    double minDensity = (1.0 / maxConeSpacing) + 0.1;
+std::vector<cdouble> TrackGenerator::placeCones(const std::vector<cdouble>& points,
+                                                const std::vector<double>& radii,
+                                                int side,
+                                                double minConeSpacing,
+                                                double maxConeSpacing,
+                                                double minCornerRadius,
+                                                double trackWidth,
+                                                double coneSpacingBias) {
+    int nPoints = static_cast<int>(points.size());
+    if (nPoints == 0) {
+        return {};
+    }
+
+    double minDensity = 1.0 / maxConeSpacing;
     double maxDensity = 1.0 / minConeSpacing;
     double densityRange = maxDensity - minDensity;
     double c1 = densityRange / 2.0 * ((1 - coneSpacingBias) * minCornerRadius - (1 + coneSpacingBias) * trackWidth / 2.0);
@@ -103,11 +113,16 @@ int TrackGenerator::placeCones(const std::vector<cdouble>& points, const std::ve
         coneDensity[i] *= distToPrev[i];
     }
     double modifiedLength = 0.0;
-    for (double d : coneDensity) modifiedLength += d;
-    int rounded = static_cast<int>(std::round(modifiedLength));
-    double threshold = (rounded != 0) ? modifiedLength / rounded : 1.0;
+    for (double d : coneDensity) {
+        modifiedLength += d;
+    }
+    double rounded = std::round(modifiedLength);
+    if (rounded <= 0.0) {
+        rounded = 1.0;
+    }
+    double threshold = modifiedLength / rounded;
 
-    selectedPoints.clear();
+    std::vector<cdouble> selectedPoints;
     selectedPoints.reserve(nPoints);
     selectedPoints.push_back(points[0]);
     double current = 0.0;
@@ -118,7 +133,7 @@ int TrackGenerator::placeCones(const std::vector<cdouble>& points, const std::ve
             selectedPoints.push_back(points[i]);
         }
     }
-    return selectedPoints.size();
+    return selectedPoints;
 }
 
 TrackResult TrackGenerator::generateTrack(const PathConfig& config, const PathResult& path) const {
@@ -142,11 +157,34 @@ TrackResult TrackGenerator::generateTrack(const PathConfig& config, const PathRe
     auto leftRadii = translateDoubleArray(radii, -trackWidth / 2.0);
     auto rightRadii = translateDoubleArray(radii, trackWidth / 2.0);
 
-    std::vector<cdouble> leftConesC, rightConesC;
-    int nLeftCones = placeCones(leftPoints, leftRadii, 1, minConeSpacing, maxConeSpacing, minCornerRadius, trackWidth, coneSpacingBias, leftConesC);
-    int nRightCones = placeCones(rightPoints, rightRadii, -1, minConeSpacing, maxConeSpacing, minCornerRadius, trackWidth, coneSpacingBias, rightConesC);
+    std::vector<cdouble> leftConesC = placeCones(leftPoints, leftRadii, 1, minConeSpacing, maxConeSpacing,
+                                                minCornerRadius, trackWidth, coneSpacingBias);
+    std::vector<cdouble> rightConesC = placeCones(rightPoints, rightRadii, -1, minConeSpacing, maxConeSpacing,
+                                                 minCornerRadius, trackWidth, coneSpacingBias);
 
-    int nResample = std::min(nLeftCones, nRightCones);
+    std::vector<cdouble> startConesC;
+    if (!leftConesC.empty() && !rightConesC.empty()) {
+        cdouble forward = (nPoints > 1) ? (pointsC[1] - pointsC[0]) : cdouble(1.0, 0.0);
+        double forwardMag = std::abs(forward);
+        if (forwardMag == 0.0) {
+            forward = cdouble(1.0, 0.0);
+            forwardMag = 1.0;
+        }
+        cdouble unitForward = forward / forwardMag;
+        cdouble offset = unitForward * (config.startingConeSpacing / 2.0);
+
+        cdouble leftStart = leftConesC.front();
+        cdouble rightStart = rightConesC.front();
+        startConesC.push_back(leftStart + offset);
+        startConesC.push_back(rightStart + offset);
+        startConesC.push_back(leftStart - offset);
+        startConesC.push_back(rightStart - offset);
+
+        leftConesC.erase(leftConesC.begin());
+        rightConesC.erase(rightConesC.begin());
+    }
+
+    int nResample = static_cast<int>(std::min(leftConesC.size(), rightConesC.size()));
     if (nResample < 2) throw std::runtime_error("Not enough cones on one side to compute a racing line.");
 
     auto leftResampled = resampleBoundary(leftConesC, nResample);
@@ -155,6 +193,7 @@ TrackResult TrackGenerator::generateTrack(const PathConfig& config, const PathRe
     std::vector<Transform> leftTransforms(nResample);
     std::vector<Transform> rightTransforms(nResample);
     std::vector<Transform> checkpoints(nResample);
+    std::vector<Transform> startTransforms(startConesC.size());
 
     for (int i = 0; i < nResample; ++i) {
         leftTransforms[i].position = complexToVector3(leftResampled[i]);
@@ -170,8 +209,13 @@ TrackResult TrackGenerator::generateTrack(const PathConfig& config, const PathRe
         double dz = rightResampled[i].imag() - leftResampled[i].imag();
         checkpoints[i].yaw = static_cast<float>(std::atan2(dz, dx));
     }
+    for (int i = 0; i < static_cast<int>(startConesC.size()); ++i) {
+        startTransforms[i].position = complexToVector3(startConesC[i]);
+        startTransforms[i].yaw = 0.0f;
+    }
 
     TrackResult result;
+    result.startCones = std::move(startTransforms);
     result.leftCones = std::move(leftTransforms);
     result.rightCones = std::move(rightTransforms);
     result.checkpoints = std::move(checkpoints);

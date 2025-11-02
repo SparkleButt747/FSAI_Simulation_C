@@ -3,6 +3,7 @@
 #include <chrono>
 #include <numbers>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -28,8 +29,9 @@
 #include "logging.hpp"
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
-#include "terminal_keyboard.hpp"
 #include "sim_stereo_source.hpp"
+#include "vision/edge_preview.hpp"
+#include "vision/frame_ring_buffer.hpp"
 #include "types.h"
 #include "World.hpp"
 #include "adsdv_dbc.hpp"
@@ -356,12 +358,6 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   ImGui::Text("AI command stream: %s", ai_enabled ? "enabled" : "disabled");
 
   ImGui::Separator();
-  ImGui::Text("Manual inputs");
-  ImGui::Text("Throttle: %.2f | Brake: %.2f | Steer: %.1f deg",
-              telemetry.control.manual_throttle, telemetry.control.manual_brake,
-              telemetry.control.manual_steer_rad * fsai::sim::svcu::dbc::kRadToDeg);
-
-  ImGui::Separator();
   ImGui::Text("AI request");
   if (telemetry.control.ai_command.valid) {
     const ImVec4 ai_color = ColorForFreshness(
@@ -669,6 +665,56 @@ void DrawLogConsole() {
   ImGui::End();
 }
 
+void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
+  ImGui::Begin("Edge Preview");
+
+  const auto snapshot = preview.snapshot();
+  if (!snapshot.texture) {
+    const std::string status = preview.statusMessage();
+    if (!status.empty()) {
+      ImGui::TextWrapped("%s", status.c_str());
+    } else {
+      ImGui::TextUnformatted("Waiting for edge frames...");
+    }
+    ImGui::End();
+    return;
+  }
+
+  ImGui::Text("Resolution: %d x %d", snapshot.width, snapshot.height);
+  double age_ms = std::numeric_limits<double>::infinity();
+  if (snapshot.frame_timestamp_ns != 0 && now_ns >= snapshot.frame_timestamp_ns) {
+    age_ms = static_cast<double>(now_ns - snapshot.frame_timestamp_ns) * 1e-6;
+  }
+  if (std::isfinite(age_ms)) {
+    ImGui::Text("Frame age: %.1f ms", age_ms);
+  } else {
+    ImGui::Text("Frame age: n/a");
+  }
+
+  float display_width = static_cast<float>(snapshot.width);
+  float display_height = static_cast<float>(snapshot.height);
+  if (display_width <= 0.0f || display_height <= 0.0f) {
+    display_width = 1.0f;
+    display_height = 1.0f;
+  }
+  const float max_width = 480.0f;
+  const float max_height = 360.0f;
+  if (display_width > max_width) {
+    const float scale = max_width / display_width;
+    display_width *= scale;
+    display_height *= scale;
+  }
+  if (display_height > max_height) {
+    const float scale = max_height / display_height;
+    display_width *= scale;
+    display_height *= scale;
+  }
+
+  ImGui::Image(snapshot.texture.get(), ImVec2(display_width, display_height));
+
+  ImGui::End();
+}
+
 void DrawWorldScene(Graphics* graphics, const World& world,
                     const fsai::sim::app::RuntimeTelemetry& telemetry) {
   (void)telemetry;
@@ -772,6 +818,7 @@ struct SensorNoiseConfig {
   ChannelNoiseConfig speed_kph{};
   ImuNoiseConfig imu{};
   GpsNoiseConfig gps{};
+  bool edge_preview_enabled{true};
 };
 
 template <typename T>
@@ -881,6 +928,11 @@ SensorNoiseConfig LoadSensorNoiseConfig(const std::string& path) {
         cfg.gps.latency_s = latency.as<double>(0.0) * 1e-3;
       }
     }
+    if (auto vision = root["vision"]) {
+      if (auto preview = vision["edge_preview"]) {
+        cfg.edge_preview_enabled = preview.as<bool>(cfg.edge_preview_enabled);
+      }
+    }
   } catch (const std::exception& e) {
     std::fprintf(stderr, "Failed to load sensor config '%s': %s\n", path.c_str(), e.what());
   }
@@ -908,6 +960,7 @@ int main(int argc, char* argv[]) {
   uint16_t command_port = kDefaultCommandPort;
   uint16_t telemetry_port = kDefaultTelemetryPort;
   std::string sensor_config_path = kDefaultSensorConfig;
+  std::optional<bool> edge_preview_override;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -924,11 +977,15 @@ int main(int argc, char* argv[]) {
       telemetry_port = parse_port(argv[++i], telemetry_port);
     } else if (arg == "--sensor-config" && i + 1 < argc) {
       sensor_config_path = argv[++i];
+    } else if (arg == "--edge-preview") {
+      edge_preview_override = true;
+    } else if (arg == "--no-edge-preview") {
+      edge_preview_override = false;
     } else if (arg == "--help") {
       fsai::sim::log::LogfToStdout(
           fsai::sim::log::Level::kInfo,
           "Usage: fsai_run [--dt seconds] [--can-if iface|udp:port] [--cmd-port p] "
-          "[--state-port p] [--sensor-config path]");
+          "[--state-port p] [--sensor-config path] [--edge-preview|--no-edge-preview]");
       return EXIT_SUCCESS;
     } else if (i == 1 && argc == 2) {
       dt = std::atof(arg.c_str());
@@ -960,6 +1017,13 @@ int main(int argc, char* argv[]) {
       command_port, telemetry_port);
 
   SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(sensor_config_path);
+  bool edge_preview_enabled = sensor_cfg.edge_preview_enabled;
+  if (edge_preview_override.has_value()) {
+    edge_preview_enabled = *edge_preview_override;
+  }
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                       "Edge-detection preview %s",
+                       edge_preview_enabled ? "enabled" : "disabled");
   std::mt19937 noise_rng(sensor_cfg.seed);
   auto sample_noise = [&noise_rng](double stddev) {
     if (stddev <= 0.0) {
@@ -1061,7 +1125,6 @@ int main(int argc, char* argv[]) {
     ImGui::DestroyContext();
   };
 
-  fsai::sim::integration::TerminalKeyboard keyboard{};
   fsai::sim::integration::CsvLogger logger("CarStateLog.csv", "RALog.csv");
   if (!logger.valid()) {
     std::fprintf(stderr, "Failed to open CSV logs\n");
@@ -1074,10 +1137,39 @@ int main(int argc, char* argv[]) {
   auto stereo_factory =
       fsai::sim::integration::lookupStereoProvider("sim_stereo");
   std::unique_ptr<fsai::io::camera::sim_stereo::SimStereoSource> stereo_source;
+  std::shared_ptr<fsai::vision::FrameRingBuffer> stereo_frame_buffer;
   if (stereo_factory) {
     stereo_source = stereo_factory();
+    if (stereo_source) {
+      constexpr std::size_t kFrameRingCapacity = 4;
+      stereo_frame_buffer = fsai::vision::makeFrameRingBuffer(kFrameRingCapacity);
+      fsai::vision::setActiveFrameRingBuffer(stereo_frame_buffer);
+    }
   }
-  fsai::sim::integration::StereoDisplay stereo_display;
+  if (!stereo_frame_buffer) {
+    fsai::vision::setActiveFrameRingBuffer(nullptr);
+  }
+  std::unique_ptr<fsai::sim::integration::StereoDisplay> stereo_display;
+  if (edge_preview_enabled) {
+    stereo_display = std::make_unique<fsai::sim::integration::StereoDisplay>();
+  }
+
+  fsai::vision::EdgePreview edge_preview;
+  if (edge_preview_enabled && !stereo_frame_buffer) {
+    fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                         "Edge preview disabled: stereo source unavailable");
+    edge_preview_enabled = false;
+  } else if (edge_preview_enabled && stereo_frame_buffer) {
+    std::string preview_error;
+    if (!edge_preview.start(graphics.renderer, stereo_frame_buffer, preview_error)) {
+      if (preview_error.empty()) {
+        preview_error = "edge worker initialization failed";
+      }
+      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                           "Edge preview disabled: %s", preview_error.c_str());
+      edge_preview_enabled = false;
+    }
+  }
 
   std::vector<std::array<float, 3>> cone_positions;
   bool running = true;
@@ -1184,33 +1276,6 @@ int main(int argc, char* argv[]) {
     ImGui_ImplSDLRenderer2_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
-
-    const int key = keyboard.poll();
-    if (key == 'q' || key == 'Q') {
-      running = false;
-    } else if (key == 'm' || key == 'M') {
-      world.useController = world.useController ? 0 : 1;
-      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
-                           "Switched to %s control mode.",
-                           world.useController ? "automatic" : "manual");
-    } else if (!world.useController && key != -1) {
-      if (key == 'w' || key == 'W') {
-        world.throttleInput = 1.0f;
-        world.brakeInput = 0.0f;
-      } else if (key == 's' || key == 'S') {
-        world.throttleInput = 0.0f;
-        world.brakeInput = 1.0f;
-      }
-      if (key == 'a' || key == 'A') {
-        world.steeringAngle = -1.0f;
-      } else if (key == 'd' || key == 'D') {
-        world.steeringAngle = 1.0f;
-      }
-    }
-
-    const float manualThrottleInput = world.throttleInput;
-    const float manualBrakeInput = world.brakeInput;
-    const float manualSteerInput = world.steeringAngle;
 
     can_interface.Poll(fsai_clock_now());
 
@@ -1460,9 +1525,6 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.control.applied_throttle = appliedThrottle;
     runtime_telemetry.control.applied_brake = appliedBrake;
     runtime_telemetry.control.applied_steer_rad = appliedSteer;
-    runtime_telemetry.control.manual_throttle = manualThrottleInput;
-    runtime_telemetry.control.manual_brake = manualBrakeInput;
-    runtime_telemetry.control.manual_steer_rad = manualSteerInput;
     runtime_telemetry.control.ai_command = ai_command_sample;
     runtime_telemetry.control.ai_command_enabled = ai_command_enabled;
     runtime_telemetry.control.ai_command_applied = ai_command_applied;
@@ -1479,6 +1541,9 @@ int main(int argc, char* argv[]) {
     DrawControlPanel(runtime_telemetry);
     DrawCanPanel(runtime_telemetry);
     DrawLogConsole();
+    if (edge_preview_enabled && edge_preview.running()) {
+      DrawEdgePreviewPanel(edge_preview, now_ns);
+    }
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
                                                 sample_noise(sensor_cfg.steering_deg.noise_std)));
@@ -1711,7 +1776,16 @@ int main(int argc, char* argv[]) {
       }
       stereo_source->setCones(cone_positions);
       const FsaiStereoFrame& frame = stereo_source->capture(now_ns);
-      stereo_display.present(frame);
+      if (stereo_frame_buffer) {
+        while (!stereo_frame_buffer->tryPush(frame)) {
+          if (!stereo_frame_buffer->tryPop().has_value()) {
+            break;
+          }
+        }
+      }
+      if (stereo_display) {
+        stereo_display->present(frame);
+      }
     }
 
     DrawWorldScene(&graphics, world, runtime_telemetry);
@@ -1724,6 +1798,14 @@ int main(int argc, char* argv[]) {
     frame_counter++;
   }
 
+  edge_preview.stop();
+  stereo_display.reset();
+  if (stereo_frame_buffer) {
+    while (stereo_frame_buffer->tryPop().has_value()) {
+    }
+    fsai::vision::setActiveFrameRingBuffer(nullptr);
+    stereo_frame_buffer.reset();
+  }
   shutdown_imgui();
   Graphics_Cleanup(&graphics);
   fsai::sim::log::LogInfoToStdout(
