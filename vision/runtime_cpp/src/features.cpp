@@ -1,7 +1,11 @@
 #include <iostream>
+#include "features.hpp"
+#include "vector"
+#include <detect.hpp>
 #include <opencv2/opencv.hpp>
-#include <features.hpp> 
-#include <vector> 
+#include <opencv2/features2d.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
 // high level overview 
 // we need function to take left and right frames and bounding box and return xy coordinates of matched features for each bounding box
 
@@ -16,6 +20,8 @@ cv::Mat extract_boundimg(cv::Mat left_frame, BoxBound box_bound){
 std::vector<pseudofeature> extract_feature(BoxBound box_bound){
     // extract features using ORB or SIFT techniques 
     // each pseudofeature has xy coordinates in the coordinate system of the frame image, and a descriptor matrix used for ORB or SIFT
+
+    cv::Ptr<cv::ORB> orb = cv::ORB::create();
 }
 
 std::vector<pseudofeature> extract_right_features(cv::Mat right_frame){
@@ -41,4 +47,9 @@ std::vector<feature> match_features(cv::Mat left_frame, cv::Mat right_frame,std:
     // take the two bounding box images and apply feature matching algorithm (TBD)
     // append features to vector 
     // return vector 
+}
+
+int test_feature_matching(cv::Mat left_frame, cv::Mat right_frame){
+    // test the feature matching based on left frame and right frame 
+
 }
