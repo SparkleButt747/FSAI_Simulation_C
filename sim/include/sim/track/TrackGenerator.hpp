@@ -28,6 +28,16 @@ private:
     static std::vector<std::complex<double>> resampleBoundary(const std::vector<std::complex<double>>& points, int nResample);
     static Vector3 complexToVector3(const std::complex<double>& z);
     static double complexToAngle(const std::complex<double>& z);
+    static void pickStartingPoint(std::vector<std::complex<double>>& positions,
+                                  std::vector<std::complex<double>>& normals,
+                                  std::vector<double>& radii,
+                                  double startingStraightLength,
+                                  int downsample);
+    static int findCarIndex(const std::vector<std::complex<double>>& positions,
+                            double startOffset);
+    static void applyTransform(std::vector<std::complex<double>>& points,
+                               const std::complex<double>& translation,
+                               const std::complex<double>& rotation);
     static std::vector<std::complex<double>> placeCones(const std::vector<std::complex<double>>& points,
                                                         const std::vector<double>& radii,
                                                         int side,

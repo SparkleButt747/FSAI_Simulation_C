@@ -79,20 +79,26 @@ void SimStereoSource::ensureGl() {
   }
 }
 
-void SimStereoSource::setCones(
-    const std::vector<std::array<float, 3>>& cones_world) {
+void SimStereoSource::setCones(const std::vector<SimConeInstance>& cones_world) {
   gl_context_.makeCurrent();
-  std::vector<float> matrices;
-  matrices.reserve(cones_world.size() * 16);
-  for (const auto& p : cones_world) {
+  std::vector<ConeInstanceData> instances;
+  instances.reserve(cones_world.size());
+  for (const auto& cone : cones_world) {
     Eigen::Matrix4f model = Eigen::Matrix4f::Identity();
-    model(0, 3) = p[0];
-    model(1, 3) = p[1];
-    model(2, 3) = p[2];
-    auto arr = eigenToArray(model);
-    matrices.insert(matrices.end(), arr.begin(), arr.end());
+    model(0, 0) = cone.base_width;
+    model(1, 1) = cone.height;
+    model(2, 2) = cone.base_width;
+    model(0, 3) = cone.position[0];
+    model(1, 3) = cone.position[1];
+    model(2, 3) = cone.position[2];
+    ConeInstanceData data{};
+    data.model = eigenToArray(model);
+    data.body_color = cone.body_color;
+    data.stripe_color = cone.stripe_color;
+    data.stripe_count = static_cast<float>(cone.stripe_count);
+    instances.push_back(data);
   }
-  cone_mesh_.setInstances(matrices);
+  cone_mesh_.setInstances(instances);
 }
 
 void SimStereoSource::setBodyPose(float x, float y, float z, float yaw) {

@@ -102,9 +102,9 @@ void World::init(const char* yamlFilePath) {
     deltaTime = 0.0;
 
     // Controller configuration
-    config.collisionThreshold = 2.5f;
+    config.collisionThreshold = 1.75f;
     config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
-    config.lapCompletionThreshold = 0.1f;
+    config.lapCompletionThreshold = 0.2f;
 
     // Use racing algorithm by default
     useController = 1;
@@ -113,9 +113,9 @@ void World::init(const char* yamlFilePath) {
     regenTrack = 1;
 
     // Racing algorithm configuration
-    racingConfig.speedLookAheadSensitivity = 0.6f;
-    racingConfig.steeringLookAheadSensitivity = 0.05f;
-    racingConfig.accelerationFactor = 0.002f;
+    racingConfig.speedLookAheadSensitivity = 0.5f;
+    racingConfig.steeringLookAheadSensitivity = 0;
+    racingConfig.accelerationFactor = 0.0019f;
 
     // Make sure car starts on the track
     float startX = checkpointPositions[0].x;

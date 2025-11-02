@@ -1,6 +1,8 @@
 #include "TrackGenerator.hpp"
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <numeric>
 #include <stdexcept>
 
 using cdouble = std::complex<double>;
@@ -86,6 +88,172 @@ double TrackGenerator::complexToAngle(const cdouble& z) {
     return std::atan2(z.imag(), z.real());
 }
 
+namespace {
+
+std::vector<double> downsampleDistances(const std::vector<cdouble>& points) {
+    const int count = static_cast<int>(points.size());
+    std::vector<double> distances(count, 0.0);
+    if (count == 0) {
+        return distances;
+    }
+    for (int i = 0; i < count; ++i) {
+        const int next = (i + 1) % count;
+        distances[i] = std::abs(points[next] - points[i]);
+    }
+    return distances;
+}
+
+double computeTrackLength(const std::vector<cdouble>& positions) {
+    double length = 0.0;
+    const int count = static_cast<int>(positions.size());
+    for (int i = 0; i < count; ++i) {
+        const int next = (i + 1) % count;
+        length += std::abs(positions[next] - positions[i]);
+    }
+    return length;
+}
+
+}  // namespace
+
+void TrackGenerator::pickStartingPoint(std::vector<cdouble>& positions,
+                                       std::vector<cdouble>& normals,
+                                       std::vector<double>& radii,
+                                       double startingStraightLength,
+                                       int downsample) {
+    const int nPoints = static_cast<int>(positions.size());
+    if (nPoints == 0) {
+        return;
+    }
+
+    if (downsample < 1) {
+        downsample = 1;
+    }
+
+    std::vector<cdouble> dsPositions;
+    std::vector<double> dsCurvature;
+    dsPositions.reserve(nPoints / downsample + 1);
+    dsCurvature.reserve(nPoints / downsample + 1);
+
+    for (int i = 0; i < nPoints; i += downsample) {
+        dsPositions.push_back(positions[i]);
+        const double radius = radii[i];
+        double curvature = 0.0;
+        if (radius != 0.0) {
+            curvature = std::abs(1.0 / radius);
+        } else {
+            curvature = std::numeric_limits<double>::infinity();
+        }
+        dsCurvature.push_back(curvature);
+    }
+
+    const int dsCount = static_cast<int>(dsPositions.size());
+    if (dsCount == 0) {
+        return;
+    }
+
+    std::vector<int> sortedIndices(dsCount);
+    std::iota(sortedIndices.begin(), sortedIndices.end(), 0);
+    std::sort(sortedIndices.begin(), sortedIndices.end(),
+              [&](int a, int b) { return dsCurvature[a] < dsCurvature[b]; });
+
+    const int candidateCount = std::max(1, dsCount / 8);
+    const double smoothDiameter = 1.5 * startingStraightLength;
+    const std::vector<double> dsDistances = downsampleDistances(dsPositions);
+
+    auto smoothedCurvature = [&](int index) {
+        double value = dsCurvature[index];
+        double coefSum = 1.0;
+        if (dsCount <= 1) {
+            return value;
+        }
+        int current = (index == 0) ? dsCount - 1 : index - 1;
+        double distance = dsDistances[current];
+        while (distance < smoothDiameter && dsCount > 1) {
+            const double coef = dsDistances[current] *
+                                std::sin(M_PI * distance / smoothDiameter);
+            value += coef * dsCurvature[current];
+            coefSum += coef;
+            current = (current == 0) ? dsCount - 1 : current - 1;
+            distance += dsDistances[current];
+        }
+        return coefSum > 0.0 ? value / coefSum : value;
+    };
+
+    double bestValue = std::numeric_limits<double>::infinity();
+    int bestIndex = 0;
+    for (int i = 0; i < candidateCount && i < dsCount; ++i) {
+        const int candidate = sortedIndices[i];
+        const double smoothed = smoothedCurvature(candidate);
+        if (smoothed < bestValue) {
+            bestValue = smoothed;
+            bestIndex = candidate;
+        }
+    }
+
+    const int startIndex = (bestIndex * downsample) % nPoints;
+
+    auto rotateVector = [&](auto& vec) {
+        std::rotate(vec.begin(), vec.begin() + startIndex, vec.end());
+    };
+    rotateVector(positions);
+    rotateVector(normals);
+    rotateVector(radii);
+
+    const cdouble startPosition = positions.front();
+    for (auto& p : positions) {
+        p -= startPosition;
+    }
+
+    const cdouble startNormal = normals.front();
+    cdouble rotation = cdouble(0.0, 1.0);
+    if (std::abs(startNormal) > 0.0) {
+        rotation = cdouble(0.0, 1.0) / startNormal;
+    }
+    for (auto& p : positions) {
+        p *= rotation;
+    }
+    for (auto& n : normals) {
+        n *= rotation;
+    }
+}
+
+int TrackGenerator::findCarIndex(const std::vector<cdouble>& positions,
+                                 double startOffset) {
+    const int nPoints = static_cast<int>(positions.size());
+    if (nPoints == 0) {
+        return 0;
+    }
+
+    const double totalLength = computeTrackLength(positions);
+    const double targetOffset = std::min(startOffset, totalLength);
+
+    int current = 0;
+    double accumulated = 0.0;
+    std::vector<bool> visited(static_cast<std::size_t>(nPoints), false);
+
+    while (accumulated < targetOffset) {
+        const int prev = (current - 1 + nPoints) % nPoints;
+        accumulated += std::abs(positions[current] - positions[prev]);
+        current = prev;
+        if (visited[static_cast<std::size_t>(current)]) {
+            break;
+        }
+        visited[static_cast<std::size_t>(current)] = true;
+        if (accumulated >= totalLength) {
+            break;
+        }
+    }
+    return current;
+}
+
+void TrackGenerator::applyTransform(std::vector<cdouble>& points,
+                                    const cdouble& translation,
+                                    const cdouble& rotation) {
+    for (auto& point : points) {
+        point = (point - translation) * rotation;
+    }
+}
+
 std::vector<cdouble> TrackGenerator::placeCones(const std::vector<cdouble>& points,
                                                 const std::vector<double>& radii,
                                                 int side,
@@ -144,16 +312,20 @@ TrackResult TrackGenerator::generateTrack(const PathConfig& config, const PathRe
     double coneSpacingBias = config.coneSpacingBias;
     double minCornerRadius = config.minCornerRadius;
 
-    std::vector<cdouble> pointsC(nPoints); std::vector<cdouble> normalsC(nPoints);
+    std::vector<cdouble> pointsC(nPoints);
+    std::vector<cdouble> normalsC(nPoints);
     for (int i = 0; i < nPoints; ++i) {
         pointsC[i] = cdouble(path.points[i].x(), path.points[i].y());
         normalsC[i] = cdouble(path.normals[i].x(), path.normals[i].y());
     }
 
+    std::vector<double> radii(path.cornerRadii.begin(), path.cornerRadii.end());
+    pickStartingPoint(pointsC, normalsC, radii, config.startingStraightLength,
+                      config.startingStraightDownsample);
+
     auto leftPoints = addComplexArrays(pointsC, multiplyComplexArrayScalar(normalsC, trackWidth / 2.0));
     auto rightPoints = subtractComplexArrays(pointsC, multiplyComplexArrayScalar(normalsC, trackWidth / 2.0));
 
-    std::vector<double> radii(path.cornerRadii.begin(), path.cornerRadii.end());
     auto leftRadii = translateDoubleArray(radii, -trackWidth / 2.0);
     auto rightRadii = translateDoubleArray(radii, trackWidth / 2.0);
 
@@ -164,24 +336,51 @@ TrackResult TrackGenerator::generateTrack(const PathConfig& config, const PathRe
 
     std::vector<cdouble> startConesC;
     if (!leftConesC.empty() && !rightConesC.empty()) {
-        cdouble forward = (nPoints > 1) ? (pointsC[1] - pointsC[0]) : cdouble(1.0, 0.0);
-        double forwardMag = std::abs(forward);
-        if (forwardMag == 0.0) {
-            forward = cdouble(1.0, 0.0);
-            forwardMag = 1.0;
-        }
-        cdouble unitForward = forward / forwardMag;
-        cdouble offset = unitForward * (config.startingConeSpacing / 2.0);
-
-        cdouble leftStart = leftConesC.front();
-        cdouble rightStart = rightConesC.front();
+        const cdouble offset(config.startingConeSpacing / 2.0, 0.0);
+        const cdouble leftStart = leftConesC.front();
+        const cdouble rightStart = rightConesC.front();
         startConesC.push_back(leftStart + offset);
         startConesC.push_back(rightStart + offset);
         startConesC.push_back(leftStart - offset);
         startConesC.push_back(rightStart - offset);
+    }
 
+    const int carIndex = findCarIndex(pointsC, config.startingStraightLength);
+    const cdouble carTranslation = pointsC[carIndex];
+    cdouble carNormal = normalsC[carIndex];
+    if (std::abs(carNormal) == 0.0) {
+        carNormal = cdouble(0.0, 1.0);
+    }
+    const cdouble carRotation = cdouble(0.0, 1.0) / carNormal;
+
+    applyTransform(leftConesC, carTranslation, carRotation);
+    applyTransform(rightConesC, carTranslation, carRotation);
+    applyTransform(startConesC, carTranslation, carRotation);
+
+    if (!leftConesC.empty()) {
         leftConesC.erase(leftConesC.begin());
+    }
+    if (!rightConesC.empty()) {
         rightConesC.erase(rightConesC.begin());
+    }
+
+    const double minStartClearance = std::max(config.startingConeSpacing, config.trackWidth);
+    if (leftConesC.size() > 1 && std::abs(leftConesC.front()) < minStartClearance) {
+        leftConesC.erase(leftConesC.begin());
+    }
+    if (rightConesC.size() > 1 && std::abs(rightConesC.front()) < minStartClearance) {
+        rightConesC.erase(rightConesC.begin());
+    }
+
+    if (leftConesC.size() > 1 && rightConesC.size() > 1) {
+        const cdouble center0 = 0.5 * (leftConesC[0] + rightConesC[0]);
+        const cdouble center1 = 0.5 * (leftConesC[1] + rightConesC[1]);
+        const cdouble forward = center1 - center0;
+        const cdouble to_left = leftConesC[0] - center0;
+        const double cross = forward.real() * to_left.imag() - forward.imag() * to_left.real();
+        if (cross < 0.0) {
+            leftConesC.swap(rightConesC);
+        }
     }
 
     int nResample = static_cast<int>(std::min(leftConesC.size(), rightConesC.size()));
