@@ -13,6 +13,19 @@
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
 
+enum class ConeType {
+    Start,
+    Left,
+    Right,
+};
+
+struct Cone {
+    Vector3 position{0.0f, 0.0f, 0.0f};
+    float radius{0.0f};
+    float mass{0.0f};
+    ConeType type{ConeType::Left};
+};
+
 class World {
 public:
     World() = default;
@@ -41,9 +54,9 @@ public:
     const std::vector<Vector3>& checkpointPositionsWorld() const {
         return checkpointPositions;
     }
-    const std::vector<Vector3>& startConePositions() const { return startCones; }
-    const std::vector<Vector3>& leftConePositions() const { return leftCones; }
-    const std::vector<Vector3>& rightConePositions() const { return rightCones; }
+    const std::vector<Cone>& startConePositions() const { return startCones; }
+    const std::vector<Cone>& leftConePositions() const { return leftCones; }
+    const std::vector<Cone>& rightConePositions() const { return rightCones; }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
     const WheelsInfo& wheelsInfo() const { return wheelsInfo_; }
     double lapTimeSeconds() const { return totalTime; }
@@ -68,9 +81,9 @@ private:
     Transform carTransform{};
 
     std::vector<Vector3> checkpointPositions{};
-    std::vector<Vector3> startCones{};
-    std::vector<Vector3> leftCones{};
-    std::vector<Vector3> rightCones{};
+    std::vector<Cone> startCones{};
+    std::vector<Cone> leftCones{};
+    std::vector<Cone> rightCones{};
     Vector3 lastCheckpoint{0.0f, 0.0f, 0.0f};
 
     WheelsInfo wheelsInfo_{WheelsInfo_default()};
@@ -81,7 +94,7 @@ private:
 
     struct Config {
         float collisionThreshold{2.5f};
-        float coneCollisionThreshold{0.5f};
+        float vehicleCollisionRadius{0.386f};
         float lapCompletionThreshold{0.1f};
     } config{};
 

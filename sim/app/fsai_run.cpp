@@ -735,6 +735,19 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   }
 
   const auto& lookahead = world.lookahead();
+
+  const auto& start_cones = world.startConePositions();
+  SDL_SetRenderDrawColor(graphics->renderer, 255, 140, 0, 255);
+  for (const auto& cone : start_cones) {
+    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
+                                        graphics->width / 2.0f);
+    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
+                                        graphics->height / 2.0f);
+    const int radius_px =
+        std::max(1, static_cast<int>(cone.radius * kRenderScale * 8.0f));
+    Graphics_DrawFilledCircle(graphics, cone_x, cone_y, radius_px);
+  }
+
   SDL_SetRenderDrawColor(graphics->renderer, 120, 120, 120, 255);
   for (size_t i = 0; i < world.leftConePositions().size(); ++i) {
     if (i == 0) {
@@ -747,12 +760,13 @@ void DrawWorldScene(Graphics* graphics, const World& world,
       SDL_SetRenderDrawColor(graphics->renderer, 120, 120, 120, 255);
     }
     const auto& cone = world.leftConePositions()[i];
-    const int cone_x = static_cast<int>(cone.x * kRenderScale +
+    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * kRenderScale +
+    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    Graphics_DrawFilledCircle(graphics, cone_x, cone_y,
-                              static_cast<int>(kRenderScale));
+    const int radius_px =
+        std::max(1, static_cast<int>(cone.radius * kRenderScale * 8.0f));
+    Graphics_DrawFilledCircle(graphics, cone_x, cone_y, radius_px);
   }
 
   for (size_t i = 0; i < world.rightConePositions().size(); ++i) {
@@ -766,12 +780,13 @@ void DrawWorldScene(Graphics* graphics, const World& world,
       SDL_SetRenderDrawColor(graphics->renderer, 80, 80, 80, 255);
     }
     const auto& cone = world.rightConePositions()[i];
-    const int cone_x = static_cast<int>(cone.x * kRenderScale +
+    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * kRenderScale +
+    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    Graphics_DrawFilledCircle(graphics, cone_x, cone_y,
-                              static_cast<int>(kRenderScale));
+    const int radius_px =
+        std::max(1, static_cast<int>(cone.radius * kRenderScale * 8.0f));
+    Graphics_DrawFilledCircle(graphics, cone_x, cone_y, radius_px);
   }
 
   const auto& transform = world.vehicleTransform();
@@ -1367,7 +1382,8 @@ int main(int argc, char* argv[]) {
       adapter_telemetry.lap_counter = static_cast<uint8_t>(
           std::clamp(world.completedLaps(), 0, 15));
       const auto total_cones = world.leftConePositions().size() +
-                               world.rightConePositions().size();
+                               world.rightConePositions().size() +
+                               world.startConePositions().size();
       if (total_cones > 0) {
         adapter_telemetry.cones_count_all = static_cast<uint16_t>(
             std::min<size_t>(total_cones, std::numeric_limits<uint16_t>::max()));
@@ -1767,12 +1783,20 @@ int main(int argc, char* argv[]) {
       cone_positions.clear();
       const auto& left_cones = world.leftConePositions();
       const auto& right_cones = world.rightConePositions();
-      cone_positions.reserve(left_cones.size() + right_cones.size());
+      const auto& start_cones_for_render = world.startConePositions();
+      cone_positions.reserve(left_cones.size() + right_cones.size() +
+                             start_cones_for_render.size());
       for (const auto& cone : left_cones) {
-        cone_positions.push_back({cone.x, cone.y, cone.z});
+        cone_positions.push_back(
+            {cone.position.x, cone.position.y, cone.position.z});
       }
       for (const auto& cone : right_cones) {
-        cone_positions.push_back({cone.x, cone.y, cone.z});
+        cone_positions.push_back(
+            {cone.position.x, cone.position.y, cone.position.z});
+      }
+      for (const auto& cone : start_cones_for_render) {
+        cone_positions.push_back(
+            {cone.position.x, cone.position.y, cone.position.z});
       }
       stereo_source->setCones(cone_positions);
       const FsaiStereoFrame& frame = stereo_source->capture(now_ns);
