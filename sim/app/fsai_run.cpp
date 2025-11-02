@@ -725,15 +725,15 @@ struct ConeRenderStyle {
 };
 
 void DrawConePrimitive(Graphics* graphics, int center_x, int center_y,
-                       float base_width_m, const ConeRenderStyle& style) {
+                       float base_width_m, float height_m,
+                       const ConeRenderStyle& style) {
   if (graphics == nullptr || graphics->renderer == nullptr) {
     return;
   }
 
   const float base_width_px = base_width_m * kRenderScale;
   const float half_base_px = base_width_px * 0.5f;
-  const float height_px = base_width_m * fsai::sim::kConeHeightToBaseRatio *
-                          kRenderScale;
+  const float height_px = height_m * kRenderScale;
   const int half_height_px =
       std::max(1, static_cast<int>(std::round(height_px * 0.5f)));
   const int top_y = center_y - half_height_px;
@@ -758,35 +758,35 @@ void DrawConePrimitive(Graphics* graphics, int center_x, int center_y,
 
   SDL_SetRenderDrawColor(graphics->renderer, style.stripe.r, style.stripe.g,
                          style.stripe.b, style.stripe.a);
-  const float stripe_height_px =
-      std::max(1.0f, height_px * fsai::sim::kConeStripeHeightFraction);
-  const int stripe_half_height =
-      std::max(1, static_cast<int>(std::round(stripe_height_px * 0.5f)));
+  const float stripe_fraction_denom =
+      static_cast<float>(style.stripe_count) + 1.0f;
   for (int stripe_index = 0; stripe_index < style.stripe_count; ++stripe_index) {
-    const float stripe_fraction =
-        (static_cast<float>(stripe_index) + 1.0f) /
-        (static_cast<float>(style.stripe_count) + 1.0f);
-    const int stripe_center_y = static_cast<int>(
-        std::round(top_y + stripe_fraction * static_cast<float>(total_height)));
-    const int stripe_top = std::max(top_y, stripe_center_y - stripe_half_height);
-    const int stripe_bottom =
-        std::min(base_y, stripe_center_y + stripe_half_height);
-    if (stripe_bottom < stripe_top) {
-      continue;
-    }
-    for (int y = stripe_top; y <= stripe_bottom; ++y) {
-      const float t = static_cast<float>(y - top_y) /
+    const float stripe_center_fraction =
+        (static_cast<float>(stripe_index) + 1.0f) / stripe_fraction_denom;
+    for (int row = 0; row <= total_height; ++row) {
+      const float t = static_cast<float>(row) /
                       static_cast<float>(total_height);
       const float half_width_row = half_base_px * t;
-      const float inset = half_width_row * fsai::sim::kConeStripeInsetFraction;
-      const int left = static_cast<int>(
-          std::round(center_x - half_width_row + inset));
-      const int right = static_cast<int>(
-          std::round(center_x + half_width_row - inset));
-      if (right < left) {
+      if (half_width_row <= 0.0f) {
         continue;
       }
-      SDL_RenderDrawLine(graphics->renderer, left, y, right, y);
+      const float stripe_center_offset =
+          (stripe_center_fraction * 2.0f - 1.0f) * half_width_row;
+      const float stripe_half_width =
+          std::max(1.0f, half_width_row * fsai::sim::kConeStripeWidthFraction);
+      const int y = top_y + row;
+      const int left = static_cast<int>(std::round(
+          center_x + stripe_center_offset - stripe_half_width));
+      const int right = static_cast<int>(std::round(
+          center_x + stripe_center_offset + stripe_half_width));
+      const int clamped_left =
+          std::max(left, static_cast<int>(std::round(center_x - half_width_row)));
+      const int clamped_right =
+          std::min(right, static_cast<int>(std::round(center_x + half_width_row)));
+      if (clamped_right < clamped_left) {
+        continue;
+      }
+      SDL_RenderDrawLine(graphics->renderer, clamped_left, y, clamped_right, y);
     }
   }
 }
@@ -822,7 +822,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
     DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f,
-                      start_style);
+                      fsai::sim::kLargeConeHeightMeters, start_style);
   }
 
   ConeRenderStyle left_style{{0, 102, 204, 255}, {255, 255, 255, 255}, 1};
@@ -840,7 +840,8 @@ void DrawWorldScene(Graphics* graphics, const World& world,
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f, style);
+    DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f,
+                      fsai::sim::kSmallConeHeightMeters, style);
   }
 
   ConeRenderStyle right_style{{255, 214, 0, 255}, {50, 50, 50, 255}, 1};
@@ -858,7 +859,8 @@ void DrawWorldScene(Graphics* graphics, const World& world,
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f, style);
+    DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f,
+                      fsai::sim::kSmallConeHeightMeters, style);
   }
 
   const auto& transform = world.vehicleTransform();
@@ -1258,7 +1260,7 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  std::vector<std::array<float, 3>> cone_positions;
+  std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
 
@@ -1858,17 +1860,55 @@ int main(int argc, char* argv[]) {
       const auto& start_cones_for_render = world.startConePositions();
       cone_positions.reserve(left_cones.size() + right_cones.size() +
                              start_cones_for_render.size());
+
+      const float color_scale = 1.0f / 255.0f;
+      auto makeColor = [color_scale](int r, int g, int b) {
+        return std::array<float, 3>{r * color_scale, g * color_scale,
+                                    b * color_scale};
+      };
+      const auto start_body = makeColor(255, 140, 0);
+      const auto start_stripe = makeColor(255, 255, 255);
+      const auto left_body = makeColor(0, 102, 204);
+      const auto left_stripe = makeColor(255, 255, 255);
+      const auto right_body = makeColor(255, 214, 0);
+      const auto right_stripe = makeColor(50, 50, 50);
+
+      auto appendCone = [&](const Cone& cone) {
+        fsai::io::camera::sim_stereo::SimConeInstance instance{};
+        instance.position =
+            {cone.position.x, cone.position.y, cone.position.z};
+        instance.base_width = cone.radius * 2.0f;
+        instance.height =
+            (cone.type == ConeType::Start) ? fsai::sim::kLargeConeHeightMeters
+                                           : fsai::sim::kSmallConeHeightMeters;
+        switch (cone.type) {
+          case ConeType::Start:
+            instance.body_color = start_body;
+            instance.stripe_color = start_stripe;
+            instance.stripe_count = 2;
+            break;
+          case ConeType::Left:
+            instance.body_color = left_body;
+            instance.stripe_color = left_stripe;
+            instance.stripe_count = 1;
+            break;
+          case ConeType::Right:
+            instance.body_color = right_body;
+            instance.stripe_color = right_stripe;
+            instance.stripe_count = 1;
+            break;
+        }
+        cone_positions.push_back(instance);
+      };
+
       for (const auto& cone : left_cones) {
-        cone_positions.push_back(
-            {cone.position.x, cone.position.y, cone.position.z});
+        appendCone(cone);
       }
       for (const auto& cone : right_cones) {
-        cone_positions.push_back(
-            {cone.position.x, cone.position.y, cone.position.z});
+        appendCone(cone);
       }
       for (const auto& cone : start_cones_for_render) {
-        cone_positions.push_back(
-            {cone.position.x, cone.position.y, cone.position.z});
+        appendCone(cone);
       }
       stereo_source->setCones(cone_positions);
       const FsaiStereoFrame& frame = stereo_source->capture(now_ns);
