@@ -28,6 +28,13 @@ int main() {
     }
     fp.close();
 
+    fp.open("start_cones.csv");
+    fp << "x,y,z,rotation\n";
+    for (const auto& t : track.startCones) {
+        fp << t.position.x << ',' << t.position.y << ',' << t.position.z << ',' << t.yaw << '\n';
+    }
+    fp.close();
+
     fp.open("checkpoints.csv");
     fp << "x,y,z,rotation\n";
     for (const auto& t : track.checkpoints) {
@@ -35,7 +42,7 @@ int main() {
     }
     fp.close();
 
-    std::cout << "Data written to left_cones.csv, right_cones.csv, and checkpoints.csv" << std::endl;
+    std::cout << "Data written to left_cones.csv, right_cones.csv, start_cones.csv, and checkpoints.csv" << std::endl;
     int ret = std::system("python ../PathLogic/plot_track.py");
     if (ret != 0) {
         std::cerr << "Graphing tool did not run successfully. Please run plot_track.py manually." << std::endl;

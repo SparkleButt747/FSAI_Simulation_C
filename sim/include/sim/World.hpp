@@ -41,6 +41,7 @@ public:
     const std::vector<Vector3>& checkpointPositionsWorld() const {
         return checkpointPositions;
     }
+    const std::vector<Vector3>& startConePositions() const { return startCones; }
     const std::vector<Vector3>& leftConePositions() const { return leftCones; }
     const std::vector<Vector3>& rightConePositions() const { return rightCones; }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
@@ -67,6 +68,7 @@ private:
     Transform carTransform{};
 
     std::vector<Vector3> checkpointPositions{};
+    std::vector<Vector3> startCones{};
     std::vector<Vector3> leftCones{};
     std::vector<Vector3> rightCones{};
     Vector3 lastCheckpoint{0.0f, 0.0f, 0.0f};
