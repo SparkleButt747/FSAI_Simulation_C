@@ -3,15 +3,14 @@
 #include <cstdio>
 #include "fsai_clock.h"
 #include "World.hpp"
+#include "sim/cone_constants.hpp"
 
 namespace {
 
-constexpr float kSmallConeBaseWidthMeters = 0.228f;
-constexpr float kLargeConeBaseWidthMeters = 0.285f;
-constexpr float kSmallConeRadiusMeters = kSmallConeBaseWidthMeters / 2.0f;
-constexpr float kLargeConeRadiusMeters = kLargeConeBaseWidthMeters / 2.0f;
-constexpr float kSmallConeMassKg = 0.45f;
-constexpr float kLargeConeMassKg = 1.05f;
+using fsai::sim::kLargeConeMassKg;
+using fsai::sim::kLargeConeRadiusMeters;
+using fsai::sim::kSmallConeMassKg;
+using fsai::sim::kSmallConeRadiusMeters;
 
 Vector3 transformToVector3(const Transform& t) {
     return {t.position.x, t.position.y, t.position.z};
