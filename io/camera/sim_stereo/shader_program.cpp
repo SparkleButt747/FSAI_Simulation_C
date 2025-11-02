@@ -159,26 +159,27 @@ flat in float v_stripe_count;
 
 out vec4 out_color;
 
-const float kBaseColor = 0.18;
 const float kStripeHalfWidth = 0.08;
 const int kMaxStripes = 4;
 
 void main() {
   if (v_region < 0.5) {
-    out_color = vec4(kBaseColor, kBaseColor, kBaseColor, 1.0);
+    out_color = vec4(v_body_color, 1.0);
     return;
   }
 
   vec3 color = v_body_color;
   int stripes = int(round(clamp(v_stripe_count, 0.0, float(kMaxStripes))));
   if (stripes > 0) {
-    float x_norm = clamp(v_local_pos.x + 0.5, 0.0, 1.0);
+    const float pi = 3.1415926535897932384626433832795;
+    float angle = atan(v_local_pos.z, v_local_pos.x);
+    float norm_angle = (angle + pi) / (2.0 * pi);
     for (int i = 0; i < kMaxStripes; ++i) {
       if (i >= stripes) {
         break;
       }
-      float center = (float(i) + 1.0) / (float(stripes) + 1.0);
-      float delta = abs(x_norm - center);
+      float center = (float(i) + 0.5) / float(stripes);
+      float delta = abs(norm_angle - center);
       if (delta > 0.5) {
         delta = 1.0 - delta;
       }

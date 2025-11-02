@@ -758,36 +758,46 @@ void DrawConePrimitive(Graphics* graphics, int center_x, int center_y,
 
   SDL_SetRenderDrawColor(graphics->renderer, style.stripe.r, style.stripe.g,
                          style.stripe.b, style.stripe.a);
+  const int left_bound =
+      static_cast<int>(std::floor(center_x - half_base_px));
+  const int right_bound =
+      static_cast<int>(std::ceil(center_x + half_base_px));
   const float stripe_fraction_denom =
-      static_cast<float>(style.stripe_count) + 1.0f;
-  for (int stripe_index = 0; stripe_index < style.stripe_count; ++stripe_index) {
-    const float stripe_center_fraction =
-        (static_cast<float>(stripe_index) + 1.0f) / stripe_fraction_denom;
-    for (int row = 0; row <= total_height; ++row) {
-      const float t = static_cast<float>(row) /
-                      static_cast<float>(total_height);
-      const float half_width_row = half_base_px * t;
-      if (half_width_row <= 0.0f) {
-        continue;
-      }
-      const float stripe_center_offset =
-          (stripe_center_fraction * 2.0f - 1.0f) * half_width_row;
-      const float stripe_half_width =
-          std::max(1.0f, half_width_row * fsai::sim::kConeStripeWidthFraction);
-      const int y = top_y + row;
-      const int left = static_cast<int>(std::round(
-          center_x + stripe_center_offset - stripe_half_width));
-      const int right = static_cast<int>(std::round(
-          center_x + stripe_center_offset + stripe_half_width));
-      const int clamped_left =
-          std::max(left, static_cast<int>(std::round(center_x - half_width_row)));
-      const int clamped_right =
-          std::min(right, static_cast<int>(std::round(center_x + half_width_row)));
-      if (clamped_right < clamped_left) {
-        continue;
-      }
-      SDL_RenderDrawLine(graphics->renderer, clamped_left, y, clamped_right, y);
+      static_cast<float>(style.stripe_count);
+  const float stripe_half_fraction =
+      fsai::sim::kConeStripeWidthFraction * 0.5f;
+
+  for (int column = left_bound; column <= right_bound; ++column) {
+    const float column_center = static_cast<float>(column) + 0.5f;
+    const float offset = (column_center - center_x) / half_base_px;
+    if (std::abs(offset) > 1.0f) {
+      continue;
     }
+
+    const float fraction = offset * 0.5f + 0.5f;
+    bool draw_stripe = false;
+    for (int stripe_index = 0; stripe_index < style.stripe_count; ++stripe_index) {
+      const float center =
+          (static_cast<float>(stripe_index) + 0.5f) / stripe_fraction_denom;
+      float delta = std::abs(fraction - center);
+      if (delta > 0.5f) {
+        delta = 1.0f - delta;
+      }
+      if (delta <= stripe_half_fraction) {
+        draw_stripe = true;
+        break;
+      }
+    }
+
+    if (!draw_stripe) {
+      continue;
+    }
+
+    const float min_t = std::abs(offset);
+    const int stripe_top = top_y +
+        static_cast<int>(std::round(static_cast<float>(total_height) * min_t));
+    const int stripe_bottom = base_y;
+    SDL_RenderDrawLine(graphics->renderer, column, stripe_top, column, stripe_bottom);
   }
 }
 
