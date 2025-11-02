@@ -2,6 +2,7 @@
 #include "features.hpp"
 #include "vector"
 #include <detect.hpp>
+#include <unordered_map>
 #include <opencv2/opencv.hpp>
 #include <opencv2/features2d.hpp>
 #include <opencv2/highgui.hpp>
@@ -12,9 +13,9 @@
 
 cv::Mat extract_boundimg(cv::Mat left_frame, BoxBound box_bound){
     // extracts the bounding box image for a single bounding box object 
-    cv::Rect roi(box_bound.x, box_bound.y, box_bound.w, box_bound.h);   // define region of interest for extraction 
-    cv::Mat box_boundimg = left_frame(roi);                               // extracts the region we want as a reference (we never modify it anyways, no need to clone)
-    return box_boundimg;                                                // returns a reference to the part of the frame we want 
+    cv::Rect roi(box_bound.x, box_bound.y, box_bound.w, box_bound.h);   
+    cv::Mat box_boundimg = left_frame(roi);                               
+    return box_boundimg;                                               
 
 }
 
@@ -33,24 +34,89 @@ std::vector<pseudofeature> extract_features(cv::Mat frame, cv::Ptr<cv::ORB> orb)
     std::vector<pseudofeature> results; 
 
     for (int i = 0; i < keypoints.size(); i++){
-        keypoint_i = keypoints[i]
-        descriptor_i = descriptors[i]
+        KeyPoint keypoint_i = keypoints[i];
+        cv::Mat descriptor_i = descriptors.row(i);
 
         //keypoint has attribute pt, which is (x,y)
-        x = keypoint_i.pt[0] 
-        y = keypoint_i.pt[1]
+        int x = keypoint_i.pt.x;
+        int y = keypoint_i.pt.y;
 
         // initialise new pseudofeature and append
-        pseudofeature pseudofeature_i{x,y,descriptor_i}
-        results.push_back(pseudofeature_i)
+        pseudofeature pseudofeature_i{x,y,descriptor_i};
+        results.push_back(pseudofeature_i);
     }
 
-    return results // should be a vector of pseudofeatures, e.g. [(x,y,descriptor), (x,y,descriptor), ...]
+    return results; // should be a vector of pseudofeatures, e.g. [(x,y,descriptor), (x,y,descriptor), ...]
 }
 
-std::vector<std::tuple<pseudofeature>> pair_features(std::vector<feature> left_features, std::vector<feature> right_feature){
+std::vector<feature> pair_features(std::vector<pseudofeature> left_features, std::vector<pseudofeature> right_features){
     // use epipolar constraint to search along epipolar line for each left feature to find matching right feature 
     // return an "array" of (left_feature, right_feature) to pass for coordinate calculation 
+
+    
+    //define output
+    std::vector<feature> results;    
+    
+    //create dictionary for y-hash for quick lookup 
+    std::unordered_map<int, std::vector<pseudofeature>> y_mappings = {};          
+
+    //add right_features to hash table 
+    for (int i = 0; i < right_features.size(); i++){
+        pseudofeature right_feature_i = right_features[i];
+        int y = right_feature_i.y;
+        y_mappings[y].push_back(right_feature_i);
+    }
+
+    //define how much to search up and down, e.g. +-1 pixel if it is 1 
+    int epipolar_tolerance = 1;   
+
+    //define matcher
+    cv::BFMatcher matcher(cv::NORM_HAMMING, true); 
+
+    //try to find matching features 
+    for (int i = 0; i < left_features.size(); i++){
+        pseudofeature left_feature_i = left_features[i];
+        int y = left_feature_i.y;
+        int x = left_feature_i.x;
+
+        //temp variable to hold possible matches 
+        std::vector<pseudofeature> possible_matches; 
+
+        // look for possible matches within tolerance
+        for (int j = y-epipolar_tolerance; j < y+epipolar_tolerance; j++){
+            std::vector<pseudofeature> fetched_features = y_mapping[j];
+            possible_matches.insert(possible_matches.end(), fetched_features.begin(), fetched_features.end());
+        }
+
+        int best_x, best_y; 
+        int min = -1; 
+        
+        // for each possible match, compute hamming distance and find lowest
+        for (int j = 0; j < possible_matches.size(); j++){
+            pseudofeature right_feature_j = possible_matches[j];
+            int right_x = right_feature_j.x;
+            int right_y = right_feature_j.y;
+            cv::Mat left_descriptor, right_descriptor = left_feature_i.descriptors, right_feature_j.descriptors;
+
+            int hamming_distance = cv::norm(left_descriptor, right_descriptor, cv::NORM_HAMMING);
+
+            if (min == -1){
+                min = hamming_distance; 
+                best_x, best_y = right_x, right_y; 
+            }
+            else if (hamming_distance < min){
+                min = hamming_distance;
+                best_x, best_y = right_x, right_y; 
+            }
+            else{
+                // do nothing 
+            }
+        }
+
+        feature result_feature{x,y,best_x,best_y};
+        results.push_back(result_feature);
+    }
+    return results
 }
 
 std::vector<feature> extract_coordinates(std::vector<std::tuple<feature>> pairs){
