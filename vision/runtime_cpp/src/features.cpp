@@ -13,6 +13,14 @@
 cv::Mat extract_boundimg(cv::Mat left_frame, BoxBound box_bound){
     // extracts the bounding box image for a single bounding box object 
     cv::Rect roi(box_bound.x, box_bound.y, box_bound.w, box_bound.h);   // define region of interest for extraction 
+
+    //Clip the roi to be in frame dimensions
+    roi &= cv::Rect(0,0, left_frame.cols, left_frame.rows);
+
+    if (roi.width <= 0 || roi.height <= 0) {
+        std::cerr << "Warning: Out of bands ROI requested." << std::endl;
+        return cv::Mat();
+    }
     cv::Mat box_boundimg = left_frame(roi);                               // extracts the region we want as a reference (we never modify it anyways, no need to clone)
     return box_boundimg;                                                // returns a reference to the part of the frame we want 
 
