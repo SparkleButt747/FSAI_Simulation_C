@@ -34,6 +34,7 @@
 #include "vision/frame_ring_buffer.hpp"
 #include "types.h"
 #include "World.hpp"
+#include "sim/cone_constants.hpp"
 #include "adsdv_dbc.hpp"
 #include "link.hpp"
 #include "can_link.hpp"
@@ -715,6 +716,83 @@ void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
   ImGui::End();
 }
 
+namespace {
+
+struct ConeRenderStyle {
+  SDL_Color body{0, 0, 0, 255};
+  SDL_Color stripe{0, 0, 0, 255};
+  int stripe_count{0};
+};
+
+void DrawConePrimitive(Graphics* graphics, int center_x, int center_y,
+                       float base_width_m, const ConeRenderStyle& style) {
+  if (graphics == nullptr || graphics->renderer == nullptr) {
+    return;
+  }
+
+  const float base_width_px = base_width_m * kRenderScale;
+  const float half_base_px = base_width_px * 0.5f;
+  const float height_px = base_width_m * fsai::sim::kConeHeightToBaseRatio *
+                          kRenderScale;
+  const int half_height_px =
+      std::max(1, static_cast<int>(std::round(height_px * 0.5f)));
+  const int top_y = center_y - half_height_px;
+  const int base_y = center_y + half_height_px;
+  const int total_height = std::max(1, base_y - top_y);
+
+  SDL_SetRenderDrawColor(graphics->renderer, style.body.r, style.body.g,
+                         style.body.b, style.body.a);
+  for (int row = 0; row <= total_height; ++row) {
+    const float t = static_cast<float>(row) /
+                    static_cast<float>(total_height);
+    const float half_width_row = half_base_px * t;
+    const int y = top_y + row;
+    const int left = static_cast<int>(std::round(center_x - half_width_row));
+    const int right = static_cast<int>(std::round(center_x + half_width_row));
+    SDL_RenderDrawLine(graphics->renderer, left, y, right, y);
+  }
+
+  if (style.stripe_count <= 0 || style.stripe.a == 0) {
+    return;
+  }
+
+  SDL_SetRenderDrawColor(graphics->renderer, style.stripe.r, style.stripe.g,
+                         style.stripe.b, style.stripe.a);
+  const float stripe_height_px =
+      std::max(1.0f, height_px * fsai::sim::kConeStripeHeightFraction);
+  const int stripe_half_height =
+      std::max(1, static_cast<int>(std::round(stripe_height_px * 0.5f)));
+  for (int stripe_index = 0; stripe_index < style.stripe_count; ++stripe_index) {
+    const float stripe_fraction =
+        (static_cast<float>(stripe_index) + 1.0f) /
+        (static_cast<float>(style.stripe_count) + 1.0f);
+    const int stripe_center_y = static_cast<int>(
+        std::round(top_y + stripe_fraction * static_cast<float>(total_height)));
+    const int stripe_top = std::max(top_y, stripe_center_y - stripe_half_height);
+    const int stripe_bottom =
+        std::min(base_y, stripe_center_y + stripe_half_height);
+    if (stripe_bottom < stripe_top) {
+      continue;
+    }
+    for (int y = stripe_top; y <= stripe_bottom; ++y) {
+      const float t = static_cast<float>(y - top_y) /
+                      static_cast<float>(total_height);
+      const float half_width_row = half_base_px * t;
+      const float inset = half_width_row * fsai::sim::kConeStripeInsetFraction;
+      const int left = static_cast<int>(
+          std::round(center_x - half_width_row + inset));
+      const int right = static_cast<int>(
+          std::round(center_x + half_width_row - inset));
+      if (right < left) {
+        continue;
+      }
+      SDL_RenderDrawLine(graphics->renderer, left, y, right, y);
+    }
+  }
+}
+
+}  // namespace
+
 void DrawWorldScene(Graphics* graphics, const World& world,
                     const fsai::sim::app::RuntimeTelemetry& telemetry) {
   (void)telemetry;
@@ -737,56 +815,50 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   const auto& lookahead = world.lookahead();
 
   const auto& start_cones = world.startConePositions();
-  SDL_SetRenderDrawColor(graphics->renderer, 255, 140, 0, 255);
+  const ConeRenderStyle start_style{{255, 140, 0, 255}, {255, 255, 255, 255}, 2};
   for (const auto& cone : start_cones) {
     const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    const int radius_px =
-        std::max(1, static_cast<int>(cone.radius * kRenderScale * 8.0f));
-    Graphics_DrawFilledCircle(graphics, cone_x, cone_y, radius_px);
+    DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f,
+                      start_style);
   }
 
-  SDL_SetRenderDrawColor(graphics->renderer, 120, 120, 120, 255);
+  ConeRenderStyle left_style{{0, 102, 204, 255}, {255, 255, 255, 255}, 1};
   for (size_t i = 0; i < world.leftConePositions().size(); ++i) {
+    ConeRenderStyle style = left_style;
     if (i == 0) {
-      SDL_SetRenderDrawColor(graphics->renderer, 0, 255, 0, 255);
+      style.body = SDL_Color{0, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.speed) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 255, 0, 255);
+      style.body = SDL_Color{255, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.steer) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 0, 255, 255);
-    } else {
-      SDL_SetRenderDrawColor(graphics->renderer, 120, 120, 120, 255);
+      style.body = SDL_Color{255, 0, 255, 255};
     }
     const auto& cone = world.leftConePositions()[i];
     const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    const int radius_px =
-        std::max(1, static_cast<int>(cone.radius * kRenderScale * 8.0f));
-    Graphics_DrawFilledCircle(graphics, cone_x, cone_y, radius_px);
+    DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f, style);
   }
 
+  ConeRenderStyle right_style{{255, 214, 0, 255}, {50, 50, 50, 255}, 1};
   for (size_t i = 0; i < world.rightConePositions().size(); ++i) {
+    ConeRenderStyle style = right_style;
     if (i == 0) {
-      SDL_SetRenderDrawColor(graphics->renderer, 0, 255, 0, 255);
+      style.body = SDL_Color{0, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.speed) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 255, 0, 255);
+      style.body = SDL_Color{255, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.steer) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 0, 255, 255);
-    } else {
-      SDL_SetRenderDrawColor(graphics->renderer, 80, 80, 80, 255);
+      style.body = SDL_Color{255, 0, 255, 255};
     }
     const auto& cone = world.rightConePositions()[i];
     const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    const int radius_px =
-        std::max(1, static_cast<int>(cone.radius * kRenderScale * 8.0f));
-    Graphics_DrawFilledCircle(graphics, cone_x, cone_y, radius_px);
+    DrawConePrimitive(graphics, cone_x, cone_y, cone.radius * 2.0f, style);
   }
 
   const auto& transform = world.vehicleTransform();
