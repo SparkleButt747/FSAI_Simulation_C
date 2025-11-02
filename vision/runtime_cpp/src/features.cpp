@@ -13,15 +13,29 @@
 
 cv::Mat extract_boundimg(cv::Mat left_frame, BoxBound box_bound){
     // extracts the bounding box image for a single bounding box object 
-    cv::Rect roi(box_bound.x, box_bound.y, box_bound.w, box_bound.h);   
-    cv::Mat box_boundimg = left_frame(roi);                               
-    return box_boundimg;                                               
+    cv::Rect roi(box_bound.x, box_bound.y, box_bound.w, box_bound.h);   // define region of interest for extraction 
+
+    //Clip the roi to be in frame dimensions
+    roi &= cv::Rect(0,0, left_frame.cols, left_frame.rows);
+
+    if (roi.width <= 0 || roi.height <= 0) {
+        std::cerr << "Warning: Out of bands ROI requested." << std::endl;
+        return cv::Mat();
+    }
+    cv::Mat box_boundimg = left_frame(roi);                               // extracts the region we want as a reference (we never modify it anyways, no need to clone)
+    return box_boundimg;                                                // returns a reference to the part of the frame we want 
 
 }
 
 std::vector<pseudofeature> extract_features(cv::Mat frame, cv::Ptr<cv::ORB> orb){
     // extract all features from a frame. If using for left frame, pass in results from extract_boundimg 
     // each pseudofeature has xy coordinates in coordinate system of right frame, and a descriptor matrix used for ORB or SIFT 
+
+    //Empty frame check
+    if (frame.empty()) {
+        std: cerr << "Warning: Empty frame recieved" << std::endl;
+        return {};
+    }
 
     // declare keypoints and descriptors matrix
     std::vector<KeyPoint> keypoints; 
