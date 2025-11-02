@@ -34,6 +34,7 @@
 #include "vision/frame_ring_buffer.hpp"
 #include "types.h"
 #include "World.hpp"
+#include "sim/cone_constants.hpp"
 #include "adsdv_dbc.hpp"
 #include "link.hpp"
 #include "can_link.hpp"
@@ -47,6 +48,7 @@ constexpr int kWindowWidth = 800;
 constexpr int kWindowHeight = 600;
 constexpr int kReportIntervalFrames = 120;
 constexpr float kRenderScale = 5.0f;
+constexpr float kConeDisplayScale = 12.0f;
 constexpr uint16_t kDefaultCommandPort = fsai::sim::svcu::kDefaultCommandPort;
 constexpr uint16_t kDefaultTelemetryPort = fsai::sim::svcu::kDefaultTelemetryPort;
 constexpr double kCommandStaleSeconds = 0.1;
@@ -715,6 +717,26 @@ void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
   ImGui::End();
 }
 
+namespace {
+
+void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
+                    float base_width_m, const SDL_Color& color) {
+  if (graphics == nullptr || graphics->renderer == nullptr) {
+    return;
+  }
+
+  const float base_radius_px =
+      0.5f * base_width_m * kRenderScale * kConeDisplayScale;
+  const int radius_px =
+      std::max(1, static_cast<int>(std::lround(base_radius_px)));
+
+  SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
+                         color.a);
+  Graphics_DrawFilledCircle(graphics, center_x, center_y, radius_px);
+}
+
+}  // namespace
+
 void DrawWorldScene(Graphics* graphics, const World& world,
                     const fsai::sim::app::RuntimeTelemetry& telemetry) {
   (void)telemetry;
@@ -735,43 +757,51 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   }
 
   const auto& lookahead = world.lookahead();
-  SDL_SetRenderDrawColor(graphics->renderer, 120, 120, 120, 255);
+
+  const auto& start_cones = world.startConePositions();
+  const SDL_Color start_color{255, 140, 0, 255};
+  for (const auto& cone : start_cones) {
+    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
+                                        graphics->width / 2.0f);
+    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
+                                        graphics->height / 2.0f);
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, start_color);
+  }
+  // Blue 0, 102, 204, 255
+  const SDL_Color left_base{255, 214, 0, 255};
   for (size_t i = 0; i < world.leftConePositions().size(); ++i) {
+    SDL_Color color = left_base;
     if (i == 0) {
-      SDL_SetRenderDrawColor(graphics->renderer, 0, 255, 0, 255);
+      color = SDL_Color{0, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.speed) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 255, 0, 255);
+      color = SDL_Color{255, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.steer) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 0, 255, 255);
-    } else {
-      SDL_SetRenderDrawColor(graphics->renderer, 120, 120, 120, 255);
+      color = SDL_Color{255, 0, 255, 255};
     }
     const auto& cone = world.leftConePositions()[i];
-    const int cone_x = static_cast<int>(cone.x * kRenderScale +
+    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * kRenderScale +
+    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    Graphics_DrawFilledCircle(graphics, cone_x, cone_y,
-                              static_cast<int>(kRenderScale));
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
-
+  // Yellow 255, 214, 0, 255
+  const SDL_Color right_base{0, 102, 204, 255};
   for (size_t i = 0; i < world.rightConePositions().size(); ++i) {
+    SDL_Color color = right_base;
     if (i == 0) {
-      SDL_SetRenderDrawColor(graphics->renderer, 0, 255, 0, 255);
+      color = SDL_Color{0, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.speed) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 255, 0, 255);
+      color = SDL_Color{255, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.steer) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 0, 255, 255);
-    } else {
-      SDL_SetRenderDrawColor(graphics->renderer, 80, 80, 80, 255);
+      color = SDL_Color{255, 0, 255, 255};
     }
     const auto& cone = world.rightConePositions()[i];
-    const int cone_x = static_cast<int>(cone.x * kRenderScale +
+    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * kRenderScale +
+    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    Graphics_DrawFilledCircle(graphics, cone_x, cone_y,
-                              static_cast<int>(kRenderScale));
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
 
   const auto& transform = world.vehicleTransform();
@@ -1171,7 +1201,7 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  std::vector<std::array<float, 3>> cone_positions;
+  std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
 
@@ -1367,7 +1397,8 @@ int main(int argc, char* argv[]) {
       adapter_telemetry.lap_counter = static_cast<uint8_t>(
           std::clamp(world.completedLaps(), 0, 15));
       const auto total_cones = world.leftConePositions().size() +
-                               world.rightConePositions().size();
+                               world.rightConePositions().size() +
+                               world.startConePositions().size();
       if (total_cones > 0) {
         adapter_telemetry.cones_count_all = static_cast<uint16_t>(
             std::min<size_t>(total_cones, std::numeric_limits<uint16_t>::max()));
@@ -1767,12 +1798,59 @@ int main(int argc, char* argv[]) {
       cone_positions.clear();
       const auto& left_cones = world.leftConePositions();
       const auto& right_cones = world.rightConePositions();
-      cone_positions.reserve(left_cones.size() + right_cones.size());
+      const auto& start_cones_for_render = world.startConePositions();
+      cone_positions.reserve(left_cones.size() + right_cones.size() +
+                             start_cones_for_render.size());
+
+      const float color_scale = 1.0f / 255.0f;
+      auto makeColor = [color_scale](int r, int g, int b) {
+        return std::array<float, 3>{r * color_scale, g * color_scale,
+                                    b * color_scale};
+      };
+
+      const auto start_body = makeColor(255, 140, 0);
+      const auto start_stripe = makeColor(255, 255, 255);
+      const auto left_body = makeColor(255, 214, 0);
+      const auto left_stripe = makeColor(50, 50, 50);
+      const auto right_body = makeColor(0, 102, 204);
+      const auto right_stripe = makeColor(255, 255, 255);
+
+      auto appendCone = [&](const Cone& cone) {
+        fsai::io::camera::sim_stereo::SimConeInstance instance{};
+        instance.position =
+            {cone.position.x, cone.position.y, cone.position.z};
+        instance.base_width = cone.radius * 2.0f;
+        instance.height =
+            (cone.type == ConeType::Start) ? fsai::sim::kLargeConeHeightMeters
+                                           : fsai::sim::kSmallConeHeightMeters;
+        switch (cone.type) {
+          case ConeType::Start:
+            instance.body_color = start_body;
+            instance.stripe_color = start_stripe;
+            instance.stripe_count = 2;
+            break;
+          case ConeType::Left:
+            instance.body_color = left_body;
+            instance.stripe_color = left_stripe;
+            instance.stripe_count = 1;
+            break;
+          case ConeType::Right:
+            instance.body_color = right_body;
+            instance.stripe_color = right_stripe;
+            instance.stripe_count = 1;
+            break;
+        }
+        cone_positions.push_back(instance);
+      };
+
       for (const auto& cone : left_cones) {
-        cone_positions.push_back({cone.x, cone.y, cone.z});
+        appendCone(cone);
       }
       for (const auto& cone : right_cones) {
-        cone_positions.push_back({cone.x, cone.y, cone.z});
+        appendCone(cone);
+      }
+      for (const auto& cone : start_cones_for_render) {
+        appendCone(cone);
       }
       stereo_source->setCones(cone_positions);
       const FsaiStereoFrame& frame = stereo_source->capture(now_ns);

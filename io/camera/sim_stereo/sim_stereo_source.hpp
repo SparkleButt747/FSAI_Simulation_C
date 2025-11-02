@@ -26,11 +26,20 @@ struct SimStereoConfig {
   FsaiCameraExtrinsics right_extrinsics{};
 };
 
+struct SimConeInstance {
+  std::array<float, 3> position{0.0f, 0.0f, 0.0f};
+  float base_width = 0.0f;
+  float height = 0.0f;
+  std::array<float, 3> body_color{1.0f, 0.5f, 0.0f};
+  std::array<float, 3> stripe_color{1.0f, 1.0f, 1.0f};
+  int stripe_count = 0;
+};
+
 class SimStereoSource {
  public:
   explicit SimStereoSource(const SimStereoConfig& config);
 
-  void setCones(const std::vector<std::array<float, 3>>& cones_world);
+  void setCones(const std::vector<SimConeInstance>& cones_world);
   void setBodyPose(float x, float y, float z, float yaw);
   const FsaiStereoFrame& capture(uint64_t timestamp_ns);
 
