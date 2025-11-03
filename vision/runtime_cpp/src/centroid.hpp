@@ -7,7 +7,7 @@ namespace Centroid {
     // Constants for cone
     inline const double CONE_H = 0.325;
     inline const double CONE_R = 0.114;
-    inline const double K = 2.850877; // K = CONE_H / CONE_R
+    inline const double K = 0.350769; // K = CONE_R / CONE_H
 
     /**
      * @brief Linear least squares solution
