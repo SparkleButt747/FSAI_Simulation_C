@@ -50,14 +50,13 @@ Eigen::Vector2d centroid_linear(const std::vector<Eigen::Vector3d>& points) {
 
 
 // Non-Linear Approach
-struct ConeResidualsFunctor : Eigen::DenseFunctor<double> {
+struct ConeResidualsFunctor {
     const std::vector<Eigen::Vector3d>& m_points;
     int m_num_points;
 
     // Constructor
     ConeResidualsFunctor(const std::vector<Eigen::Vector3d>& points)
-        : Eigen::DenseFunctor<double>(2, static_cast<int>(points.size())),
-        m_points(points),
+        : m_points(points),
         m_num_points(static_cast<int>(points.size()))
     {}
 
@@ -82,6 +81,30 @@ struct ConeResidualsFunctor : Eigen::DenseFunctor<double> {
             fvec(i) = distance - r_theory;
         }
         // Success
+        return 0;
+    }
+
+    // Calculate Jacobian
+    int df(const Eigen::VectorXd& center, Eigen::MatrixXd& jac) const {
+        double cx = center(0);
+        double cy = center(1);
+
+        for (int i = 0; i < m_num_points; ++i) {
+            double xi = m_points[i](0);
+            double yi = m_points[i](1);
+
+            double dx = xi - cx;
+            double dy = yi - cy;
+            double dist = std::sqrt(dx * dx + dy * dy);
+
+            if (dist < 1e-6) {
+                jac(i, 0) = 0;
+                jac(i, 1) = 0;
+            } else {
+                jac(i, 0) = -dx / dist;
+                jac(i, 1) = -dy / dist;
+            }
+        }
         return 0;
     }
 
