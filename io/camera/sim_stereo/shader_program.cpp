@@ -125,25 +125,71 @@ void ShaderProgram::setMat4(const char* name, const std::array<float, 16>& matri
 ShaderProgram buildDefaultConeShader() {
   static constexpr const char* kConeVs = R"(#version 330 core
 layout(location = 0) in vec3 in_position;
-layout(location = 1) in vec3 in_color;
+layout(location = 1) in float in_region;
 layout(location = 2) in mat4 in_model;
+layout(location = 6) in vec3 in_body_color;
+layout(location = 7) in vec3 in_stripe_color;
+layout(location = 8) in float in_stripe_count;
 
 uniform mat4 u_view;
 uniform mat4 u_proj;
 
-out vec3 v_color;
+out vec3 v_local_pos;
+flat out float v_region;
+flat out vec3 v_body_color;
+flat out vec3 v_stripe_color;
+flat out float v_stripe_count;
 
 void main() {
-  v_color = in_color;
+  v_local_pos = in_position;
+  v_region = in_region;
+  v_body_color = in_body_color;
+  v_stripe_color = in_stripe_color;
+  v_stripe_count = in_stripe_count;
   gl_Position = u_proj * u_view * in_model * vec4(in_position, 1.0);
 }
 )";
 
   static constexpr const char* kConeFs = R"(#version 330 core
-in vec3 v_color;
+in vec3 v_local_pos;
+flat in float v_region;
+flat in vec3 v_body_color;
+flat in vec3 v_stripe_color;
+flat in float v_stripe_count;
+
 out vec4 out_color;
+
+const float kStripeHalfHeight = 0.11;
+const float kBaseHeight = 0.15;
+const float kTipHeight = 1.05;
+const int kMaxStripes = 4;
+
 void main() {
-  out_color = vec4(v_color, 1.0);
+  if (v_region < 0.5) {
+    out_color = vec4(v_body_color, 1.0);
+    return;
+  }
+
+  vec3 color = v_body_color;
+  int stripes = int(round(clamp(v_stripe_count, 0.0, float(kMaxStripes))));
+  if (stripes > 0) {
+    float normalized_height = (v_local_pos.y - kBaseHeight) / (kTipHeight - kBaseHeight);
+    normalized_height = clamp(normalized_height, 0.0, 1.0);
+    float denom = float(stripes) + 1.0;
+    for (int i = 0; i < kMaxStripes; ++i) {
+      if (i >= stripes) {
+        break;
+      }
+      float center = (float(i) + 1.0) / denom;
+      float delta = abs(normalized_height - center);
+      if (delta < kStripeHalfHeight) {
+        color = v_stripe_color;
+        break;
+      }
+    }
+  }
+
+  out_color = vec4(color, 1.0);
 }
 )";
 

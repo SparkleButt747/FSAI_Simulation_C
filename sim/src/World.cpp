@@ -3,10 +3,38 @@
 #include <cstdio>
 #include "fsai_clock.h"
 #include "World.hpp"
+#include "sim/cone_constants.hpp"
 
-static Vector3 transformToVector3(const Transform& t) {
+namespace {
+
+using fsai::sim::kLargeConeMassKg;
+using fsai::sim::kLargeConeRadiusMeters;
+using fsai::sim::kSmallConeMassKg;
+using fsai::sim::kSmallConeRadiusMeters;
+
+Vector3 transformToVector3(const Transform& t) {
     return {t.position.x, t.position.y, t.position.z};
 }
+
+Cone makeCone(const Transform& t, ConeType type) {
+    Cone cone;
+    cone.position = transformToVector3(t);
+    cone.type = type;
+    switch (type) {
+        case ConeType::Start:
+            cone.radius = kLargeConeRadiusMeters;
+            cone.mass = kLargeConeMassKg;
+            break;
+        case ConeType::Left:
+        case ConeType::Right:
+            cone.radius = kSmallConeRadiusMeters;
+            cone.mass = kSmallConeMassKg;
+            break;
+    }
+    return cone;
+}
+
+}  // namespace
 
 bool World::computeRacingControl(double dt, float& throttle_out, float& steering_out) {
     if (!useController || checkpointPositions.empty()) {
@@ -53,13 +81,13 @@ void World::init(const char* yamlFilePath) {
         checkpointPositions.push_back(transformToVector3(cp));
     }
     for (const auto& sc : track.startCones) {
-        startCones.push_back(transformToVector3(sc));
+        startCones.push_back(makeCone(sc, ConeType::Start));
     }
     for (const auto& lc : track.leftCones) {
-        leftCones.push_back(transformToVector3(lc));
+        leftCones.push_back(makeCone(lc, ConeType::Left));
     }
     for (const auto& rc : track.rightCones) {
-        rightCones.push_back(transformToVector3(rc));
+        rightCones.push_back(makeCone(rc, ConeType::Right));
     }
     if (!track.checkpoints.empty()) {
         lastCheckpoint = transformToVector3(track.checkpoints.back());
@@ -74,9 +102,9 @@ void World::init(const char* yamlFilePath) {
     deltaTime = 0.0;
 
     // Controller configuration
-    config.collisionThreshold = 2.5f;
-    config.coneCollisionThreshold = 0.5f;
-    config.lapCompletionThreshold = 0.1f;
+    config.collisionThreshold = 1.75f;
+    config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
+    config.lapCompletionThreshold = 0.2f;
 
     // Use racing algorithm by default
     useController = 1;
@@ -85,9 +113,9 @@ void World::init(const char* yamlFilePath) {
     regenTrack = 1;
 
     // Racing algorithm configuration
-    racingConfig.speedLookAheadSensitivity = 0.6f;
-    racingConfig.steeringLookAheadSensitivity = 0.05f;
-    racingConfig.accelerationFactor = 0.002f;
+    racingConfig.speedLookAheadSensitivity = 0.5f;
+    racingConfig.steeringLookAheadSensitivity = 0;
+    racingConfig.accelerationFactor = 0.0019f;
 
     // Make sure car starts on the track
     float startX = checkpointPositions[0].x;
@@ -178,30 +206,33 @@ bool World::detectCollisions() {
     }
 
     for (const auto& cone : startCones) {
-        float cdx = carTransform.position.x - cone.x;
-        float cdz = carTransform.position.z - cone.z;
+        float cdx = carTransform.position.x - cone.position.x;
+        float cdz = carTransform.position.z - cone.position.z;
         float cdist = std::sqrt(cdx * cdx + cdz * cdz);
-        if (cdist < config.coneCollisionThreshold) {
+        const float combinedRadius = cone.radius + config.vehicleCollisionRadius;
+        if (cdist < combinedRadius) {
             std::printf("Collision with a cone detected.\n");
             reset();
             return false;
         }
     }
     for (const auto& cone : leftCones) {
-        float cdx = carTransform.position.x - cone.x;
-        float cdz = carTransform.position.z - cone.z;
+        float cdx = carTransform.position.x - cone.position.x;
+        float cdz = carTransform.position.z - cone.position.z;
         float cdist = std::sqrt(cdx * cdx + cdz * cdz);
-        if (cdist < config.coneCollisionThreshold) {
+        const float combinedRadius = cone.radius + config.vehicleCollisionRadius;
+        if (cdist < combinedRadius) {
             std::printf("Collision with a cone detected.\n");
             reset();
             return false;
         }
     }
     for (const auto& cone : rightCones) {
-        float cdx = carTransform.position.x - cone.x;
-        float cdz = carTransform.position.z - cone.z;
+        float cdx = carTransform.position.x - cone.position.x;
+        float cdz = carTransform.position.z - cone.position.z;
         float cdist = std::sqrt(cdx * cdx + cdz * cdz);
-        if (cdist < config.coneCollisionThreshold) {
+        const float combinedRadius = cone.radius + config.vehicleCollisionRadius;
+        if (cdist < combinedRadius) {
             std::printf("Collision with a cone detected.\n");
             reset();
             return false;
@@ -250,13 +281,13 @@ void World::reset() {
             checkpointPositions.push_back(transformToVector3(cp));
         }
         for (const auto& sc : track.startCones) {
-            startCones.push_back(transformToVector3(sc));
+            startCones.push_back(makeCone(sc, ConeType::Start));
         }
         for (const auto& lc : track.leftCones) {
-            leftCones.push_back(transformToVector3(lc));
+            leftCones.push_back(makeCone(lc, ConeType::Left));
         }
         for (const auto& rc : track.rightCones) {
-            rightCones.push_back(transformToVector3(rc));
+            rightCones.push_back(makeCone(rc, ConeType::Right));
         }
         if (!track.checkpoints.empty()) {
             lastCheckpoint = transformToVector3(track.checkpoints.back());
