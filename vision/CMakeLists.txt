@@ -16,6 +16,12 @@ find_package(OpenCV REQUIRED)
 
 find_package(CUDAToolkit REQUIRED)
 
+# For centroid recovery
+find_package(Eigen3 REQUIRED)
+add_executable(centroid centroid.cpp)
+target_link_libraries(centroid PRIVATE Eigen3::Eigen)
+# End of Section
+
 add_executable(detector detect.cpp)
 
 target_include_directories(detector PUBLIC

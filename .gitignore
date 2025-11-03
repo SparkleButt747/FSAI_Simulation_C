@@ -4,3 +4,4 @@
 .history/
 build/
 venv/
+__pycache__/
