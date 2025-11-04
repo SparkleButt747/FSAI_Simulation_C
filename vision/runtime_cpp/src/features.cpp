@@ -84,9 +84,6 @@ std::vector<feature> pair_features(std::vector<pseudofeature> left_features, std
     //define how much to search up and down, e.g. +-1 pixel if it is 1 
     int epipolar_tolerance = 1;   
 
-    //define matcher
-    cv::BFMatcher matcher(cv::NORM_HAMMING, true); 
-
     //try to find matching features 
     for (int i = 0; i < left_features.size(); i++){
         pseudofeature left_feature_i = left_features[i];
@@ -133,21 +130,42 @@ std::vector<feature> pair_features(std::vector<pseudofeature> left_features, std
     return results
 }
 
-std::vector<feature> extract_coordinates(std::vector<std::tuple<feature>> pairs){
-    // we format the pseudofeatures into actual features which look like (x1,y1,x2,y2)
-    // x1y1 are coordinates in left frame and x2y2 are coordinates in right frame
-}
-
 
 std::vector<feature> match_features(cv::Mat left_frame, cv::Mat right_frame,std::vector<BoxBound> box_bounds){
-    // loop over each bounding box
-    // extract the bounding box image in left frame 
-    // apply PnP to estimate bounding box in right frame 
-    // take the two bounding box images and apply feature matching algorithm (TBD)
-    // append features to vector 
-    // return vector 
 
-    cv::Ptr<cv::ORB> orb = cv::ORB::create();                                                  // create orb object to pass into extraction functions
+    //create orb object to feed into extraction functions 
+    cv::Ptr<cv::ORB> orb = cv::ORB::create();    
+    
+    //create variable to hold left_features 
+    cv::vector<pseudofeature> left_features;
+
+    // go over each bounding box
+    for (int i = 0; i < box_bounds.size(); i++){
+        BoxBound box_i = box_bounds[i];
+        int x = box_i.x;
+        int y = box_i.y;
+
+        //extract bounding box image and its features 
+        extracted_image = extract_boundimg(left_frame, box_i);
+        extracted_features = extract_features(extracted_image, orb);
+
+        //make it relative to entire left frame instead of bounding box
+        for (int j = 0; j < extracted_features.size();j++){
+            pseudofeature feature_i = extracted_features[i];
+            feature_i.x = feature_i.x + x;
+            feature_i.y = feature_i.y + y;
+            left_features.push_back(feature_i);
+        }
+    }
+
+    //create variable to hold right_features 
+    cv::vector<pseudofeature> right_features; 
+    right_features = extract_features(right_frame, orb);
+
+    std::vector<feature> results; 
+    results = pair_features(left_features, right_features); 
+    
+    return results
 }
 
 int test_feature_matching(cv::Mat left_frame, cv::Mat right_frame){
