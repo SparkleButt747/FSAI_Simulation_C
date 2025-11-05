@@ -2,6 +2,7 @@
 #include "Vector.h"
 #include <vector>
 #include <tuple>
+#include "types.h"
 
 /** This represents a node on the path with the code detections that correspond
  * to the two points of the edges being included for computing the cost of a
@@ -11,8 +12,8 @@
 class PathNode {
   public:
     Vector2 midpoint;
-    Vector2 first;
-    Vector2 second;
+    FsaiConeDet first;
+    FsaiConeDet second;
     std::vector<PathNode*> children;
 
     bool operator==(const PathNode& other) const

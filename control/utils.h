@@ -3,8 +3,8 @@
 
 
 #include <vector>
-#include "globals.h"
-
+#include "Vector.h"
+#include "types.h"
 
 // Distance helpers
 float dist(float ax, float ay, float bx, float by);
