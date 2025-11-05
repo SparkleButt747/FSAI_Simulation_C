@@ -54,9 +54,30 @@ public:
     const std::vector<Vector3>& checkpointPositionsWorld() const {
         return checkpointPositions;
     }
-    const std::vector<Cone>& startConePositions() const { return startCones; }
-    const std::vector<Cone>& leftConePositions() const { return leftCones; }
-    const std::vector<Cone>& rightConePositions() const { return rightCones; }
+    const std::vector<Cone>& getStartCones() const { return startCones; }
+    const std::vector<Cone>& getLeftCones() const { return leftCones; }
+    const std::vector<Cone>& getRightCones() const { return rightCones; }
+    const std::vector<Vector3>& getStartConePositions() const {
+        std::vector<Vector3> startConePositions;
+        for (auto c: startCones) {
+            startConePositions.push_back(c.position);
+        }
+        return startConePositions;
+    }
+    const std::vector<Vector3>& getLeftConePositions() const {
+        std::vector<Vector3> leftConePositions;
+        for (auto c: leftCones) {
+            leftConePositions.push_back(c.position);
+        }
+        return leftConePositions;
+    }
+    const std::vector<Vector3>& getRightConePositions() const {
+        std::vector<Vector3> rightConePositions;
+        for (auto c: rightCones) {
+            rightConePositions.push_back(c.position);
+        }
+        return rightConePositions;
+    }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
     const WheelsInfo& wheelsInfo() const { return wheelsInfo_; }
     double lapTimeSeconds() const { return totalTime; }

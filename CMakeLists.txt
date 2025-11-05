@@ -39,7 +39,7 @@ endif()
 # ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
-find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(PkgConfig REQUIRED)
 find_package(SDL2 QUIET CONFIG)
 find_package(Threads REQUIRED)
@@ -60,7 +60,7 @@ if(SDL2_IMPORTED_TARGET STREQUAL "")
 endif()
 find_package(yaml-cpp REQUIRED)
 find_package(OpenGL REQUIRED)
-find_package(OpenCV REQUIRED)
+# find_package(OpenCV REQUIRED)
 
 # CGAL and its components
 find_package(CGAL QUIET COMPONENTS)
@@ -136,7 +136,7 @@ list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
 
 # control prototype source
-file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/centerline.prot.cpp")
+file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/fsai_plan.cpp")
 
 add_library(fsai_sim STATIC
   ${SIM_C_SOURCES}

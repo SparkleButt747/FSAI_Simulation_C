@@ -759,7 +759,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
 
   const auto& lookahead = world.lookahead();
 
-  const auto& start_cones = world.startConePositions();
+  const auto& start_cones = world.getStartCones();
   const SDL_Color start_color{255, 140, 0, 255};
   for (const auto& cone : start_cones) {
     const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
@@ -770,7 +770,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   }
   // Blue 0, 102, 204, 255
   const SDL_Color left_base{255, 214, 0, 255};
-  for (size_t i = 0; i < world.leftConePositions().size(); ++i) {
+  for (size_t i = 0; i < world.getLeftCones().size(); ++i) {
     SDL_Color color = left_base;
     if (i == 0) {
       color = SDL_Color{0, 255, 0, 255};
@@ -779,7 +779,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
     } else if (static_cast<int>(i) == lookahead.steer) {
       color = SDL_Color{255, 0, 255, 255};
     }
-    const auto& cone = world.leftConePositions()[i];
+    const auto& cone = world.getLeftCones()[i];
     const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
@@ -788,7 +788,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   }
   // Yellow 255, 214, 0, 255
   const SDL_Color right_base{0, 102, 204, 255};
-  for (size_t i = 0; i < world.rightConePositions().size(); ++i) {
+  for (size_t i = 0; i < world.getRightCones().size(); ++i) {
     SDL_Color color = right_base;
     if (i == 0) {
       color = SDL_Color{0, 255, 0, 255};
@@ -797,7 +797,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
     } else if (static_cast<int>(i) == lookahead.steer) {
       color = SDL_Color{255, 0, 255, 255};
     }
-    const auto& cone = world.rightConePositions()[i];
+    const auto& cone = world.getRightCones()[i];
     const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
@@ -814,14 +814,16 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
 
-  std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.leftConePositions(), world.rightConePositions());
-  for (auto edge: triangulationEdges) {
-    float a = edge.first.x * kRenderScale + graphics->width / 2.0f;
-    float b = edge.first.y * kRenderScale + graphics->height / 2.0f;
-    float c = edge.second.x * kRenderScale + graphics->width / 2.0f;
-    float d = edge.second.y * kRenderScale + graphics->height / 2.0f;
-    Graphics_DrawSegment(graphics, a, b, c, d);
-  }
+  // drawVisibleTriangulationEdges(world.vehicleState(), world.leftConePositions(), world.rightConePositions());
+
+  // std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.leftConePositions(), world.rightConePositions());
+  // for (auto edge: triangulationEdges) {
+  //   float a = edge.first.x * kRenderScale + graphics->width / 2.0f;
+  //   float b = edge.first.y * kRenderScale + graphics->height / 2.0f;
+  //   float c = edge.second.x * kRenderScale + graphics->width / 2.0f;
+  //   float d = edge.second.y * kRenderScale + graphics->height / 2.0f;
+  //   Graphics_DrawSegment(graphics, a, b, c, d);
+  // }
 }
 
 struct ChannelNoiseConfig {
@@ -1406,9 +1408,9 @@ int main(int argc, char* argv[]) {
       adapter_telemetry.measured_speed_mps = measured_speed_mps;
       adapter_telemetry.lap_counter = static_cast<uint8_t>(
           std::clamp(world.completedLaps(), 0, 15));
-      const auto total_cones = world.leftConePositions().size() +
-                               world.rightConePositions().size() +
-                               world.startConePositions().size();
+      const auto total_cones = world.getLeftCones().size() +
+                               world.getRightCones().size() +
+                               world.getStartCones().size();
       if (total_cones > 0) {
         adapter_telemetry.cones_count_all = static_cast<uint16_t>(
             std::min<size_t>(total_cones, std::numeric_limits<uint16_t>::max()));
@@ -1806,9 +1808,9 @@ int main(int argc, char* argv[]) {
                                  transform.position.z, transform.yaw);
 
       cone_positions.clear();
-      const auto& left_cones = world.leftConePositions();
-      const auto& right_cones = world.rightConePositions();
-      const auto& start_cones_for_render = world.startConePositions();
+      const auto& left_cones = world.getLeftCones();
+      const auto& right_cones = world.getRightCones();
+      const auto& start_cones_for_render = world.getStartCones();
       cone_positions.reserve(left_cones.size() + right_cones.size() +
                              start_cones_for_render.size());
 

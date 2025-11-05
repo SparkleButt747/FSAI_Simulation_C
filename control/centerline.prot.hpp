@@ -65,7 +65,6 @@ void getVisibleTrackTriangulation(
 );
 
 
-
 Triangulation getVisibleTrackTriangulation(
   Point carFront,
   double carYaw,
@@ -76,6 +75,12 @@ Triangulation getVisibleTrackTriangulation(
 );
 
 std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
+  VehicleState carState,
+  const std::vector<Vector3>& leftConePositions,
+  const std::vector<Vector3>& rightConePositions
+);
+
+void drawVisibleTriangulationEdges(
   VehicleState carState,
   const std::vector<Vector3>& leftConePositions,
   const std::vector<Vector3>& rightConePositions
