@@ -1,32 +1,29 @@
-Finished implementing and testing the DynamicBicycleModel against the Unity counterpart, very similar but there are not the exact same; this may be due to the way C/C++ works; Unity with its own overhead and timing loops could be the cause.
-
-Finished implementing and testing the PathLogic, it's able to reliably generate tracks and checkpoints; visually checked, the high density of checkpoints is never a bad thing; the way the Racing algorithm controller syncs everything together may be the problem.
-
-Racing algorithm testing done by Goat Joshua
-    Fixed compiler warnings
-    Fixed reaction time steering logic
-
-Main Controller actually works with proper graphics
-NOTE: For the manual control to work you have to be on active on the terminal window not the SDL window
-
-    Fixed manual controller (Removed a controller that just drives the car in a circle)
-    Cone Collision detection broken
-    Lap detection broken
-    
-
-- Fixed Cone Collision Detection
-- Crude Lap Completion Detection (Distance based)
-
-TODO:
-    -Write Graphics for Telemetry
-    -Brainstorm Vision Pipeline Integration
-    -Work On Writing A Grid Search To Optimize Racing Algorithm
-    
-BUGS:
-    -Sometimes the car manages to take a wide line completely missing the checkpoint 
-    that is the middle of the track, we need to change the collision box of the checkpoint from a 
+BUGS AND NOTES SIMULATION SUB SYSTEM:
+    -Sometimes the car manages to take a wide line completely missing the checkpoint
+    that is the middle of the track, we need to change the collision of the checkpoint from a
+    circle to a straight line across the track (bridge) so no matter what line it takes it always hits the checkpoint
+    that is the middle of the track, we need to change the collision box of the checkpoint from a
     circle to a straight line across the track so no matter what line it takes it always hits the checkpoint
 
+    -Sometimes the car manages to go through the gap between the cones, bridges need to setup connecting cones so we have a barrier of
+    sorts to prevent the car leaving the track, (considering this as a collision)
+
+    -I think the car is supposed to go anti-clockwise around the track, because from the track generator (as per EUFS)
+    when we get the left cones and right cones and color them as per rules (i.e left -> blue, right -> yellow), and force the
+    car to go clockwise, the blue cones end up being on the right and yellow on left. so currently I have just swapped the
+    colors but we need to swap them back around and make sure the car goes anti clockwise to keep everything consistent...
+
+    -When the controller gets aggressive into braking or under throttle, and the car slips/slides , since relaxing
+    dynamics are not implemented to allow drifting, the car model breaks down and everything explodes... something to implemented
+    later down the line
+
+    -The car controller needs interpolation -> more checkpoints then the available ones (no. of checkpoint =
+    max(leftcones, rightcones)) to allow smoother driving. Ends up crashing more often than not...
+
+    -The collision boxes are greatly simplified in this simulation, everything is either a square or a circle; so Vision
+    (which is in charge of collision detection) cannot reliably use the simulation as a backbone to ground truth. actual cone
+    models and cars models need to be made/downloaded from the official repo or made in blender for better realism (this also
+    helps with rendering more realistic lighting effects)...
 
 ---Vision---
 * Object detection and stereo triangulation have been moved into ConeDetector and StereoTriangulation concrete classes respectively

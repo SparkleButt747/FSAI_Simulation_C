@@ -9,7 +9,14 @@ namespace fsai::io::camera::sim_stereo {
 
 struct ConeVertex {
   std::array<float, 3> position;
-  std::array<float, 3> color;
+  float region;
+};
+
+struct ConeInstanceData {
+  std::array<float, 16> model;
+  std::array<float, 3> body_color;
+  std::array<float, 3> stripe_color;
+  float stripe_count;
 };
 
 class ConeMesh {
@@ -24,7 +31,7 @@ class ConeMesh {
   void initializeGl();
   void draw() const;
 
-  void setInstances(const std::vector<float>& matrices4x4);
+  void setInstances(const std::vector<ConeInstanceData>& instances);
   std::size_t instanceCount() const { return instance_count_; }
 
  private:
@@ -33,7 +40,8 @@ class ConeMesh {
 
   std::vector<ConeVertex> vertices_;
   std::vector<uint32_t> indices_;
-  std::vector<float> instance_mats_;
+  std::vector<ConeInstanceData> instances_;
+  std::vector<float> instance_buffer_;
   std::size_t instance_count_ = 0;
 
   unsigned int vao_ = 0;

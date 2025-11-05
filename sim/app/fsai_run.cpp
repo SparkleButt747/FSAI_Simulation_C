@@ -3,6 +3,7 @@
 #include <chrono>
 #include <numbers>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -28,10 +29,12 @@
 #include "logging.hpp"
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
-#include "terminal_keyboard.hpp"
 #include "sim_stereo_source.hpp"
+#include "vision/edge_preview.hpp"
+#include "vision/frame_ring_buffer.hpp"
 #include "types.h"
 #include "World.hpp"
+#include "sim/cone_constants.hpp"
 #include "adsdv_dbc.hpp"
 #include "link.hpp"
 #include "can_link.hpp"
@@ -46,6 +49,7 @@ constexpr int kWindowWidth = 800;
 constexpr int kWindowHeight = 600;
 constexpr int kReportIntervalFrames = 120;
 constexpr float kRenderScale = 5.0f;
+constexpr float kConeDisplayScale = 12.0f;
 constexpr uint16_t kDefaultCommandPort = fsai::sim::svcu::kDefaultCommandPort;
 constexpr uint16_t kDefaultTelemetryPort = fsai::sim::svcu::kDefaultTelemetryPort;
 constexpr double kCommandStaleSeconds = 0.1;
@@ -357,12 +361,6 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   ImGui::Text("AI command stream: %s", ai_enabled ? "enabled" : "disabled");
 
   ImGui::Separator();
-  ImGui::Text("Manual inputs");
-  ImGui::Text("Throttle: %.2f | Brake: %.2f | Steer: %.1f deg",
-              telemetry.control.manual_throttle, telemetry.control.manual_brake,
-              telemetry.control.manual_steer_rad * fsai::sim::svcu::dbc::kRadToDeg);
-
-  ImGui::Separator();
   ImGui::Text("AI request");
   if (telemetry.control.ai_command.valid) {
     const ImVec4 ai_color = ColorForFreshness(
@@ -670,6 +668,76 @@ void DrawLogConsole() {
   ImGui::End();
 }
 
+void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
+  ImGui::Begin("Edge Preview");
+
+  const auto snapshot = preview.snapshot();
+  if (!snapshot.texture) {
+    const std::string status = preview.statusMessage();
+    if (!status.empty()) {
+      ImGui::TextWrapped("%s", status.c_str());
+    } else {
+      ImGui::TextUnformatted("Waiting for edge frames...");
+    }
+    ImGui::End();
+    return;
+  }
+
+  ImGui::Text("Resolution: %d x %d", snapshot.width, snapshot.height);
+  double age_ms = std::numeric_limits<double>::infinity();
+  if (snapshot.frame_timestamp_ns != 0 && now_ns >= snapshot.frame_timestamp_ns) {
+    age_ms = static_cast<double>(now_ns - snapshot.frame_timestamp_ns) * 1e-6;
+  }
+  if (std::isfinite(age_ms)) {
+    ImGui::Text("Frame age: %.1f ms", age_ms);
+  } else {
+    ImGui::Text("Frame age: n/a");
+  }
+
+  float display_width = static_cast<float>(snapshot.width);
+  float display_height = static_cast<float>(snapshot.height);
+  if (display_width <= 0.0f || display_height <= 0.0f) {
+    display_width = 1.0f;
+    display_height = 1.0f;
+  }
+  const float max_width = 480.0f;
+  const float max_height = 360.0f;
+  if (display_width > max_width) {
+    const float scale = max_width / display_width;
+    display_width *= scale;
+    display_height *= scale;
+  }
+  if (display_height > max_height) {
+    const float scale = max_height / display_height;
+    display_width *= scale;
+    display_height *= scale;
+  }
+
+  ImGui::Image(snapshot.texture.get(), ImVec2(display_width, display_height));
+
+  ImGui::End();
+}
+
+namespace {
+
+void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
+                    float base_width_m, const SDL_Color& color) {
+  if (graphics == nullptr || graphics->renderer == nullptr) {
+    return;
+  }
+
+  const float base_radius_px =
+      0.5f * base_width_m * kRenderScale * kConeDisplayScale;
+  const int radius_px =
+      std::max(1, static_cast<int>(std::lround(base_radius_px)));
+
+  SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
+                         color.a);
+  Graphics_DrawFilledCircle(graphics, center_x, center_y, radius_px);
+}
+
+}  // namespace
+
 void DrawWorldScene(Graphics* graphics, const World& world,
                     const fsai::sim::app::RuntimeTelemetry& telemetry) {
   (void)telemetry;
@@ -690,43 +758,51 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   }
 
   const auto& lookahead = world.lookahead();
-  SDL_SetRenderDrawColor(graphics->renderer, 120, 120, 120, 255);
+
+  const auto& start_cones = world.startConePositions();
+  const SDL_Color start_color{255, 140, 0, 255};
+  for (const auto& cone : start_cones) {
+    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
+                                        graphics->width / 2.0f);
+    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
+                                        graphics->height / 2.0f);
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, start_color);
+  }
+  // Blue 0, 102, 204, 255
+  const SDL_Color left_base{255, 214, 0, 255};
   for (size_t i = 0; i < world.leftConePositions().size(); ++i) {
+    SDL_Color color = left_base;
     if (i == 0) {
-      SDL_SetRenderDrawColor(graphics->renderer, 0, 255, 0, 255);
+      color = SDL_Color{0, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.speed) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 255, 0, 255);
+      color = SDL_Color{255, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.steer) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 0, 255, 255);
-    } else {
-      SDL_SetRenderDrawColor(graphics->renderer, 120, 120, 120, 255);
+      color = SDL_Color{255, 0, 255, 255};
     }
     const auto& cone = world.leftConePositions()[i];
-    const int cone_x = static_cast<int>(cone.x * kRenderScale +
+    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * kRenderScale +
+    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    Graphics_DrawFilledCircle(graphics, cone_x, cone_y,
-                              static_cast<int>(kRenderScale));
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
-
+  // Yellow 255, 214, 0, 255
+  const SDL_Color right_base{0, 102, 204, 255};
   for (size_t i = 0; i < world.rightConePositions().size(); ++i) {
+    SDL_Color color = right_base;
     if (i == 0) {
-      SDL_SetRenderDrawColor(graphics->renderer, 0, 255, 0, 255);
+      color = SDL_Color{0, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.speed) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 255, 0, 255);
+      color = SDL_Color{255, 255, 0, 255};
     } else if (static_cast<int>(i) == lookahead.steer) {
-      SDL_SetRenderDrawColor(graphics->renderer, 255, 0, 255, 255);
-    } else {
-      SDL_SetRenderDrawColor(graphics->renderer, 80, 80, 80, 255);
+      color = SDL_Color{255, 0, 255, 255};
     }
     const auto& cone = world.rightConePositions()[i];
-    const int cone_x = static_cast<int>(cone.x * kRenderScale +
+    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * kRenderScale +
+    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
                                         graphics->height / 2.0f);
-    Graphics_DrawFilledCircle(graphics, cone_x, cone_y,
-                              static_cast<int>(kRenderScale));
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
 
   const auto& transform = world.vehicleTransform();
@@ -782,6 +858,7 @@ struct SensorNoiseConfig {
   ChannelNoiseConfig speed_kph{};
   ImuNoiseConfig imu{};
   GpsNoiseConfig gps{};
+  bool edge_preview_enabled{true};
 };
 
 template <typename T>
@@ -891,6 +968,11 @@ SensorNoiseConfig LoadSensorNoiseConfig(const std::string& path) {
         cfg.gps.latency_s = latency.as<double>(0.0) * 1e-3;
       }
     }
+    if (auto vision = root["vision"]) {
+      if (auto preview = vision["edge_preview"]) {
+        cfg.edge_preview_enabled = preview.as<bool>(cfg.edge_preview_enabled);
+      }
+    }
   } catch (const std::exception& e) {
     std::fprintf(stderr, "Failed to load sensor config '%s': %s\n", path.c_str(), e.what());
   }
@@ -918,6 +1000,7 @@ int main(int argc, char* argv[]) {
   uint16_t command_port = kDefaultCommandPort;
   uint16_t telemetry_port = kDefaultTelemetryPort;
   std::string sensor_config_path = kDefaultSensorConfig;
+  std::optional<bool> edge_preview_override;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -934,11 +1017,15 @@ int main(int argc, char* argv[]) {
       telemetry_port = parse_port(argv[++i], telemetry_port);
     } else if (arg == "--sensor-config" && i + 1 < argc) {
       sensor_config_path = argv[++i];
+    } else if (arg == "--edge-preview") {
+      edge_preview_override = true;
+    } else if (arg == "--no-edge-preview") {
+      edge_preview_override = false;
     } else if (arg == "--help") {
       fsai::sim::log::LogfToStdout(
           fsai::sim::log::Level::kInfo,
           "Usage: fsai_run [--dt seconds] [--can-if iface|udp:port] [--cmd-port p] "
-          "[--state-port p] [--sensor-config path]");
+          "[--state-port p] [--sensor-config path] [--edge-preview|--no-edge-preview]");
       return EXIT_SUCCESS;
     } else if (i == 1 && argc == 2) {
       dt = std::atof(arg.c_str());
@@ -970,6 +1057,13 @@ int main(int argc, char* argv[]) {
       command_port, telemetry_port);
 
   SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(sensor_config_path);
+  bool edge_preview_enabled = sensor_cfg.edge_preview_enabled;
+  if (edge_preview_override.has_value()) {
+    edge_preview_enabled = *edge_preview_override;
+  }
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                       "Edge-detection preview %s",
+                       edge_preview_enabled ? "enabled" : "disabled");
   std::mt19937 noise_rng(sensor_cfg.seed);
   auto sample_noise = [&noise_rng](double stddev) {
     if (stddev <= 0.0) {
@@ -1071,7 +1165,6 @@ int main(int argc, char* argv[]) {
     ImGui::DestroyContext();
   };
 
-  fsai::sim::integration::TerminalKeyboard keyboard{};
   fsai::sim::integration::CsvLogger logger("CarStateLog.csv", "RALog.csv");
   if (!logger.valid()) {
     std::fprintf(stderr, "Failed to open CSV logs\n");
@@ -1084,12 +1177,41 @@ int main(int argc, char* argv[]) {
   auto stereo_factory =
       fsai::sim::integration::lookupStereoProvider("sim_stereo");
   std::unique_ptr<fsai::io::camera::sim_stereo::SimStereoSource> stereo_source;
+  std::shared_ptr<fsai::vision::FrameRingBuffer> stereo_frame_buffer;
   if (stereo_factory) {
     stereo_source = stereo_factory();
+    if (stereo_source) {
+      constexpr std::size_t kFrameRingCapacity = 4;
+      stereo_frame_buffer = fsai::vision::makeFrameRingBuffer(kFrameRingCapacity);
+      fsai::vision::setActiveFrameRingBuffer(stereo_frame_buffer);
+    }
   }
-  fsai::sim::integration::StereoDisplay stereo_display;
+  if (!stereo_frame_buffer) {
+    fsai::vision::setActiveFrameRingBuffer(nullptr);
+  }
+  std::unique_ptr<fsai::sim::integration::StereoDisplay> stereo_display;
+  if (edge_preview_enabled) {
+    stereo_display = std::make_unique<fsai::sim::integration::StereoDisplay>();
+  }
 
-  std::vector<std::array<float, 3>> cone_positions;
+  fsai::vision::EdgePreview edge_preview;
+  if (edge_preview_enabled && !stereo_frame_buffer) {
+    fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                         "Edge preview disabled: stereo source unavailable");
+    edge_preview_enabled = false;
+  } else if (edge_preview_enabled && stereo_frame_buffer) {
+    std::string preview_error;
+    if (!edge_preview.start(graphics.renderer, stereo_frame_buffer, preview_error)) {
+      if (preview_error.empty()) {
+        preview_error = "edge worker initialization failed";
+      }
+      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                           "Edge preview disabled: %s", preview_error.c_str());
+      edge_preview_enabled = false;
+    }
+  }
+
+  std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
 
@@ -1195,33 +1317,6 @@ int main(int argc, char* argv[]) {
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
 
-    const int key = keyboard.poll();
-    if (key == 'q' || key == 'Q') {
-      running = false;
-    } else if (key == 'm' || key == 'M') {
-      world.useController = world.useController ? 0 : 1;
-      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
-                           "Switched to %s control mode.",
-                           world.useController ? "automatic" : "manual");
-    } else if (!world.useController && key != -1) {
-      if (key == 'w' || key == 'W') {
-        world.throttleInput = 1.0f;
-        world.brakeInput = 0.0f;
-      } else if (key == 's' || key == 'S') {
-        world.throttleInput = 0.0f;
-        world.brakeInput = 1.0f;
-      }
-      if (key == 'a' || key == 'A') {
-        world.steeringAngle = -1.0f;
-      } else if (key == 'd' || key == 'D') {
-        world.steeringAngle = 1.0f;
-      }
-    }
-
-    const float manualThrottleInput = world.throttleInput;
-    const float manualBrakeInput = world.brakeInput;
-    const float manualSteerInput = world.steeringAngle;
-
     can_interface.Poll(fsai_clock_now());
 
     float autopThrottle = world.throttleInput;
@@ -1312,7 +1407,8 @@ int main(int argc, char* argv[]) {
       adapter_telemetry.lap_counter = static_cast<uint8_t>(
           std::clamp(world.completedLaps(), 0, 15));
       const auto total_cones = world.leftConePositions().size() +
-                               world.rightConePositions().size();
+                               world.rightConePositions().size() +
+                               world.startConePositions().size();
       if (total_cones > 0) {
         adapter_telemetry.cones_count_all = static_cast<uint16_t>(
             std::min<size_t>(total_cones, std::numeric_limits<uint16_t>::max()));
@@ -1470,9 +1566,6 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.control.applied_throttle = appliedThrottle;
     runtime_telemetry.control.applied_brake = appliedBrake;
     runtime_telemetry.control.applied_steer_rad = appliedSteer;
-    runtime_telemetry.control.manual_throttle = manualThrottleInput;
-    runtime_telemetry.control.manual_brake = manualBrakeInput;
-    runtime_telemetry.control.manual_steer_rad = manualSteerInput;
     runtime_telemetry.control.ai_command = ai_command_sample;
     runtime_telemetry.control.ai_command_enabled = ai_command_enabled;
     runtime_telemetry.control.ai_command_applied = ai_command_applied;
@@ -1489,6 +1582,9 @@ int main(int argc, char* argv[]) {
     DrawControlPanel(runtime_telemetry);
     DrawCanPanel(runtime_telemetry);
     DrawLogConsole();
+    if (edge_preview_enabled && edge_preview.running()) {
+      DrawEdgePreviewPanel(edge_preview, now_ns);
+    }
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
                                                 sample_noise(sensor_cfg.steering_deg.noise_std)));
@@ -1712,16 +1808,72 @@ int main(int argc, char* argv[]) {
       cone_positions.clear();
       const auto& left_cones = world.leftConePositions();
       const auto& right_cones = world.rightConePositions();
-      cone_positions.reserve(left_cones.size() + right_cones.size());
+      const auto& start_cones_for_render = world.startConePositions();
+      cone_positions.reserve(left_cones.size() + right_cones.size() +
+                             start_cones_for_render.size());
+
+      const float color_scale = 1.0f / 255.0f;
+      auto makeColor = [color_scale](int r, int g, int b) {
+        return std::array<float, 3>{r * color_scale, g * color_scale,
+                                    b * color_scale};
+      };
+
+      const auto start_body = makeColor(255, 140, 0);
+      const auto start_stripe = makeColor(255, 255, 255);
+      const auto left_body = makeColor(255, 214, 0);
+      const auto left_stripe = makeColor(50, 50, 50);
+      const auto right_body = makeColor(0, 102, 204);
+      const auto right_stripe = makeColor(255, 255, 255);
+
+      auto appendCone = [&](const Cone& cone) {
+        fsai::io::camera::sim_stereo::SimConeInstance instance{};
+        instance.position =
+            {cone.position.x, cone.position.y, cone.position.z};
+        instance.base_width = cone.radius * 2.0f;
+        instance.height =
+            (cone.type == ConeType::Start) ? fsai::sim::kLargeConeHeightMeters
+                                           : fsai::sim::kSmallConeHeightMeters;
+        switch (cone.type) {
+          case ConeType::Start:
+            instance.body_color = start_body;
+            instance.stripe_color = start_stripe;
+            instance.stripe_count = 2;
+            break;
+          case ConeType::Left:
+            instance.body_color = left_body;
+            instance.stripe_color = left_stripe;
+            instance.stripe_count = 1;
+            break;
+          case ConeType::Right:
+            instance.body_color = right_body;
+            instance.stripe_color = right_stripe;
+            instance.stripe_count = 1;
+            break;
+        }
+        cone_positions.push_back(instance);
+      };
+
       for (const auto& cone : left_cones) {
-        cone_positions.push_back({cone.x, cone.y, cone.z});
+        appendCone(cone);
       }
       for (const auto& cone : right_cones) {
-        cone_positions.push_back({cone.x, cone.y, cone.z});
+        appendCone(cone);
+      }
+      for (const auto& cone : start_cones_for_render) {
+        appendCone(cone);
       }
       stereo_source->setCones(cone_positions);
       const FsaiStereoFrame& frame = stereo_source->capture(now_ns);
-      stereo_display.present(frame);
+      if (stereo_frame_buffer) {
+        while (!stereo_frame_buffer->tryPush(frame)) {
+          if (!stereo_frame_buffer->tryPop().has_value()) {
+            break;
+          }
+        }
+      }
+      if (stereo_display) {
+        stereo_display->present(frame);
+      }
     }
 
     DrawWorldScene(&graphics, world, runtime_telemetry);
@@ -1734,6 +1886,14 @@ int main(int argc, char* argv[]) {
     frame_counter++;
   }
 
+  edge_preview.stop();
+  stereo_display.reset();
+  if (stereo_frame_buffer) {
+    while (stereo_frame_buffer->tryPop().has_value()) {
+    }
+    fsai::vision::setActiveFrameRingBuffer(nullptr);
+    stereo_frame_buffer.reset();
+  }
   shutdown_imgui();
   Graphics_Cleanup(&graphics);
   fsai::sim::log::LogInfoToStdout(

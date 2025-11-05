@@ -206,6 +206,7 @@ void getVisibleTrackTriangulation(
       }
     };
 
+    addCones(fullTrack.startCones);
     addCones(fullTrack.leftCones);
     addCones(fullTrack.rightCones);
 }
