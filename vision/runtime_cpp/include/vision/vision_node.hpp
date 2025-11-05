@@ -15,7 +15,8 @@
 
 #include <opencv2/opencv.hpp>
 
-
+namespace fsai{
+namespace vision{
 class VisionNode{
     public:
     /**
@@ -65,4 +66,6 @@ class VisionNode{
     std::optional<fsai::types::Detections> latest_detections_;
 
 };
+}
+}
 #endif

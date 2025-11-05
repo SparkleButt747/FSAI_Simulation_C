@@ -336,7 +336,7 @@ fsai::types::ConeDet ConeDetector::processDetection(const BoxBound& box_bound){
     }
    
     FsaiConeDet cone = {
-        {box_bound.x,box_bound.y,-1},
+        {(float)box_bound.x,(float)box_bound.y,-1.0f},
         box_bound.side,
         box_bound.conf
     };

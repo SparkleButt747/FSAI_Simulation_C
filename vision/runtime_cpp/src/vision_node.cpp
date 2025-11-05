@@ -9,13 +9,16 @@
 #include <iostream>
 #include <chrono>
 
-
+const char* PATH_TO_MODEL = "../../models/cone_model.onnx";
 constexpr std::chrono::milliseconds kIdleSleep(5);
+namespace fsai{
+namespace vision{
 
 VisionNode::VisionNode(){
 
     std::cout << "VisionNode: Initialisation ..." << std::endl;
     camera_ = std::make_unique<fsai::vision::SimCamera>();
+    detector_ = std::make_unique<fsai::vision::ConeDetector>(PATH_TO_MODEL);
     std::cout << "VisionNode: Initialisation complete" << std::endl;
 }
 
@@ -146,4 +149,5 @@ void VisionNode::runProcessingLoop(){
         }
     }
 }
-//vision
+}
+}//vision
