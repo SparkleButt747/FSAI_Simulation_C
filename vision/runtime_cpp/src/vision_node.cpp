@@ -5,7 +5,8 @@
  */
 #include "vision/vision_node.hpp"
 #include "common/include/common/types.h"
-
+#include "detect.hpp"
+#include "sim_camera.hpp"
 #include <iostream>
 #include <chrono>
 

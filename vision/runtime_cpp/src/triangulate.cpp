@@ -2,7 +2,7 @@
 #include <cmath>
 #include <limits>
 
-#include "vision/triangulate.hpp"
+#include "triangulate.hpp"
 // #include "common/include/common/types.h"
 
 /**

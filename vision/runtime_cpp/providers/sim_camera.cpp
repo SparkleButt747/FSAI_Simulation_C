@@ -1,4 +1,4 @@
-#include "vision/sim_camera.hpp"
+#include "../src/sim_camera.hpp"
 
 #include <stdexcept>  // For std::runtime_error
 #include <utility>    // For std::move

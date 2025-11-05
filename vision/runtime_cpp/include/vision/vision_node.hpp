@@ -3,8 +3,7 @@
 #define FSAI_VISION_VISION_NODE_HPP
 
 #include "common/include/common/types.h"
-#include "vision/detect.hpp"
-#include "vision/sim_camera.hpp"
+
 
 #include <atomic>
 #include <memory>
@@ -15,8 +14,13 @@
 
 #include <opencv2/opencv.hpp>
 
+
+
 namespace fsai{
 namespace vision{
+
+class SimCamera;
+class ConeDetector;
 class VisionNode{
     public:
     /**
