@@ -6,6 +6,8 @@
 
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
+#include "VehicleState.hpp"
+#include "Vector.h"
 #include "Transform.h"
 #include "types.h"
 
@@ -46,12 +48,35 @@ Point generateVehicleTriangulation(
   double carWidth = 1.5
 );
 
-// Returns the triangulation of the cones visible from the car position assuming
+Point getCarFront(
+  VehicleState carState,
+  double carLength = 4.0,
+  double carWidth = 1.5
+);
+
+// Modifies the triangulation of the cones visible from the car position assuming
 // a circular sector veiwing area
-Triangulation getVisibleTrackTriangulation(
+void getVisibleTrackTriangulation(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
   double sensorRange = 35.0,
   double sensorFOV = 2 * M_PI / 3
+);
+
+
+
+Triangulation getVisibleTrackTriangulation(
+  Point carFront,
+  double carYaw,
+  std::vector<Vector3> leftConePositions,
+  std::vector<Vector3> rightConePositions,
+  double sensorRange = 35.0,
+  double sensorFOV = 2 * M_PI / 3
+);
+
+std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
+  VehicleState carState,
+  const std::vector<Vector3>& leftConePositions,
+  const std::vector<Vector3>& rightConePositions
 );

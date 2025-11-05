@@ -41,6 +41,7 @@
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
 #include "runtime_telemetry.hpp"
+#include "centerline.prot.hpp"
 
 namespace {
 constexpr double kDefaultDt = 0.01;
@@ -753,7 +754,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
                          graphics->width / 2.0f),
         static_cast<int>(checkpoints.front().z * kRenderScale +
                          graphics->height / 2.0f),
-        static_cast<int>(1.5f * kRenderScale));
+        static_cast<int>(kRenderScale));
   }
 
   const auto& lookahead = world.lookahead();
@@ -812,6 +813,15 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   const float car_radius = 2.0f * kRenderScale;
   Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
+
+  std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.leftConePositions(), world.rightConePositions());
+  for (auto edge: triangulationEdges) {
+    float a = edge.first.x * kRenderScale + graphics->width / 2.0f;
+    float b = edge.first.y * kRenderScale + graphics->height / 2.0f;
+    float c = edge.second.x * kRenderScale + graphics->width / 2.0f;
+    float d = edge.second.y * kRenderScale + graphics->height / 2.0f;
+    Graphics_DrawSegment(graphics, a, b, c, d);
+  }
 }
 
 struct ChannelNoiseConfig {

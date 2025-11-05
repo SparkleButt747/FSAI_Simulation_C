@@ -8,12 +8,23 @@
  * path. There is also a special case where the PathNode is the starting node
  * which is the car's position. In this case, left and right are null.
  */
-typedef struct {
+class PathNode {
+  public:
     Vector2 midpoint;
-    FsaiConeDet left;
-    FsaiConeDet right;
-    std::vector<PathNode> children;
-} PathNode;
+    Vector2 first;
+    Vector2 second;
+    std::vector<PathNode*> children;
+
+    bool operator==(const PathNode& other) const
+    {
+        return midpoint.x == other.midpoint.x && midpoint.y == other.midpoint.y && first.x == other.first.x && first.y == other.first.y;
+    }
+
+    bool operator<(const PathNode& other) const
+    {
+        return midpoint.x < other.midpoint.x;
+    }
+};
 
 /**
  * Takes an unordered list of cone detections and returns a centerline
