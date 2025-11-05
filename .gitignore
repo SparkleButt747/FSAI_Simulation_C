@@ -5,3 +5,4 @@
 build/
 venv/
 __pycache__/
+vision/CMakeLists.txt
