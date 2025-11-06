@@ -30,8 +30,9 @@
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
 #include "sim_stereo_source.hpp"
-#include "vision/edge_preview.hpp"
+#include "edge_preview.hpp"
 #include "vision/frame_ring_buffer.hpp"
+#include "vision/vision_node.hpp"
 #include "types.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
@@ -1180,6 +1181,8 @@ int main(int argc, char* argv[]) {
       fsai::sim::integration::lookupStereoProvider("sim_stereo");
   std::unique_ptr<fsai::io::camera::sim_stereo::SimStereoSource> stereo_source;
   std::shared_ptr<fsai::vision::FrameRingBuffer> stereo_frame_buffer;
+  //vision_node
+  std::unique_ptr<fsai::vision::VisionNode> vision_node;
   if (stereo_factory) {
     stereo_source = stereo_factory();
     if (stereo_source) {
@@ -1212,6 +1215,19 @@ int main(int argc, char* argv[]) {
       edge_preview_enabled = false;
     }
   }
+
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Starting VisionNode...");
+  try {
+    vision_node = std::make_unique<fsai::vision::VisionNode>();
+    vision_node->start();
+    fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "VisionNode started successfully.");
+  } catch (const std::exception& e) {
+    fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                         "Failed to start VisionNode: %s", e.what());
+    // You might want to exit here if vision is critical
+    // return EXIT_FAILURE; 
+  }
+  // --------------------------------------------------------
 
   std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
@@ -1887,7 +1903,10 @@ int main(int argc, char* argv[]) {
 
     frame_counter++;
   }
-
+  if (vision_node) {
+    vision_node->stop();
+    fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "VisionNode stopped.");
+  }
   edge_preview.stop();
   stereo_display.reset();
   if (stereo_frame_buffer) {

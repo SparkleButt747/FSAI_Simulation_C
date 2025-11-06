@@ -30,7 +30,8 @@ ConeDetector::ConeDetector(const std::string& path_to_model){
         session_ = std::make_unique<Ort::Session>(*env_, path_to_model.c_str(), session_options);
 
     }catch(const Ort::Exception& e){
-        std::cerr << "VisionNode: ConeDetector: Error whilst loading onnx model" << e.what() << std::endl;
+        std::cerr << "VisionNode: ConeDetector: Error whilst loading onnx model " << e.what() << std::endl;
+        throw std::invalid_argument("[Cone Detector]Path to model could not be loaded");
     }
 }
 
@@ -180,7 +181,7 @@ fsai::types::ConeDet ConeDetector::processDetection(const BoxBound& box_bound){
     }
    
     fsai::types::ConeDet cone = {
-        {(float)box_bound.x,(float)box_bound.y,-1.0f},
+        static_cast<float>(box_bound.x),static_cast<float>(box_bound.y),-1.0f,
         box_bound.side,
         box_bound.conf
     };

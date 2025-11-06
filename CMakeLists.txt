@@ -43,6 +43,8 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(PkgConfig REQUIRED)
 find_package(SDL2 QUIET CONFIG)
 find_package(Threads REQUIRED)
+# onnx required by vision
+find_package(ONNXRuntime REQUIRED)
 set(SDL2_IMPORTED_TARGET "")
 set(SDL2_INCLUDE_DIRS "")
 if(TARGET SDL2::SDL2)
@@ -60,7 +62,7 @@ if(SDL2_IMPORTED_TARGET STREQUAL "")
 endif()
 find_package(yaml-cpp REQUIRED)
 find_package(OpenGL REQUIRED)
-# find_package(OpenCV REQUIRED)
+find_package(OpenCV REQUIRED)
 
 # CGAL and its components
 find_package(CGAL QUIET COMPONENTS)
@@ -105,8 +107,54 @@ endforeach()
 list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
-add_subdirectory(vision_test/runtime_cpp/src)
 
+# ------------------------------------------------------------------------------
+# Vision-test libraries
+# ------------------------------------------------------------------------------
+# This line MUST be active
+add_subdirectory(vision_test/runtime_cpp/src)
+target_include_directories(fsai_vision_runtime PUBLIC
+    
+    # This path lets fsai_run find "vision/edge_preview.hpp"
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include" 
+    
+    # This path lets fsai_run find "common/include/common/types.h"
+    "${CMAKE_SOURCE_DIR}"
+)
+
+# Find the source files for your main vision node
+file(GLOB VISION_NODE_SOURCES
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src/*.cpp"
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/providers/*.cpp"
+)
+
+# Add your new source files to the library
+target_sources(fsai_vision_runtime PRIVATE
+    ${VISION_NODE_SOURCES}
+)
+
+# Add all include paths the library needs
+target_include_directories(fsai_vision_runtime PUBLIC
+    # Path for "vision/vision_node.hpp", "vision/frame_ring_buffer.hpp", etc.
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+
+    # Path for "sim_camera.hpp" (if it's private)
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src"
+
+    # Path for "vision/edge_preview.hpp"
+    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src" 
+
+    # Path for "common/include/common/types.h"
+    "${CMAKE_SOURCE_DIR}"
+)
+
+# Add all dependencies for the library
+target_link_libraries(fsai_vision_runtime PUBLIC
+    Eigen3::Eigen
+    onnxruntime::onnxruntime
+    ${OpenCV_LIBRARIES}
+    Threads::Threads
+)
 # ------------------------------------------------------------------------------
 # Simulation libraries
 # ------------------------------------------------------------------------------
@@ -127,10 +175,12 @@ list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/.git/.*")
 
 
 # Drop everything under vision/
+# Re-introduce vision 
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision_test/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
+
 
 
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
@@ -157,6 +207,8 @@ target_link_libraries(fsai_sim
     Threads::Threads
     CGAL::CGAL
     m
+    onnxruntime::onnxruntime
+    ${OpenCV_LIBRARIES}
 )
 
 
@@ -177,6 +229,7 @@ target_link_libraries(fsai_ctrl
     CGAL::CGAL
     CGAL::CGAL_Basic_viewer
     m
+    yaml-cpp::yaml-cpp
 )
 
 if(SDL2_IMPORTED_TARGET)
@@ -221,6 +274,12 @@ file(GLOB_RECURSE SIM_APP_SOURCES CONFIGURE_DEPENDS
 )
 
 add_executable(fsai_run ${SIM_APP_SOURCES})
+target_include_directories(fsai_run PRIVATE
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
+    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+)
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
 
 if(TARGET fsai_vision_runtime)
@@ -272,6 +331,7 @@ if(BUILD_TESTS)
     "${CMAKE_SOURCE_DIR}/*Test*.c"
     "${CMAKE_SOURCE_DIR}/*Test*.cpp"
   )
+  list(FILTER TEST_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
     foreach(TEST_FILE ${TEST_SOURCES})
       if(TEST_FILE MATCHES "/sim/svcu/tests/")
         continue()

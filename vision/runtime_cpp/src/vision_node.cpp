@@ -10,7 +10,7 @@
 #include <iostream>
 #include <chrono>
 
-const char* PATH_TO_MODEL = "../../models/cone_model.onnx";
+const char* PATH_TO_MODEL = "../vision/models/cone_model.onnx";
 constexpr std::chrono::milliseconds kIdleSleep(5);
 namespace fsai{
 namespace vision{
