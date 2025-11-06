@@ -258,7 +258,6 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
 
     Point carFront = Point(carState.position.x(), carState.position.y());
     auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw , leftConePositions, rightConePositions);
-    printEdges(triangulation);
 
     std::vector<std::pair<Vector2, Vector2>> edges {};
     for (auto it = triangulation.finite_edges_begin(); it != triangulation.finite_edges_end(); ++it) {
