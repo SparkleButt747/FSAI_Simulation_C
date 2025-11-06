@@ -10,7 +10,7 @@
 #include <iostream>
 #include <chrono>
 
-const char* PATH_TO_MODEL = "../../models/cone_model.onnx";
+const char* PATH_TO_MODEL = "../vision/models/cone_model.onnx";
 constexpr std::chrono::milliseconds kIdleSleep(5);
 namespace fsai{
 namespace vision{
@@ -79,6 +79,7 @@ cv::Mat VisionNode::frameToMat(const fsai::types::Frame& frame){
     }
 }
 
+
 void VisionNode::runProcessingLoop(){
     
     // FIX 2: Add the main "while(running_)" loop
@@ -95,46 +96,28 @@ void VisionNode::runProcessingLoop(){
             std::this_thread::sleep_for(kIdleSleep);
             continue; // Go to the start of the while loop
         }
-
         // --- Frame is available! ---
-        // We can now access the frame data.
-        // handle_opt is an optional, so we use -> to access its contents.
-        const fsai::types::Frame& left_frame = handle_opt->frame.left;
-        const fsai::types::Frame& right_frame = handle_opt->frame.right;
-
-        // You can check frame data (optional)
-        if (left_frame.data == nullptr) {
-            continue; // Skip this frame
-        }
-
-        cv::Mat left_frame_mat = frameToMat(left_frame);
-        cv::Mat right_frame_mat = frameToMat(right_frame);
-        std::cout << "VisionNode: Running detection on frame " 
-                  << handle_opt->frame.t_sync_ns << std::endl;
-
+        const uint64_t t_now = handle_opt->frame.t_sync_ns;
+        // 1. Convert to Mat (local variable only for now)
+        cv::Mat left_mat = frameToMat(handle_opt->frame.left);
+        cv::Mat right_mat = frameToMat(handle_opt->frame.right);
+       
         fsai::types::Detections new_detections{};
         new_detections.t_ns = handle_opt->frame.t_sync_ns;
         new_detections.n = 0; // Number of cones found
     
         // 1. Object detection logic
 
-        std::vector<FsaiConeDet> detections = detector_->detectCones(left_frame_mat);
-        // 2. Loop through the vector and copy into the C-style array
-        for (const auto& cone : detections) {
-            
-            // Safety check: stop if we exceed the array's fixed size
-            if (new_detections.n >= 512) {
-                std::cerr << "Warning: Detected more than 512 cones. Truncating." << std::endl;
-                break;
-            }
-
-            // 3. Assign the cone to the next open slot
-            new_detections.dets[new_detections.n] = cone;
-            
-            // 4. Increment the detection counter
-            new_detections.n++;
+        std::vector<BoxBound> detections = detector_->detectCones(left_mat);
+        {
+            std::lock_guard<std::mutex> lock(render_mutex_);
+            latest_renderable_frame_.image = left_mat; // cv::Mat is ref-counted, this is fast
+            latest_renderable_frame_.boxes = detections;
+            latest_renderable_frame_.timestamp_ns = t_now;
+            latest_renderable_frame_.valid = true;
         }
 
+        // 2. Loop through the vector and copy into the C-style array
         // 2. Feature matching
 
         // 3. Stereo triangulation
@@ -150,5 +133,17 @@ void VisionNode::runProcessingLoop(){
         }
     }
 }
+RenderableFrame VisionNode::getRenderableFrame(){
+            std::lock_guard<std::mutex> lock(render_mutex_);
+            // Return a deep copy to ensure thread safety when the render thread uses it
+            RenderableFrame ret;
+            ret.image = latest_renderable_frame_.image.clone();
+            ret.boxes = latest_renderable_frame_.boxes;
+            ret.timestamp_ns = latest_renderable_frame_.timestamp_ns;
+            ret.valid = latest_renderable_frame_.valid;
+            return ret;
+}
+
+
 }
 }//vision

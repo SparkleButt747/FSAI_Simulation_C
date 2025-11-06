@@ -30,13 +30,14 @@ ConeDetector::ConeDetector(const std::string& path_to_model){
         session_ = std::make_unique<Ort::Session>(*env_, path_to_model.c_str(), session_options);
 
     }catch(const Ort::Exception& e){
-        std::cerr << "VisionNode: ConeDetector: Error whilst loading onnx model" << e.what() << std::endl;
+        std::cerr << "VisionNode: ConeDetector: Error whilst loading onnx model " << e.what() << std::endl;
+        throw std::invalid_argument("[Cone Detector]Path to model could not be loaded");
     }
 }
 
 ConeDetector::~ConeDetector() = default;
 
-std::vector<fsai::types::ConeDet> ConeDetector::detectCones(const cv::Mat& left_frame){
+std::vector<BoxBound>ConeDetector::detectCones(const cv::Mat& left_frame){
     // preprocess frames to be 640*640px
     cv::Mat resized_image;
     cv::resize(left_frame,resized_image, cv::Size(HEIGHT,WIDTH));
@@ -60,7 +61,6 @@ std::vector<fsai::types::ConeDet> ConeDetector::detectCones(const cv::Mat& left_
         }
     }
 
-    std::cout << "Image preprocessing complete" << std::endl;
 
     //make detections using model
 
@@ -148,7 +148,7 @@ std::vector<fsai::types::ConeDet> ConeDetector::detectCones(const cv::Mat& left_
         THRESHOLD,
         IOU_OVERLAP,
         nms_res);
-    std::vector<fsai::types::ConeDet> detections;
+    std::vector<BoxBound> detections;
     for (int index : nms_res){
 
         //create instances of detections
@@ -168,7 +168,7 @@ std::vector<fsai::types::ConeDet> ConeDetector::detectCones(const cv::Mat& left_
             confidences[index],
             side // Using this as a placeholder
         };
-        detections.push_back(processDetection(bound));
+        detections.push_back(bound);
     }
     return detections;
 }
@@ -180,7 +180,7 @@ fsai::types::ConeDet ConeDetector::processDetection(const BoxBound& box_bound){
     }
    
     fsai::types::ConeDet cone = {
-        {(float)box_bound.x,(float)box_bound.y,-1.0f},
+        static_cast<float>(box_bound.x),static_cast<float>(box_bound.y),-1.0f,
         box_bound.side,
         box_bound.conf
     };

@@ -27,7 +27,7 @@ class ConeDetector{
 
     
 
-    std::vector<fsai::types::ConeDet> detectCones(const cv::Mat& left_frame);
+    std::vector<BoxBound>detectCones(const cv::Mat& left_frame);
 
     private:
 
