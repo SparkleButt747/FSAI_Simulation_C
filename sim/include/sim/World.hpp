@@ -58,25 +58,25 @@ public:
     const std::vector<Cone>& getLeftCones() const { return leftCones; }
     const std::vector<Cone>& getRightCones() const { return rightCones; }
     const std::vector<Vector3>& getStartConePositions() const {
-        std::vector<Vector3> startConePositions;
+        std::vector<Vector3> positions;
         for (auto c: startCones) {
-            startConePositions.push_back(c.position);
+            positions.push_back(c.position);
         }
-        return startConePositions;
+        return positions;
     }
     const std::vector<Vector3>& getLeftConePositions() const {
-        std::vector<Vector3> leftConePositions;
+        std::vector<Vector3> positions;
         for (auto c: leftCones) {
-            leftConePositions.push_back(c.position);
+            positions.push_back(c.position);
         }
-        return leftConePositions;
+        return positions;
     }
     const std::vector<Vector3>& getRightConePositions() const {
-        std::vector<Vector3> rightConePositions;
+        std::vector<Vector3> positions;
         for (auto c: rightCones) {
-            rightConePositions.push_back(c.position);
+            positions.push_back(c.position);
         }
-        return rightConePositions;
+        return positions;
     }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
     const WheelsInfo& wheelsInfo() const { return wheelsInfo_; }

@@ -8,6 +8,7 @@
 #include "TrackGenerator.hpp"
 #include "VehicleState.hpp"
 #include "Vector.h"
+#include "World.hpp"
 #include "Transform.h"
 #include "types.h"
 
@@ -68,20 +69,20 @@ void getVisibleTrackTriangulation(
 Triangulation getVisibleTrackTriangulation(
   Point carFront,
   double carYaw,
-  std::vector<Vector3> leftConePositions,
-  std::vector<Vector3> rightConePositions,
+  std::vector<Cone> leftConePositions,
+  std::vector<Cone> rightConePositions,
   double sensorRange = 35.0,
   double sensorFOV = 2 * M_PI / 3
 );
 
 std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
   VehicleState carState,
-  const std::vector<Vector3>& leftConePositions,
-  const std::vector<Vector3>& rightConePositions
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions
 );
 
 void drawVisibleTriangulationEdges(
   VehicleState carState,
-  const std::vector<Vector3>& leftConePositions,
-  const std::vector<Vector3>& rightConePositions
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions
 );

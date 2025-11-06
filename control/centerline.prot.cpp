@@ -214,18 +214,18 @@ void getVisibleTrackTriangulation(
 Triangulation getVisibleTrackTriangulation(
   Point carFront,
   double carYaw,
-  std::vector<Vector3> leftConePositions,
-  std::vector<Vector3> rightConePositions,
+  std::vector<Cone> leftConePositions,
+  std::vector<Cone> rightConePositions,
   double sensorRange,
   double sensorFOV
 ) {
     Triangulation visibleTrack;
     Point carVector = Point(std::cos(carYaw), std::sin(carYaw));
 
-    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &visibleTrack](std::vector<Vector3> cones) {
-      for (Vector3 cone3d: cones) {
-        Point delta = Point(cone3d.x - carFront.x(), cone3d.z - carFront.y());
-        Point cone = Point(cone3d.x, cone3d.z);
+    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &visibleTrack](std::vector<Cone> cones) {
+      for (Cone cone3d: cones) {
+        Point delta = Point(cone3d.position.x - carFront.x(), cone3d.position.z - carFront.y());
+        Point cone = Point(cone3d.position.x, cone3d.position.z);
         if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
         if (getAngle(carVector, delta) > sensorFOV/2) continue;
         visibleTrack.insert(cone);
@@ -241,23 +241,24 @@ Triangulation getVisibleTrackTriangulation(
 
 void drawVisibleTriangulationEdges(
   VehicleState carState,
-  const std::vector<Vector3>& leftConePositions,
-  const std::vector<Vector3>& rightConePositions
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions
 ) {
-
-    Point carFront = Point(carState.position.x(), carState.position.z());
-    auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw + 90 , leftConePositions, rightConePositions);
+    CGAL::Graphics_scene scene;
+    Point carFront = Point(carState.position.x(), carState.position.y());
+    auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw, leftConePositions, rightConePositions);
     CGAL::draw(triangulation);
 }
 
 std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
   VehicleState carState,
-  const std::vector<Vector3>& leftConePositions,
-  const std::vector<Vector3>& rightConePositions
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions
 ) {
 
-    Point carFront = Point(carState.position.x(), carState.position.z());
-    auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw + 90 , leftConePositions, rightConePositions);
+    Point carFront = Point(carState.position.x(), carState.position.y());
+    auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw , leftConePositions, rightConePositions);
+    printEdges(triangulation);
 
     std::vector<std::pair<Vector2, Vector2>> edges {};
     for (auto it = triangulation.finite_edges_begin(); it != triangulation.finite_edges_end(); ++it) {
