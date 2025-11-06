@@ -33,6 +33,7 @@
 #include "edge_preview.hpp"
 #include "vision/frame_ring_buffer.hpp"
 #include "vision/vision_node.hpp"
+#include "vision/detection_preview.hpp"
 #include "types.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
@@ -719,6 +720,30 @@ void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
   ImGui::End();
 }
 
+ 
+void DrawDetectionPreviewPanel(fsai::vision::DetectionPreview& preview, uint64_t now_ns) {
+  // Force position and size every frame to guarantee visibility
+  ImGui::SetNextWindowPos(ImVec2(100, 400), ImGuiCond_Always);
+  // ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_Always);
+  
+  if (ImGui::Begin("Cone detection", nullptr, ImGuiWindowFlags_NoCollapse)) {
+      ImGui::Text("Model used: Yolov8 ");
+      ImGui::Separator();
+      
+      // Simple diagnostic to see if the internal state is what we think
+      auto snapshot = preview.snapshot();
+      if (snapshot.texture) {
+           ImGui::TextColored(ImVec4(0,1,0,1), "Texture READY: %dx%d", 
+                              snapshot.width, snapshot.height);
+           // Try drawing it small to see if the texture itself crashes it
+           ImGui::Image(snapshot.texture.get(), ImVec2(400,300));
+      } else {
+           ImGui::TextColored(ImVec4(1,0,0,1), "Texture NOT READY");
+           ImGui::Text("Status: %s", preview.statusMessage().c_str());
+      }
+  }
+  ImGui::End();
+}
 namespace {
 
 void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
@@ -862,6 +887,7 @@ struct SensorNoiseConfig {
   ImuNoiseConfig imu{};
   GpsNoiseConfig gps{};
   bool edge_preview_enabled{true};
+  bool dection_preview_enabled{true};
 };
 
 template <typename T>
@@ -1004,6 +1030,7 @@ int main(int argc, char* argv[]) {
   uint16_t telemetry_port = kDefaultTelemetryPort;
   std::string sensor_config_path = kDefaultSensorConfig;
   std::optional<bool> edge_preview_override;
+  std::optional<bool> detection_preview_override;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -1024,11 +1051,15 @@ int main(int argc, char* argv[]) {
       edge_preview_override = true;
     } else if (arg == "--no-edge-preview") {
       edge_preview_override = false;
+    } else if (arg == "--detection-preview") {
+      detection_preview_override = true;
+    } else if (arg == "--no-detection-preview") {
+      detection_preview_override = false;
     } else if (arg == "--help") {
       fsai::sim::log::LogfToStdout(
           fsai::sim::log::Level::kInfo,
           "Usage: fsai_run [--dt seconds] [--can-if iface|udp:port] [--cmd-port p] "
-          "[--state-port p] [--sensor-config path] [--edge-preview|--no-edge-preview]");
+          "[--state-port p] [--sensor-config path] [--edge-preview|--no-edge-preview] [--detection-preview|--no-detection_preview]");
       return EXIT_SUCCESS;
     } else if (i == 1 && argc == 2) {
       dt = std::atof(arg.c_str());
@@ -1064,6 +1095,13 @@ int main(int argc, char* argv[]) {
   if (edge_preview_override.has_value()) {
     edge_preview_enabled = *edge_preview_override;
   }
+  bool detection_preview_enabled = true; // Enable by default
+  if (detection_preview_override.has_value()) {
+    detection_preview_enabled = *detection_preview_override; // Use the override
+  }
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                       "Detection preview %s",
+                       detection_preview_enabled ? "enabled" : "disabled");
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
                        "Edge-detection preview %s",
                        edge_preview_enabled ? "enabled" : "disabled");
@@ -1182,7 +1220,7 @@ int main(int argc, char* argv[]) {
   std::unique_ptr<fsai::io::camera::sim_stereo::SimStereoSource> stereo_source;
   std::shared_ptr<fsai::vision::FrameRingBuffer> stereo_frame_buffer;
   //vision_node
-  std::unique_ptr<fsai::vision::VisionNode> vision_node;
+  std::shared_ptr<fsai::vision::VisionNode> vision_node;
   if (stereo_factory) {
     stereo_source = stereo_factory();
     if (stereo_source) {
@@ -1215,20 +1253,43 @@ int main(int argc, char* argv[]) {
       edge_preview_enabled = false;
     }
   }
+  
 
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Starting VisionNode...");
   try {
-    vision_node = std::make_unique<fsai::vision::VisionNode>();
+    vision_node = std::make_shared<fsai::vision::VisionNode>();
     vision_node->start();
     fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "VisionNode started successfully.");
   } catch (const std::exception& e) {
     fsai::sim::log::Logf(fsai::sim::log::Level::kError,
                          "Failed to start VisionNode: %s", e.what());
-    // You might want to exit here if vision is critical
-    // return EXIT_FAILURE; 
+    return EXIT_FAILURE; 
   }
   // --------------------------------------------------------
-
+  fsai::vision::DetectionPreview detection_preview;
+  if (detection_preview_enabled) {
+    if (!vision_node) {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                         "Detection preview disabled: vision node unavailable");
+      detection_preview_enabled = false;
+    } else {
+      // If we are here, we are good to start
+      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, 
+                            "Attempting to start DetectionPreview...");
+      std::string preview_error;
+      if (!detection_preview.start(graphics.renderer, vision_node, preview_error)) {
+        if (preview_error.empty()) {
+          preview_error = "start() returned false";
+        }
+        fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                           "Detection preview disabled: %s", preview_error.c_str());
+        detection_preview_enabled = false;
+      } else {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, 
+                            "DetectionPreview started successfully!");
+      }
+    }
+  }
   std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
@@ -1603,6 +1664,10 @@ int main(int argc, char* argv[]) {
     if (edge_preview_enabled && edge_preview.running()) {
       DrawEdgePreviewPanel(edge_preview, now_ns);
     }
+    if (detection_preview_enabled && detection_preview.running()) {
+      DrawDetectionPreviewPanel(detection_preview, now_ns);
+    
+    }
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
                                                 sample_noise(sensor_cfg.steering_deg.noise_std)));
@@ -1907,6 +1972,7 @@ int main(int argc, char* argv[]) {
     vision_node->stop();
     fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "VisionNode stopped.");
   }
+  detection_preview.stop();
   edge_preview.stop();
   stereo_display.reset();
   if (stereo_frame_buffer) {

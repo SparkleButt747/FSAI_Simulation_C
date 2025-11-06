@@ -37,7 +37,7 @@ ConeDetector::ConeDetector(const std::string& path_to_model){
 
 ConeDetector::~ConeDetector() = default;
 
-std::vector<fsai::types::ConeDet> ConeDetector::detectCones(const cv::Mat& left_frame){
+std::vector<BoxBound>ConeDetector::detectCones(const cv::Mat& left_frame){
     // preprocess frames to be 640*640px
     cv::Mat resized_image;
     cv::resize(left_frame,resized_image, cv::Size(HEIGHT,WIDTH));
@@ -61,7 +61,6 @@ std::vector<fsai::types::ConeDet> ConeDetector::detectCones(const cv::Mat& left_
         }
     }
 
-    std::cout << "Image preprocessing complete" << std::endl;
 
     //make detections using model
 
@@ -149,7 +148,7 @@ std::vector<fsai::types::ConeDet> ConeDetector::detectCones(const cv::Mat& left_
         THRESHOLD,
         IOU_OVERLAP,
         nms_res);
-    std::vector<fsai::types::ConeDet> detections;
+    std::vector<BoxBound> detections;
     for (int index : nms_res){
 
         //create instances of detections
@@ -169,7 +168,7 @@ std::vector<fsai::types::ConeDet> ConeDetector::detectCones(const cv::Mat& left_
             confidences[index],
             side // Using this as a placeholder
         };
-        detections.push_back(processDetection(bound));
+        detections.push_back(bound);
     }
     return detections;
 }
