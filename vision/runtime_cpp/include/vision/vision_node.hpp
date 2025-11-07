@@ -4,6 +4,7 @@
 
 #include "common/include/common/types.h"
 #include "detect.hpp"
+#include "features.hpp"
 
 
 #include <atomic>
@@ -25,6 +26,13 @@ struct RenderableFrame {
     uint64_t timestamp_ns = 0;
     bool valid = false;
 };
+struct ConeCluster{
+    int coneId;
+    std::vector<Eigen::Vector3d> points;
+};
+// struct Point3D{
+//     double X,Y,Z;
+// };
 class SimCamera;
 class ConeDetector;
 class VisionNode{
@@ -60,13 +68,22 @@ class VisionNode{
 
    std::optional<fsai::types::Detections> makeDetections();
    RenderableFrame getRenderableFrame();
+   
 
    private:
 
     void runProcessingLoop();
-
+    // private helpers
+    inline bool triangulatePoint(const Feature& feat,Eigen::Vector3d& result);
     cv::Mat frameToMat(const fsai::types::Frame& frame);
+    Eigen::Vector2d getCarPos();
+    double getCarHeading();
+    
 
+    // private members
+    bool intrinsics_set_ = false;
+    FsaiCameraIntrinsics cameraParams_;
+    const double BASE_LINE_ = 0.2;
     std::unique_ptr<fsai::vision::SimCamera> camera_;
     std::unique_ptr<fsai::vision::ConeDetector> detector_;
 
@@ -77,6 +94,7 @@ class VisionNode{
     std::optional<fsai::types::Detections> latest_detections_;
     std::mutex render_mutex_;
     RenderableFrame latest_renderable_frame_;
+
 
 };
 }
