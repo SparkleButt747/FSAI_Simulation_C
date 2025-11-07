@@ -172,4 +172,5 @@ std::vector<feature> match_features(cv::Mat left_frame, cv::Mat right_frame,std:
 int test_feature_matching(cv::Mat left_frame, cv::Mat right_frame){
     // test the feature matching based on left frame and right frame 
 
+    return 0;
 }

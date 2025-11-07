@@ -45,8 +45,17 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(PkgConfig REQUIRED)
 find_package(SDL2 QUIET CONFIG)
 find_package(Threads REQUIRED)
+
 # onnx required by vision
-find_package(ONNXRuntime REQUIRED)
+find_package(onnxruntime QUIET CONFIG)
+if(NOT onnxruntime_FOUND)
+  find_package(ONNXRuntime QUIET CONFIG)
+endif()
+if(NOT (onnxruntime_FOUND OR ONNXRuntime_FOUND))
+  message(FATAL_ERROR
+    "onnxruntime not found. Set onnxruntime_DIR or ONNXRuntime_DIR to the folder with onnxruntimeConfig.cmake")
+endif()
+
 set(SDL2_IMPORTED_TARGET "")
 set(SDL2_INCLUDE_DIRS "")
 if(TARGET SDL2::SDL2)

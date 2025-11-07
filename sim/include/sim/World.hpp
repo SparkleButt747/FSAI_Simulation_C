@@ -54,25 +54,29 @@ public:
     const std::vector<Vector3>& checkpointPositionsWorld() const {
         return checkpointPositions;
     }
+
     const std::vector<Cone>& getStartCones() const { return startCones; }
     const std::vector<Cone>& getLeftCones() const { return leftCones; }
-    const std::vector<Cone>& getRightCones() const { return rightCones; }
-    const std::vector<Vector3>& getStartConePositions() const {
+    const std::vector<Cone>& getRightCones() const { return rightCones; }    
+    const std::vector<Vector3> getStartConePositions() const {
         std::vector<Vector3> positions;
+        positions.reserve(startCones.size());
         for (auto c: startCones) {
             positions.push_back(c.position);
         }
         return positions;
     }
-    const std::vector<Vector3>& getLeftConePositions() const {
+    const std::vector<Vector3> getLeftConePositions() const {
         std::vector<Vector3> positions;
+        positions.reserve(leftCones.size());
         for (auto c: leftCones) {
             positions.push_back(c.position);
         }
         return positions;
     }
-    const std::vector<Vector3>& getRightConePositions() const {
+    const std::vector<Vector3> getRightConePositions() const {
         std::vector<Vector3> positions;
+        positions.reserve(rightCones.size());
         for (auto c: rightCones) {
             positions.push_back(c.position);
         }
