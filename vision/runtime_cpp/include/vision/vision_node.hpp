@@ -15,7 +15,7 @@
 #include <vector>
 
 #include <opencv2/opencv.hpp>
-
+#include <Eigen/core>
 
 
 namespace fsai{
@@ -65,8 +65,10 @@ class VisionNode{
      * @brief stops the internal processing thread
     */
    void stop();
-
+   using PoseProvider = std::function<std::pair<Eigen::Vector2d, double>()>;
+   void setPoseProvider(PoseProvider provider){pose_provider_ = provider;}
    std::optional<fsai::types::Detections> makeDetections();
+   std::optional<fsai::types::Detections> getLatestDetections();
    RenderableFrame getRenderableFrame();
    
 
@@ -76,11 +78,9 @@ class VisionNode{
     // private helpers
     inline bool triangulatePoint(const Feature& feat,Eigen::Vector3d& result);
     cv::Mat frameToMat(const fsai::types::Frame& frame);
-    Eigen::Vector2d getCarPos();
-    double getCarHeading();
-    
 
     // private members
+    PoseProvider pose_provider_;
     bool intrinsics_set_ = false;
     FsaiCameraIntrinsics cameraParams_;
     const double BASE_LINE_ = 0.2;
