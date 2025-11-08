@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
 
     // Find lowest-cost path using the BFS enumerator
     std::cout<<"BFS Start..."<<'\n';
-    std::vector<PathNode> bestPath = bfsLowestCost(adjacency, nodes, carFront, /*maxLen*/5);
+    std::vector<PathNode> bestPath = bfsLowestCost(adjacency, nodes, carFront, /*maxLen*/10);
     std::cout<<"BFS End"<<'\n';
     std::cout<<bestPath.size()<<'\n';
 
