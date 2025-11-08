@@ -1,12 +1,10 @@
 #include <iostream>
 #include "features.hpp"
 #include "vector"
-#include <detect.hpp>
+#include "detect.hpp"
 #include <unordered_map>
-#include <opencv2/opencv.hpp>
-#include <opencv2/features2d.hpp>
-#include <opencv2/highgui.hpp>
-#include <opencv2/imgproc.hpp>
+#include <opencv4/opencv2/opencv.hpp>
+
 
 // high level overview 
 // we need function to take left and right frames and bounding box and return xy coordinates of matched features for each bounding box
@@ -33,7 +31,7 @@ std::vector<pseudofeature> extract_features(cv::Mat frame, cv::Ptr<cv::ORB> orb)
 
     //Empty frame check
     if (frame.empty()) {
-        std: cerr << "Warning: Empty frame recieved" << std::endl;
+        std: cerr << "Warning: Empty frame received" << std::endl;
         return {};
     }
 
@@ -95,7 +93,7 @@ std::vector<feature> pair_features(std::vector<pseudofeature> left_features, std
 
         // look for possible matches within tolerance
         for (int j = y-epipolar_tolerance; j < y+epipolar_tolerance; j++){
-            std::vector<pseudofeature> fetched_features = y_mapping[j];
+            std::vector<pseudofeature> fetched_features = y_mappings[j];
             possible_matches.insert(possible_matches.end(), fetched_features.begin(), fetched_features.end());
         }
 
@@ -107,27 +105,34 @@ std::vector<feature> pair_features(std::vector<pseudofeature> left_features, std
             pseudofeature right_feature_j = possible_matches[j];
             int right_x = right_feature_j.x;
             int right_y = right_feature_j.y;
-            cv::Mat left_descriptor, right_descriptor = left_feature_i.descriptors, right_feature_j.descriptors;
+            cv::Mat left_descriptor = left_feature_i.descriptors;
+            cv::Mat right_descriptor = right_feature_j.descriptors;
 
             int hamming_distance = cv::norm(left_descriptor, right_descriptor, cv::NORM_HAMMING);
 
             if (min == -1){
                 min = hamming_distance; 
-                best_x, best_y = right_x, right_y; 
+                best_x = right_x;
+                best_y = right_y;
             }
             else if (hamming_distance < min){
                 min = hamming_distance;
-                best_x, best_y = right_x, right_y; 
+                best_x = right_x;
+                best_y = right_y;
             }
             else{
                 // do nothing 
             }
         }
 
-        feature result_feature{x,y,best_x,best_y};
+        feature result_feature{};
+        result_feature.x_1 = x;
+        result_feature.y_1 = y;
+        result_feature.x_2 = best_x;
+        result_feature.y_2 = best_y;
         results.push_back(result_feature);
     }
-    return results
+    return results;
 }
 
 
@@ -171,4 +176,22 @@ std::vector<feature> match_features(cv::Mat left_frame, cv::Mat right_frame,std:
 int test_feature_matching(cv::Mat left_frame, cv::Mat right_frame){
     // test the feature matching based on left frame and right frame 
 
+    // open avi test data 
+
+    // for each frame in avi, 
+
+    //      run detection 
+
+    //      feed detection into feature matching 
+
+    //      annotate it and print it 
+
+    //      sleep a bit 
+    
+    //      destroy the frame 
+}
+
+int main(){
+
+    return 1;
 }

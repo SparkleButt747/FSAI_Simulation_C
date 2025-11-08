@@ -1,6 +1,6 @@
 #pragma once
 #include <vector> 
-#include <opencv2/opencv.hpp>
+#include <opencv4/opencv2/opencv.hpp>
 #include "detect.hpp"
 struct feature
 {
