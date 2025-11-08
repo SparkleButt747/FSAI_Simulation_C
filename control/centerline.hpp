@@ -1,7 +1,11 @@
+#ifndef FSAI_CENTERLINE_HPP
+#define FSAI_CENTERLINE_HPP
+
 #include "types.h"
 #include "Vector.h"
 #include <vector>
 #include <tuple>
+#include "types.h"
 
 /** This represents a node on the path with the code detections that correspond
  * to the two points of the edges being included for computing the cost of a
@@ -10,9 +14,10 @@
  */
 class PathNode {
   public:
+    int id = -1;
     Vector2 midpoint;
-    Vector2 first;
-    Vector2 second;
+    FsaiConeDet first;
+    FsaiConeDet second;
     std::vector<PathNode*> children;
 
     bool operator==(const PathNode& other) const
@@ -68,3 +73,5 @@ float calculateCost(std::vector<PathNode> path);
 
 // Ideas
 // Work out left and right cones relative to the car with cross product
+
+#endif // FSAI_CENTERLINE_HPP

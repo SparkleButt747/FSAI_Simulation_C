@@ -3,8 +3,8 @@
 #define FSAI_VISION_VISION_NODE_HPP
 
 #include "common/include/common/types.h"
-#include "vision/detect.hpp"
-#include "vision/sim_camera.hpp"
+#include "detect.hpp"
+
 
 #include <atomic>
 #include <memory>
@@ -15,8 +15,18 @@
 
 #include <opencv2/opencv.hpp>
 
+
+
 namespace fsai{
 namespace vision{
+struct RenderableFrame {
+    cv::Mat image;
+    std::vector<BoxBound> boxes;
+    uint64_t timestamp_ns = 0;
+    bool valid = false;
+};
+class SimCamera;
+class ConeDetector;
 class VisionNode{
     public:
     /**
@@ -49,6 +59,7 @@ class VisionNode{
    void stop();
 
    std::optional<fsai::types::Detections> makeDetections();
+   RenderableFrame getRenderableFrame();
 
    private:
 
@@ -64,6 +75,8 @@ class VisionNode{
 
     std::mutex detection_mutex_;
     std::optional<fsai::types::Detections> latest_detections_;
+    std::mutex render_mutex_;
+    RenderableFrame latest_renderable_frame_;
 
 };
 }

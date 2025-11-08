@@ -30,8 +30,10 @@
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
 #include "sim_stereo_source.hpp"
-#include "vision/edge_preview.hpp"
+#include "edge_preview.hpp"
 #include "vision/frame_ring_buffer.hpp"
+#include "vision/vision_node.hpp"
+#include "vision/detection_preview.hpp"
 #include "types.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
@@ -48,7 +50,6 @@ constexpr double kDefaultDt = 0.01;
 constexpr int kWindowWidth = 800;
 constexpr int kWindowHeight = 600;
 constexpr int kReportIntervalFrames = 120;
-constexpr float kRenderScale = 5.0f;
 constexpr float kConeDisplayScale = 12.0f;
 constexpr uint16_t kDefaultCommandPort = fsai::sim::svcu::kDefaultCommandPort;
 constexpr uint16_t kDefaultTelemetryPort = fsai::sim::svcu::kDefaultTelemetryPort;
@@ -718,6 +719,30 @@ void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
   ImGui::End();
 }
 
+
+void DrawDetectionPreviewPanel(fsai::vision::DetectionPreview& preview, uint64_t now_ns) {
+  // Force position and size every frame to guarantee visibility
+  ImGui::SetNextWindowPos(ImVec2(100, 400), ImGuiCond_Always);
+  // ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_Always);
+
+  if (ImGui::Begin("Cone detection", nullptr, ImGuiWindowFlags_NoCollapse)) {
+      ImGui::Text("Model used: Yolov8 ");
+      ImGui::Separator();
+
+      // Simple diagnostic to see if the internal state is what we think
+      auto snapshot = preview.snapshot();
+      if (snapshot.texture) {
+           ImGui::TextColored(ImVec4(0,1,0,1), "Texture READY: %dx%d",
+                              snapshot.width, snapshot.height);
+           // Try drawing it small to see if the texture itself crashes it
+           ImGui::Image(snapshot.texture.get(), ImVec2(400,300));
+      } else {
+           ImGui::TextColored(ImVec4(1,0,0,1), "Texture NOT READY");
+           ImGui::Text("Status: %s", preview.statusMessage().c_str());
+      }
+  }
+  ImGui::End();
+}
 namespace {
 
 void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
@@ -727,7 +752,7 @@ void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
   }
 
   const float base_radius_px =
-      0.5f * base_width_m * kRenderScale * kConeDisplayScale;
+      0.5f * base_width_m * K_RENDER_SCALE * kConeDisplayScale;
   const int radius_px =
       std::max(1, static_cast<int>(std::lround(base_radius_px)));
 
@@ -750,27 +775,27 @@ void DrawWorldScene(Graphics* graphics, const World& world,
     SDL_SetRenderDrawColor(graphics->renderer, 200, 0, 200, 255);
     Graphics_DrawFilledCircle(
         graphics,
-        static_cast<int>(checkpoints.front().x * kRenderScale +
+        static_cast<int>(checkpoints.front().x * K_RENDER_SCALE +
                          graphics->width / 2.0f),
-        static_cast<int>(checkpoints.front().z * kRenderScale +
+        static_cast<int>(checkpoints.front().z * K_RENDER_SCALE +
                          graphics->height / 2.0f),
-        static_cast<int>(kRenderScale));
+        static_cast<int>(K_RENDER_SCALE));
   }
 
   const auto& lookahead = world.lookahead();
 
-  const auto& start_cones = world.startConePositions();
+  const auto& start_cones = world.getStartCones();
   const SDL_Color start_color{255, 140, 0, 255};
   for (const auto& cone : start_cones) {
-    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
+    const int cone_x = static_cast<int>(cone.position.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
+    const int cone_y = static_cast<int>(cone.position.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
     DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, start_color);
   }
   // Blue 0, 102, 204, 255
   const SDL_Color left_base{255, 214, 0, 255};
-  for (size_t i = 0; i < world.leftConePositions().size(); ++i) {
+  for (size_t i = 0; i < world.getLeftCones().size(); ++i) {
     SDL_Color color = left_base;
     if (i == 0) {
       color = SDL_Color{0, 255, 0, 255};
@@ -779,16 +804,16 @@ void DrawWorldScene(Graphics* graphics, const World& world,
     } else if (static_cast<int>(i) == lookahead.steer) {
       color = SDL_Color{255, 0, 255, 255};
     }
-    const auto& cone = world.leftConePositions()[i];
-    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
+    const auto& cone = world.getLeftCones()[i];
+    const int cone_x = static_cast<int>(cone.position.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
+    const int cone_y = static_cast<int>(cone.position.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
     DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
   // Yellow 255, 214, 0, 255
   const SDL_Color right_base{0, 102, 204, 255};
-  for (size_t i = 0; i < world.rightConePositions().size(); ++i) {
+  for (size_t i = 0; i < world.getRightCones().size(); ++i) {
     SDL_Color color = right_base;
     if (i == 0) {
       color = SDL_Color{0, 255, 0, 255};
@@ -797,30 +822,27 @@ void DrawWorldScene(Graphics* graphics, const World& world,
     } else if (static_cast<int>(i) == lookahead.steer) {
       color = SDL_Color{255, 0, 255, 255};
     }
-    const auto& cone = world.rightConePositions()[i];
-    const int cone_x = static_cast<int>(cone.position.x * kRenderScale +
+    const auto& cone = world.getRightCones()[i];
+    const int cone_x = static_cast<int>(cone.position.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.position.z * kRenderScale +
+    const int cone_y = static_cast<int>(cone.position.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
     DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
 
   const auto& transform = world.vehicleTransform();
-  const float car_screen_x = transform.position.x * kRenderScale +
+  const float car_screen_x = transform.position.x * K_RENDER_SCALE +
                              graphics->width / 2.0f;
-  const float car_screen_y = transform.position.z * kRenderScale +
+  const float car_screen_y = transform.position.z * K_RENDER_SCALE +
                              graphics->height / 2.0f;
-  const float car_radius = 2.0f * kRenderScale;
+  const float car_radius = 2.0f * K_RENDER_SCALE;
   Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
 
-  std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.leftConePositions(), world.rightConePositions());
+
+  std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.getLeftCones(), world.getRightCones());
   for (auto edge: triangulationEdges) {
-    float a = edge.first.x * kRenderScale + graphics->width / 2.0f;
-    float b = edge.first.y * kRenderScale + graphics->height / 2.0f;
-    float c = edge.second.x * kRenderScale + graphics->width / 2.0f;
-    float d = edge.second.y * kRenderScale + graphics->height / 2.0f;
-    Graphics_DrawSegment(graphics, a, b, c, d);
+    Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y);
   }
 }
 
@@ -859,6 +881,7 @@ struct SensorNoiseConfig {
   ImuNoiseConfig imu{};
   GpsNoiseConfig gps{};
   bool edge_preview_enabled{true};
+  bool dection_preview_enabled{true};
 };
 
 template <typename T>
@@ -1001,6 +1024,7 @@ int main(int argc, char* argv[]) {
   uint16_t telemetry_port = kDefaultTelemetryPort;
   std::string sensor_config_path = kDefaultSensorConfig;
   std::optional<bool> edge_preview_override;
+  std::optional<bool> detection_preview_override;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -1021,11 +1045,15 @@ int main(int argc, char* argv[]) {
       edge_preview_override = true;
     } else if (arg == "--no-edge-preview") {
       edge_preview_override = false;
+    } else if (arg == "--detection-preview") {
+      detection_preview_override = true;
+    } else if (arg == "--no-detection-preview") {
+      detection_preview_override = false;
     } else if (arg == "--help") {
       fsai::sim::log::LogfToStdout(
           fsai::sim::log::Level::kInfo,
           "Usage: fsai_run [--dt seconds] [--can-if iface|udp:port] [--cmd-port p] "
-          "[--state-port p] [--sensor-config path] [--edge-preview|--no-edge-preview]");
+          "[--state-port p] [--sensor-config path] [--edge-preview|--no-edge-preview] [--detection-preview|--no-detection_preview]");
       return EXIT_SUCCESS;
     } else if (i == 1 && argc == 2) {
       dt = std::atof(arg.c_str());
@@ -1061,6 +1089,13 @@ int main(int argc, char* argv[]) {
   if (edge_preview_override.has_value()) {
     edge_preview_enabled = *edge_preview_override;
   }
+  bool detection_preview_enabled = true; // Enable by default
+  if (detection_preview_override.has_value()) {
+    detection_preview_enabled = *detection_preview_override; // Use the override
+  }
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                       "Detection preview %s",
+                       detection_preview_enabled ? "enabled" : "disabled");
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
                        "Edge-detection preview %s",
                        edge_preview_enabled ? "enabled" : "disabled");
@@ -1178,6 +1213,8 @@ int main(int argc, char* argv[]) {
       fsai::sim::integration::lookupStereoProvider("sim_stereo");
   std::unique_ptr<fsai::io::camera::sim_stereo::SimStereoSource> stereo_source;
   std::shared_ptr<fsai::vision::FrameRingBuffer> stereo_frame_buffer;
+  //vision_node
+  std::shared_ptr<fsai::vision::VisionNode> vision_node;
   if (stereo_factory) {
     stereo_source = stereo_factory();
     if (stereo_source) {
@@ -1211,6 +1248,42 @@ int main(int argc, char* argv[]) {
     }
   }
 
+
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Starting VisionNode...");
+  try {
+    vision_node = std::make_shared<fsai::vision::VisionNode>();
+    vision_node->start();
+    fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "VisionNode started successfully.");
+  } catch (const std::exception& e) {
+    fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                         "Failed to start VisionNode: %s", e.what());
+    return EXIT_FAILURE;
+  }
+  // --------------------------------------------------------
+  fsai::vision::DetectionPreview detection_preview;
+  if (detection_preview_enabled) {
+    if (!vision_node) {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                         "Detection preview disabled: vision node unavailable");
+      detection_preview_enabled = false;
+    } else {
+      // If we are here, we are good to start
+      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                            "Attempting to start DetectionPreview...");
+      std::string preview_error;
+      if (!detection_preview.start(graphics.renderer, vision_node, preview_error)) {
+        if (preview_error.empty()) {
+          preview_error = "start() returned false";
+        }
+        fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                           "Detection preview disabled: %s", preview_error.c_str());
+        detection_preview_enabled = false;
+      } else {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                            "DetectionPreview started successfully!");
+      }
+    }
+  }
   std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
@@ -1406,9 +1479,9 @@ int main(int argc, char* argv[]) {
       adapter_telemetry.measured_speed_mps = measured_speed_mps;
       adapter_telemetry.lap_counter = static_cast<uint8_t>(
           std::clamp(world.completedLaps(), 0, 15));
-      const auto total_cones = world.leftConePositions().size() +
-                               world.rightConePositions().size() +
-                               world.startConePositions().size();
+      const auto total_cones = world.getLeftCones().size() +
+                               world.getRightCones().size() +
+                               world.getStartCones().size();
       if (total_cones > 0) {
         adapter_telemetry.cones_count_all = static_cast<uint16_t>(
             std::min<size_t>(total_cones, std::numeric_limits<uint16_t>::max()));
@@ -1584,6 +1657,10 @@ int main(int argc, char* argv[]) {
     DrawLogConsole();
     if (edge_preview_enabled && edge_preview.running()) {
       DrawEdgePreviewPanel(edge_preview, now_ns);
+    }
+    if (detection_preview_enabled && detection_preview.running()) {
+      DrawDetectionPreviewPanel(detection_preview, now_ns);
+
     }
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
@@ -1806,9 +1883,9 @@ int main(int argc, char* argv[]) {
                                  transform.position.z, transform.yaw);
 
       cone_positions.clear();
-      const auto& left_cones = world.leftConePositions();
-      const auto& right_cones = world.rightConePositions();
-      const auto& start_cones_for_render = world.startConePositions();
+      const auto& left_cones = world.getLeftCones();
+      const auto& right_cones = world.getRightCones();
+      const auto& start_cones_for_render = world.getStartCones();
       cone_positions.reserve(left_cones.size() + right_cones.size() +
                              start_cones_for_render.size());
 
@@ -1885,7 +1962,11 @@ int main(int argc, char* argv[]) {
 
     frame_counter++;
   }
-
+  if (vision_node) {
+    vision_node->stop();
+    fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "VisionNode stopped.");
+  }
+  detection_preview.stop();
   edge_preview.stop();
   stereo_display.reset();
   if (stereo_frame_buffer) {

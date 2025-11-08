@@ -5,6 +5,8 @@
 #include <vector>
 #include <cmath>
 #include <numeric>
+#include "centerline.hpp"
+#include "types.h"
 
 
 float dist(float ax, float ay, float bx, float by)

@@ -1,6 +1,6 @@
 #include "centerline.hpp"
-#include "globals.h"
 #include "utils.h"
+#include "types.h"
 
 
 #include <vector>
@@ -9,7 +9,8 @@
 
 float calculateCost(std::vector<PathNode> path)
 {
-    if(path.size() < 2) return 0.0f;
+    // discourage super-short paths
+    if(path.size() < 8) return 1e3f;
 
 
     // Tunable weights
@@ -44,7 +45,7 @@ float calculateCost(std::vector<PathNode> path)
 
     for(const auto& n : path)
     {
-        widths.push_back(dist(n.left.x, n.left.y, n.right.x, n.right.y));
+        widths.push_back(dist(n.first.x, n.first.y, n.second.x, n.second.y));
     }
 
     float widthStd = stdev(widths);
@@ -57,8 +58,8 @@ float calculateCost(std::vector<PathNode> path)
 
     for(std::size_t i = 1; i < path.size(); i++)
     {
-        leftSpacing.push_back(dist(path[i-1].left, path[i].left));
-        rightSpacing.push_back(dist(path[i-1].right, path[i].right));
+        leftSpacing.push_back(dist(path[i-1].first, path[i].first));
+        rightSpacing.push_back(dist(path[i-1].second, path[i].second));
     }
 
     float spacingStd = 0.5f * (stdev(leftSpacing) + stdev(rightSpacing)); // 0.5f bc leftSpacing + rightSpacing
@@ -70,17 +71,17 @@ float calculateCost(std::vector<PathNode> path)
 
     for(const auto& n : path)
     {
-        if(n.left.side == FSAI_CONE_UNKNOWN or n.right.side == FSAI_CONE_UNKNOWN)
+        if(n.first.side == FSAI_CONE_UNKNOWN or n.second.side == FSAI_CONE_UNKNOWN)
         {
             anyUnknown = true;
             break;
         }
         
-        if(n.left.side  != FSAI_CONE_LEFT)
+        if(n.first.side  != FSAI_CONE_LEFT)
         {
             mismatches++;
         }
-        if(n.right.side != FSAI_CONE_RIGHT)
+        if(n.second.side != FSAI_CONE_RIGHT)
         {
             mismatches++;
         }
@@ -115,6 +116,6 @@ float calculateCost(std::vector<PathNode> path)
         W_SPACING_STD * spacingStd +
         W_COLOR       * colorPenalty +
         W_RANGE_SQ    * rangeCost;
-    
+
     return cost;
 }

@@ -1,4 +1,4 @@
-#include "vision/sim_camera.hpp"
+#include "../src/sim_camera.hpp"
 
 #include <stdexcept>  // For std::runtime_error
 #include <utility>    // For std::move
@@ -9,7 +9,7 @@ SimCamera::SimCamera() : buffer_(getActiveFrameRingBuffer()) {
   if (!buffer_) {
     // If the simulation hasn't set the active buffer yet, this is a
     // critical configuration error.
-    throw std::runtime_error("SimCamera: Active FrameRingBuffer is not set or is null.");
+    throw std::runtime_error("VisionNode: SimCamera: Active FrameRingBuffer is not set or is null.");
   }
 }
 

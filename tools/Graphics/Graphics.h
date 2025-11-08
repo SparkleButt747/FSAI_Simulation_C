@@ -14,6 +14,8 @@ typedef struct {
     int height;
 } Graphics;
 
+const float K_RENDER_SCALE = 5.0f;
+
 // Initializes SDL, creates a window and renderer. Returns 0 on success.
 int Graphics_Init(Graphics* g, const char* title, int width, int height);
 
