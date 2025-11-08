@@ -22,24 +22,74 @@ if(APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
   endif()
 endif()
 
+# ------------------------------------------------------------------------------
+# ONNX Runtime Detection Strategy (Fixed for both platforms)
+# ------------------------------------------------------------------------------
 if(APPLE)
-  find_program(BREW brew PATHS /opt/homebrew/bin /usr/local/bin NO_DEFAULT_PATH)
-  if(BREW)
-    execute_process(COMMAND "${BREW}" --prefix
-                    OUTPUT_VARIABLE HOMEBREW_PREFIX
-                    OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(EXISTS "${HOMEBREW_PREFIX}")
-      list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}")
-      set(ENV{PKG_CONFIG_PATH}
-          "${HOMEBREW_PREFIX}/lib/pkgconfig:${HOMEBREW_PREFIX}/share/pkgconfig:$ENV{PKG_CONFIG_PATH}")
-    endif()
+  # 1. Try standard find_package first (best practice on Mac)
+  find_package(ONNXRuntime QUIET)
+
+  if(TARGET onnxruntime::onnxruntime)
+     message(STATUS "Found ONNX Runtime via find_package on macOS")
+     set(ORT_LIB onnxruntime::onnxruntime)
+     # Note: The include dirs are handled automatically by the target
+  else()
+     # 2. Fallback: Manual Homebrew lookup if find_package failed
+     message(STATUS "find_package(ONNXRuntime) failed. Trying manual Homebrew search...")
+     find_program(BREW brew PATHS /opt/homebrew/bin /usr/local/bin NO_DEFAULT_PATH)
+     if(BREW)
+       execute_process(COMMAND "${BREW}" --prefix
+                       OUTPUT_VARIABLE HOMEBREW_PREFIX
+                       OUTPUT_STRIP_TRAILING_WHITESPACE)
+       
+       if(EXISTS "${HOMEBREW_PREFIX}")
+         message(STATUS "Found Homebrew at: ${HOMEBREW_PREFIX}")
+         
+         # --- CRITICAL FIX START ---
+         # Add the include directories manually
+         include_directories("${HOMEBREW_PREFIX}/include")
+         include_directories("${HOMEBREW_PREFIX}/include/onnxruntime") # Just in case
+
+         # Find the library manually
+         find_library(ORT_LIB_MANUAL NAMES onnxruntime PATHS "${HOMEBREW_PREFIX}/lib" NO_DEFAULT_PATH)
+         if(ORT_LIB_MANUAL)
+            set(ORT_LIB ${ORT_LIB_MANUAL})
+            message(STATUS "Manually found ONNX Runtime lib at: ${ORT_LIB}")
+         else()
+            message(FATAL_ERROR "Found Homebrew but could NOT find onnxruntime lib in ${HOMEBREW_PREFIX}/lib")
+         endif()
+         # --- CRITICAL FIX END ---
+         
+       else()
+         message(FATAL_ERROR "Homebrew prefix '${HOMEBREW_PREFIX}' does not exist.")
+       endif()
+     else()
+       message(FATAL_ERROR "Homebrew executable not found. Cannot find ONNX Runtime.")
+     endif()
   endif()
+
+else()
+  # --- Linux Strategy: Custom GPU build path ---
+  set(ORT_ROOT "/home/v-admin/Documents/onnxTest/onnxruntime-linux-x64-gpu-1.23.2") # personal path lol
+  include_directories(${ORT_ROOT}/include)
+  find_library(ORT_LIB_RAW NAMES onnxruntime PATHS ${ORT_ROOT}/lib NO_DEFAULT_PATH)
+  
+  if(ORT_LIB_RAW)
+    set(ORT_LIB ${ORT_LIB_RAW})
+    message(STATUS "Found ONNX Runtime custom Linux build: ${ORT_LIB}")
+  else()
+    message(FATAL_ERROR "Could NOT find custom ONNX Runtime on Linux at ${ORT_ROOT}")
+  endif()
+endif()
+
+# Final check
+if(NOT ORT_LIB)
+  message(FATAL_ERROR "ONNX Runtime library variable (ORT_LIB) was not set!")
 endif()
 
 # ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
-set(ORT_ROOT "/home/v-admin/Documents/onnxTest/onnxruntime-linux-x64-gpu-1.23.2")
 include_directories(${ORT_ROOT}/include)
 find_library(ORT_LIB
     NAMES onnxruntime
