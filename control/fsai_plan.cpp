@@ -1,4 +1,4 @@
-#include "centerline.prot.cpp"
+#include "centerline.prot.hpp"
 
 int main(int argc, char* argv[])
 {

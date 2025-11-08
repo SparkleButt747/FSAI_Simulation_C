@@ -1,6 +1,8 @@
 #define _USE_MATH_DEFINES
 
 #include "centerline.prot.hpp"
+#include "centerline.hpp"
+#include "types.h"   
 
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
@@ -8,24 +10,6 @@ using Point=Triangulation::Point;
 using AllEdgeIterator=Triangulation::All_edges_iterator;
 using FiniteEdgeIterator=Triangulation::Finite_edges_iterator;
 using VertexHandle=Triangulation::Vertex_handle;
-
-class PathNode {
-  public:
-    Point midpoint;
-    Point first;
-    Point second;
-    std::vector<PathNode*> children;
-
-    bool operator==(const PathNode& other) const
-    {
-        return midpoint == other.midpoint && first == other.first;
-    }
-
-    bool operator<(const PathNode& other) const
-    {
-        return midpoint < other.midpoint;
-    }
-};
 
 
 // Debug method, leaving this here because iterating triangulation edges is weird in CGAL
@@ -71,7 +55,23 @@ std::pair<std::vector<PathNode>, std::map<PathNode, std::set<PathNode>>> generat
         scene.add_point(p1, CGAL::IO::Color(200, 200, 10));
         scene.add_point(p2, CGAL::IO::Color(200, 200, 10));
 
-        PathNode node = {{(p1.x() + p2.x())/2, (p1.y() + p2.y())/2}, p1, p2, {}};
+        PathNode node;
+        node.midpoint = Vector2{
+          static_cast<float>((p1.x() + p2.x()) / 2.0),
+          static_cast<float>((p1.y() + p2.y()) / 2.0)
+        };
+        node.first  = FsaiConeDet{
+          static_cast<float>(p1.x()),
+          static_cast<float>(p1.y()),
+          FSAI_CONE_UNKNOWN   // no color info here
+        };
+        node.second = FsaiConeDet{
+          static_cast<float>(p2.x()),
+          static_cast<float>(p2.y()),
+          FSAI_CONE_UNKNOWN
+        };
+        node.children.clear();
+
         nodes.push_back(node);
         vertex_to_nodes[p1].push_back(node);
         vertex_to_nodes[p2].push_back(node);
@@ -92,21 +92,30 @@ std::pair<std::vector<PathNode>, std::map<PathNode, std::set<PathNode>>> generat
     PathNode startNode = nodes[0];
     double dist = INFINITY;
     for (auto node: nodes) {
-      double currentDist = std::hypot(node.midpoint.x() - carFront.x(), node.midpoint.y() - carFront.y());
+      double currentDist = std::hypot(node.midpoint.x - carFront.x(), node.midpoint.y - carFront.y());
       if (currentDist < dist) {
         dist = currentDist;
         startNode = node;
       }
     }
 
-    scene.add_segment(startNode.first, startNode.second, CGAL::IO::Color(250, 15, 15));
+    scene.add_segment(
+      Point(startNode.first.x,  startNode.first.y),
+      Point(startNode.second.x, startNode.second.y),
+      CGAL::IO::Color(250, 15, 15)
+    );
+
     return {nodes, adjacency};
   }
 
 void drawEdges(std::map<PathNode, std::set<PathNode>>& adjacency, CGAL::Graphics_scene& scene, CGAL::Color color) {
   for (auto & [node, adj_nodes]: adjacency) {
     for (auto adj_node: adj_nodes) {
-      scene.add_segment(node.midpoint, adj_node.midpoint, color);
+      scene.add_segment(
+        Point(node.midpoint.x,    node.midpoint.y),
+        Point(adj_node.midpoint.x, adj_node.midpoint.y),
+        color
+      );
     }
   }
 }

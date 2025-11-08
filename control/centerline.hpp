@@ -1,3 +1,6 @@
+#ifndef FSAI_CENTERLINE_HPP
+#define FSAI_CENTERLINE_HPP
+
 #include "types.h"
 #include "Vector.h"
 #include <vector>
@@ -69,3 +72,5 @@ float calculateCost(std::vector<PathNode> path);
 
 // Ideas
 // Work out left and right cones relative to the car with cross product
+
+#endif // FSAI_CENTERLINE_HPP

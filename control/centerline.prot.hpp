@@ -11,6 +11,7 @@
 #include "World.hpp"
 #include "Transform.h"
 #include "types.h"
+#include "centerline.hpp"
 
 #include <typeinfo>
 #include <cmath>
@@ -28,6 +29,20 @@ using Point=Triangulation::Point;
 using AllEdgeIterator=Triangulation::All_edges_iterator;
 using FiniteEdgeIterator=Triangulation::Finite_edges_iterator;
 using VertexHandle=Triangulation::Vertex_handle;
+
+// Build a PathNode graph from a visible triangulation
+std::pair<std::vector<PathNode>, std::map<PathNode, std::set<PathNode>>>generateGraph(
+  Triangulation& T, 
+  CGAL::Graphics_scene& scene, 
+  Point carFront
+);
+
+// Convenience drawer for the PathNode adjacency
+void drawEdges(
+  std::map<PathNode, std::set<PathNode>>& adjacency,
+  CGAL::Graphics_scene& scene,
+  CGAL::Color color = CGAL::IO::Color(15, 15, 15)
+);
 
 // Prints CGAL edges to standard out
 void printEdges(Triangulation& T);
