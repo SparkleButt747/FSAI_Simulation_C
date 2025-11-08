@@ -1,113 +1,94 @@
-#include <iostream>
-#include <vector>
-#include <unordered_map>
-#include <opencv2/opencv.hpp>
-#include <opencv2/features2d.hpp>
 #include "features.hpp"
+#include <opencv2/imgproc.hpp>
+#include <iostream>
 
-// --- Assuming these structs exist based on your code ---
+// TUNING: Patch size for matching individual points. 
+// 5x5 or 7x7 is good for small 11x13 cones.
+static const int kPatchSize = 5; 
+static const int kHalfPatch = kPatchSize / 2;
 
-cv::Mat extract_boundimg(const cv::Mat& left_frame, const fsai::vision::BoxBound& box_bound) {
-    cv::Rect roi(box_bound.x, box_bound.y, box_bound.w, box_bound.h);
-    roi &= cv::Rect(0, 0, left_frame.cols, left_frame.rows);
+// TUNING: How many pixels to skip when sampling the grid (1 = every pixel, 2 = every other)
+static const int kGridStride = 3; 
 
-    if (roi.width <= 0 || roi.height <= 0) {
-        std::cerr << "Warning: Out of bounds ROI requested." << std::endl;
-        return cv::Mat();
-    }
-    return left_frame(roi);
+// TUNING: Epipolar search margin (pixels up/down to look in right image)
+static const int kEpipolarMargin = 2;
+
+bool is_safe_roi(const cv::Mat& frame, cv::Rect roi) {
+    return (roi.x >= 0 && roi.y >= 0 && 
+            roi.x + roi.width <= frame.cols && 
+            roi.y + roi.height <= frame.rows &&
+            roi.width > 0 && roi.height > 0);
 }
 
-std::vector<PseudoFeature> extract_features(const cv::Mat& frame, cv::Ptr<cv::ORB> orb) {
-    if (frame.empty()) return {};
+std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, 
+                                                 const cv::Mat& right_frame, 
+                                                 const std::vector<fsai::vision::BoxBound>& box_bounds) {
+    std::vector<ConeMatches> all_cone_matches;
+    all_cone_matches.reserve(box_bounds.size());
 
-    std::vector<cv::KeyPoint> keypoints;
-    cv::Mat descriptors;
-    orb->detectAndCompute(frame, cv::noArray(), keypoints, descriptors); // More efficient combined call
+    // Pre-allocate standardized patch matrices to avoid re-allocation in loop
+    cv::Mat left_patch, right_strip, res_map;
 
-    std::vector<PseudoFeature> results;
-    results.reserve(keypoints.size());
+    for (size_t i = 0; i < box_bounds.size(); ++i) {
+        const auto& box = box_bounds[i];
+        std::vector<Feature> cone_features;
 
-    for (size_t i = 0; i < keypoints.size(); ++i) {
-        results.push_back({(double)keypoints[i].pt.x, (double)keypoints[i].pt.y, descriptors.row(i)});
-    }
-    return results;
-}
+        // 1. Define safe boundaries for sampling points inside the box
+        // We must ensure a kPatchSize window can fit around the point.
+        int start_x = box.x + kHalfPatch;
+        int end_x = box.x + box.w - kHalfPatch;
+        int start_y = box.y + kHalfPatch;
+        int end_y = box.y + box.h - kHalfPatch;
 
-std::vector<Feature> pair_features(const std::vector<PseudoFeature>& left_features, const std::vector<PseudoFeature>& right_features) {
-    std::vector<Feature> results;
-    if (left_features.empty() || right_features.empty()) return results;
+        if (start_x >= end_x || start_y >= end_y) continue; // Box too small for patches
 
-    // 1. Build Y-hash for right Features for quick epipolar lookup
-    std::unordered_map<int, std::vector<int>> y_mappings; // Store INDICES, not copies of full Features
-    for (size_t i = 0; i < right_features.size(); ++i) {
-        y_mappings[(int)std::round(right_features[i].y)].push_back(i);
-    }
+        // 2. Grid Sample inside the Left Cone Box
+        for (int ly = start_y; ly < end_y; ly += kGridStride) {
+            for (int lx = start_x; lx < end_x; lx += kGridStride) {
+                
+                // Extract small patch around grid point (lx, ly)
+                cv::Rect patch_roi(lx - kHalfPatch, ly - kHalfPatch, kPatchSize, kPatchSize);
+                if (!is_safe_roi(left_frame, patch_roi)) continue;
+                left_patch = left_frame(patch_roi);
 
-    int epipolar_tolerance = 1;
-    int max_hamming_dist = 50; // THRESHOLD: Discard bad matches (typical ORB val is 30-70)
+                // Define search strip in Right image
+                // Constrain Y to epipolar line +/- margin
+                int strip_y = std::max(0, ly - kHalfPatch - kEpipolarMargin);
+                int strip_h = kPatchSize + (kEpipolarMargin * 2);
+                // Constrain X: matched point must be to the left of lx (or same pos for infinity)
+                int strip_width = std::min(right_frame.cols, lx + kHalfPatch + 5); // +5 for slight tolerance
+                
+                cv::Rect strip_roi(0, strip_y, strip_width, strip_h);
+                if (!is_safe_roi(right_frame, strip_roi)) continue;
+                right_strip = right_frame(strip_roi);
 
-    for (const auto& left_feat : left_features) {
-        int y_start = std::max(0, (int)std::round(left_feat.y) - epipolar_tolerance);
-        int y_end = (int)std::round(left_feat.y) + epipolar_tolerance;
+                // Match the small patch
+                // TM_SQDIFF is faster than NORMED for tiny patches, but less robust to lighting changes.
+                // Sim lighting is usually even, so SQDIFF might be okay. Using NORMED for safety.
+                cv::matchTemplate(right_strip, left_patch, res_map, cv::TM_SQDIFF_NORMED);
+                
+                double min_val; cv::Point min_loc;
+                cv::minMaxLoc(res_map, &min_val, nullptr, &min_loc, nullptr);
 
-        int best_idx = -1;
-        int min_dist = max_hamming_dist + 1; // Init with threshold + 1
+                // Threshold: Only accept good patch matches (e.g., < 0.1 difference)
+                if (min_val < 0.1) {
+                    Feature feat;
+                    feat.x_1 = static_cast<double>(lx);
+                    feat.y_1 = static_cast<double>(ly);
+                    // Convert strip-local coordinate back to global right-image coordinate
+                    feat.x_2 = static_cast<double>(strip_roi.x + min_loc.x + kHalfPatch);
+                    feat.y_2 = static_cast<double>(strip_roi.y + min_loc.y + kHalfPatch);
 
-        for (int y = y_start; y <= y_end; ++y) {
-            auto it = y_mappings.find(y);
-            if (it != y_mappings.end()) {
-                for (int right_idx : it->second) {
-                    // Optimization: Only match if right Feature is to the LEFT of matched left Feature 
-                    // (standard stereo assumption: disparity is positive, so x_left >= x_right)
-                    if (right_features[right_idx].x > left_feat.x) continue; 
-
-                     int dist = cv::norm(left_feat.descriptors, right_features[right_idx].descriptors, cv::NORM_HAMMING);
-                     if (dist < min_dist) {
-                         min_dist = dist;
-                         best_idx = right_idx;
-                     }
+                    // Final check: ensure positive disparity (closer objects shift left)
+                    if (feat.x_2 <= feat.x_1 + 1.0) { // +1.0 tolerance for noise
+                         cone_features.push_back(feat);
+                    }
                 }
             }
         }
 
-        if (best_idx != -1) {
-            results.push_back({left_feat.x, left_feat.y, right_features[best_idx].x, right_features[best_idx].y});
-        }
-    }
-    return results;
-}
-
-// --- CHANGED RETURN TYPE ---
-std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, const cv::Mat& right_frame, const std::vector<fsai::vision::BoxBound>& box_bounds) {
-    cv::Ptr<cv::ORB> orb = cv::ORB::create();
-    
-    // 1. Extract ALL Features from the right frame once (expensive operation)
-    std::vector<PseudoFeature> right_features = extract_features(right_frame, orb);
-    
-    std::vector<ConeMatches> all_cone_matches;
-    all_cone_matches.reserve(box_bounds.size());
-
-    // 2. Process each cone individually
-    for (size_t i = 0; i < box_bounds.size(); ++i) {
-        cv::Mat cone_img = extract_boundimg(left_frame, box_bounds[i]);
-        if (cone_img.empty()) continue;
-
-        std::vector<PseudoFeature> cone_left_features = extract_features(cone_img, orb);
-
-        // 3. Adjust coordinates from ROI-relative to full-frame-relative
-        for (auto& feat : cone_left_features) {
-            feat.x += box_bounds[i].x;
-            feat.y += box_bounds[i].y;
-        }
-
-        // 4. Match THIS cone's Features against ALL right Features
-        //    (It's okay to match against all right Features because epipolar 
-        //     and descriptor constraints will find the correct corresponding region in the right image automatically)
-        std::vector<Feature> matches = pair_features(cone_left_features, right_features);
-
-        if (!matches.empty()) {
-             all_cone_matches.push_back({(int)i, box_bounds[i], matches});
+        if (!cone_features.empty()) {
+            all_cone_matches.push_back({(int)i, box, cone_features});
         }
     }
 

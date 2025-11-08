@@ -15,7 +15,7 @@
 #include <vector>
 
 #include <opencv2/opencv.hpp>
-#include <Eigen/core>
+#include <Eigen/Core>
 
 
 namespace fsai{

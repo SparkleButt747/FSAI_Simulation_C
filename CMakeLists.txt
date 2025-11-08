@@ -39,12 +39,18 @@ endif()
 # ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
+set(ORT_ROOT "/home/v-admin/Documents/onnxTest/onnxruntime-linux-x64-gpu-1.23.2")
+include_directories(${ORT_ROOT}/include)
+find_library(ORT_LIB
+    NAMES onnxruntime
+    PATHS ${ORT_ROOT}/lib
+    NO_DEFAULT_PATH
+)
 find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(PkgConfig REQUIRED)
 find_package(SDL2 QUIET CONFIG)
 find_package(Threads REQUIRED)
 # onnx required by vision
-find_package(ONNXRuntime REQUIRED)
 set(SDL2_IMPORTED_TARGET "")
 set(SDL2_INCLUDE_DIRS "")
 if(TARGET SDL2::SDL2)
@@ -120,6 +126,9 @@ target_include_directories(fsai_vision_runtime PUBLIC
     
     # This path lets fsai_run find "common/include/common/types.h"
     "${CMAKE_SOURCE_DIR}"
+
+    # This path lets vision use the logger
+    "${CMAKE_SOURCE_DIR}/sim/include/"
 )
 
 # Find the source files for your main vision node
@@ -151,7 +160,7 @@ target_include_directories(fsai_vision_runtime PUBLIC
 # Add all dependencies for the library
 target_link_libraries(fsai_vision_runtime PUBLIC
     Eigen3::Eigen
-    onnxruntime::onnxruntime
+    ${ORT_LIB}
     ${OpenCV_LIBRARIES}
     Threads::Threads
 )
@@ -207,7 +216,7 @@ target_link_libraries(fsai_sim
     Threads::Threads
     CGAL::CGAL
     m
-    onnxruntime::onnxruntime
+    ${ORT_LIB}
     ${OpenCV_LIBRARIES}
 )
 
