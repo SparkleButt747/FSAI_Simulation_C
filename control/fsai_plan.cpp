@@ -45,12 +45,29 @@ int main(int argc, char* argv[])
 
     Triangulation visibleT;
     getVisibleTrackTriangulation(visibleT, carFront, track);
+    
+    
+    // Build graph from visible triangulation
     CGAL::Graphics_scene scene;
-    std::map<PathNode, std::set<PathNode>> adjacency = generateGraph(visibleT, scene, carFront).second;
-    drawEdges(adjacency, scene, CGAL::IO::Color(15, 250, 15));
+    auto [nodes, adjacency] = generateGraph(visibleT, scene, carFront);
+
+    // Optional: show the graph (green)
+    //drawEdges(adjacency, nodes, scene, CGAL::IO::Color(15, 250, 15));
+
+    // Find lowest-cost path using the BFS enumerator
+    std::cout<<"BFS Start..."<<'\n';
+    std::vector<PathNode> bestPath = bfsLowestCost(adjacency, nodes, carFront, /*maxLen*/5);
+    std::cout<<"BFS End"<<'\n';
+    std::cout<<bestPath.size()<<'\n';
+
+    
     // Optional viewing with car position and visible cones
-    drawEdges(visibleT, scene, CGAL::IO::Color(15, 15, 250));
+    //drawEdges(visibleT, scene, CGAL::IO::Color(15, 15, 250));
     drawEdges(T, scene);
+
+    // Draw that path by midpoints (orange)
+    drawPathMidpoints(bestPath, scene, CGAL::IO::Color(255, 100, 30));
+
     CGAL::add_to_graphics_scene(CarT, scene);
     CGAL::draw_graphics_scene(scene);
 

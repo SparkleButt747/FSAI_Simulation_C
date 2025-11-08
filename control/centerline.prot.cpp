@@ -11,6 +11,8 @@ using AllEdgeIterator=Triangulation::All_edges_iterator;
 using FiniteEdgeIterator=Triangulation::Finite_edges_iterator;
 using VertexHandle=Triangulation::Vertex_handle;
 
+using namespace std;
+
 
 // Debug method, leaving this here because iterating triangulation edges is weird in CGAL
 void printEdges(Triangulation& T) {
@@ -32,81 +34,90 @@ void printEdges(Triangulation& T) {
     std::cout << std::endl;
   }
 
-std::pair<std::vector<PathNode>, std::map<PathNode, std::set<PathNode>>> generateGraph(
-  Triangulation& T,
-  CGAL::Graphics_scene& scene,
-  Point carFront
-) {
-  std::vector<PathNode> nodes {};
-  std::map<Point, std::vector<PathNode>> vertex_to_nodes {};
-  scene.add_text(carFront, "car");
-  for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
-        auto face_handle = it->first;
-        int edge_index = it->second;
+std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
+    Triangulation& T, CGAL::Graphics_scene& scene, Point carFront)
+{
+    std::vector<PathNode> nodes;
+    // map each triangulation vertex to all node-ids that touch it
+    std::map<Point, std::vector<int>> vertex_to_node_ids;
 
-        // Get the two vertices of the edge
-        auto v1 = face_handle->vertex((edge_index + 1) % 3);
-        auto v2 = face_handle->vertex((edge_index + 2) % 3);
-
-        // Get coordinates
-        auto p1 = v1->point();
-        auto p2 = v2->point();
-
-        scene.add_point(p1, CGAL::IO::Color(200, 200, 10));
-        scene.add_point(p2, CGAL::IO::Color(200, 200, 10));
+    // create a node for every triangulation edge we consider “drivable”
+    for(auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it)
+    {
+        auto seg = T.segment(*it);
+        Point p1 = seg.source();
+        Point p2 = seg.target();
 
         PathNode node;
-        node.midpoint = Vector2{
-          static_cast<float>((p1.x() + p2.x()) / 2.0),
-          static_cast<float>((p1.y() + p2.y()) / 2.0)
-        };
-        node.first  = FsaiConeDet{
-          static_cast<float>(p1.x()),
-          static_cast<float>(p1.y()),
-          FSAI_CONE_UNKNOWN   // no color info here
-        };
-        node.second = FsaiConeDet{
-          static_cast<float>(p2.x()),
-          static_cast<float>(p2.y()),
-          FSAI_CONE_UNKNOWN
-        };
-        node.children.clear();
+        node.id = static_cast<int>(nodes.size());
+
+        // midpoint
+        node.midpoint.x = static_cast<float>((p1.x() + p2.x()) / 2.0);
+        node.midpoint.y = static_cast<float>((p1.y() + p2.y()) / 2.0);
+
+        // endpoints as “detections” (set what you actually need)
+        FsaiConeDet d1{}; d1.x = static_cast<float>(p1.x()); d1.y = static_cast<float>(p1.y());
+        d1.side = FSAI_CONE_UNKNOWN;
+        FsaiConeDet d2{}; d2.x = static_cast<float>(p2.x()); d2.y = static_cast<float>(p2.y());
+        d2.side = FSAI_CONE_UNKNOWN;
+
+        node.first  = d1;
+        node.second = d2;
+
+        vertex_to_node_ids[p1].push_back(node.id);
+        vertex_to_node_ids[p2].push_back(node.id);
 
         nodes.push_back(node);
-        vertex_to_nodes[p1].push_back(node);
-        vertex_to_nodes[p2].push_back(node);
     }
 
-    std::map<PathNode, std::set<PathNode>> adjacency {};
-    for (auto & [v, incident]: vertex_to_nodes) {
-      for (int i = 0; i < incident.size(); i++) {
-        for (int j = i+1; j < incident.size(); j++) {
-          auto node1 = incident[i];
-          auto node2 = incident[j];
-          adjacency[node1].insert(node2);
-          adjacency[node2].insert(node1);
+    // build index-based adjacency
+    std::vector<std::vector<int>> adj(nodes.size());
+    for (auto& kv : vertex_to_node_ids)
+    {
+        auto& ids = kv.second;
+        for (size_t i = 0; i < ids.size(); ++i)
+            for (size_t j = i + 1; j < ids.size(); ++j)
+            {
+                adj[ids[i]].push_back(ids[j]);
+                adj[ids[j]].push_back(ids[i]);
+            }
+    }
+
+    // pick start by nearest midpoint to carFront; draw its segment in red
+    int start_id = 0;
+    double best = std::numeric_limits<double>::infinity();
+    for (auto& n : nodes)
+    {
+        const double dx = n.midpoint.x - static_cast<float>(carFront.x());
+        const double dy = n.midpoint.y - static_cast<float>(carFront.y());
+        const double d2 = dx*dx + dy*dy;
+        if (d2 < best) { best = d2; start_id = n.id; }
+    }
+
+    scene.add_segment(Point(nodes[start_id].first.x,  nodes[start_id].first.y),
+                      Point(nodes[start_id].second.x, nodes[start_id].second.y),
+                      CGAL::IO::Color(250,15,15));
+
+    return {nodes, adj};
+}
+
+
+void drawEdges(
+    const std::vector<std::vector<int>>& adjacency,
+    const std::vector<PathNode>& nodes,
+    CGAL::Graphics_scene& scene,
+    CGAL::Color color)
+{
+    // Avoid double-drawing: only draw i->j when i < j
+    for (std::size_t i = 0; i < adjacency.size(); ++i) {
+        for (int j : adjacency[i]) {
+            if (static_cast<std::size_t>(j) <= i) continue;
+            const auto& a = nodes[i].midpoint;
+            const auto& b = nodes[j].midpoint;
+            scene.add_segment(Point(a.x, a.y), Point(b.x, b.y), color);
         }
-      }
     }
-
-    PathNode startNode = nodes[0];
-    double dist = INFINITY;
-    for (auto node: nodes) {
-      double currentDist = std::hypot(node.midpoint.x - carFront.x(), node.midpoint.y - carFront.y());
-      if (currentDist < dist) {
-        dist = currentDist;
-        startNode = node;
-      }
-    }
-
-    scene.add_segment(
-      Point(startNode.first.x,  startNode.first.y),
-      Point(startNode.second.x, startNode.second.y),
-      CGAL::IO::Color(250, 15, 15)
-    );
-
-    return {nodes, adjacency};
-  }
+}
 
 void drawEdges(std::map<PathNode, std::set<PathNode>>& adjacency, CGAL::Graphics_scene& scene, CGAL::Color color) {
   for (auto & [node, adj_nodes]: adjacency) {
@@ -292,4 +303,81 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
     }
 
     return edges;
+}
+
+
+// --- Lowest-cost BFS-style enumerator over midpoint graph ---
+// We enumerate simple paths (no repeated nodes) up to maxLen.
+// For each partial path with >= 2 nodes we compute calculateCost(path)
+// and keep the best one seen. Start node is chosen as the node whose
+// midpoint is closest to carFront.
+// centerline.prot.cpp
+std::vector<PathNode> bfsLowestCost(
+    const std::vector<std::vector<int>>& adj,
+    const std::vector<PathNode>& nodes,
+    const Point& carFront,
+    std::size_t maxLen
+)
+{
+    if (nodes.empty()) return {};
+
+    // pick start (same logic as above)
+    int start = 0; double best = std::numeric_limits<double>::infinity();
+    for (auto& n : nodes) {
+        double d = std::hypot(n.midpoint.x - carFront.x(), n.midpoint.y - carFront.y());
+        if (d < best) { best = d; start = n.id; }
+    }
+
+    struct State { std::vector<int> path; };
+    std::queue<State> q; q.push({{start}});
+    std::vector<int> bestPathIdx = {start};
+    float bestCost = std::numeric_limits<float>::infinity();
+
+    auto eval = [&](const std::vector<int>& pathIdx){
+        if (pathIdx.size() < 2) return;
+        std::vector<PathNode> path; path.reserve(pathIdx.size());
+        for (int id : pathIdx) path.push_back(nodes[id]);
+        float c = calculateCost(path);  // your cost fn :contentReference[oaicite:2]{index=2}
+        if (c < bestCost) { bestCost = c; bestPathIdx = pathIdx; }
+    };
+
+    while (!q.empty()) {
+        auto s = std::move(q.front()); q.pop();
+        eval(s.path);
+        if (s.path.size() >= maxLen) continue;
+
+        int last = s.path.back();
+        for (int nxt : adj[last]) {
+            if (std::find(s.path.begin(), s.path.end(), nxt) != s.path.end()) continue;
+            auto t = s; t.path.push_back(nxt);
+            q.push(std::move(t));
+        }
+    }
+
+    std::vector<PathNode> out; out.reserve(bestPathIdx.size());
+    for (int id : bestPathIdx) out.push_back(nodes[id]);
+    return out;
+}
+
+
+
+// Draws segments between consecutive midpoints in a path.
+void drawPathMidpoints(
+    const std::vector<PathNode>& path,
+    CGAL::Graphics_scene& scene,
+    CGAL::Color color)
+{
+    if(path.size() < 2)
+    {
+      return;
+    }
+
+    for(std::size_t i = 1; i < path.size(); i++)
+    {
+        scene.add_segment(
+            Point(path[i-1].midpoint.x, path[i-1].midpoint.y),
+            Point(path[i].midpoint.x,   path[i].midpoint.y),
+            color
+        );
+    }
 }

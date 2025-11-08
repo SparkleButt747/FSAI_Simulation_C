@@ -14,6 +14,7 @@
  */
 class PathNode {
   public:
+    int id = -1;
     Vector2 midpoint;
     FsaiConeDet first;
     FsaiConeDet second;
