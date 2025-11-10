@@ -4,19 +4,27 @@
 #include <numbers>
 #include <cmath>
 #include <cstddef>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <deque>
+#include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <random>
 #include <string>
+#include <string_view>
 #include <vector>
-#include <limits>
 
 #include <SDL.h>
 #include <yaml-cpp/yaml.h>
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 #include "imgui.h"
 #include "backends/imgui_impl_sdl2.h"
@@ -36,6 +44,7 @@
 #include "vision/detection_preview.hpp"
 #include "types.h"
 #include "World.hpp"
+#include "sim/mission_descriptor.hpp"
 #include "sim/cone_constants.hpp"
 #include "adsdv_dbc.hpp"
 #include "link.hpp"
@@ -46,6 +55,137 @@
 #include "centerline.prot.hpp"
 
 namespace {
+constexpr std::size_t kDefaultMissionIndex = 2;
+
+struct MissionOption {
+  fsai::sim::MissionDescriptor descriptor;
+  std::array<const char*, 4> tokens{};
+};
+
+const std::array<MissionOption, 4> kMissionOptions = {
+    MissionOption{fsai::sim::MissionDescriptor{fsai::sim::MissionType::kAcceleration,
+                                              "Acceleration", "acceleration"},
+                  {"acceleration", "accel", "drag", "straight"}},
+    MissionOption{fsai::sim::MissionDescriptor{fsai::sim::MissionType::kSkidpad,
+                                              "Skidpad", "skidpad"},
+                  {"skidpad", "skid", "circle", "pad"}},
+    MissionOption{fsai::sim::MissionDescriptor{fsai::sim::MissionType::kAutocross,
+                                              "Autocross", "autocross"},
+                  {"autocross", "auto", "cross", "ax"}},
+    MissionOption{fsai::sim::MissionDescriptor{fsai::sim::MissionType::kTrackdrive,
+                                              "Trackdrive", "trackdrive"},
+                  {"trackdrive", "track", "endurance", "td"}},
+};
+
+std::string ToLower(std::string text) {
+  std::transform(text.begin(), text.end(), text.begin(),
+                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  return text;
+}
+
+std::string Trim(std::string_view text) {
+  const auto begin = text.find_first_not_of(" \t\r\n");
+  if (begin == std::string_view::npos) {
+    return std::string();
+  }
+  const auto end = text.find_last_not_of(" \t\r\n");
+  return std::string(text.substr(begin, end - begin + 1));
+}
+
+const MissionOption* LookupMissionByToken(std::string_view token) {
+  const std::string normalized = ToLower(std::string(token));
+  for (const auto& option : kMissionOptions) {
+    if (normalized == option.descriptor.short_name) {
+      return &option;
+    }
+    for (const char* alias : option.tokens) {
+      if (alias != nullptr && normalized == alias) {
+        return &option;
+      }
+    }
+  }
+  return nullptr;
+}
+
+std::optional<fsai::sim::MissionDescriptor> ParseMissionDescriptor(std::string_view text) {
+  const std::string trimmed = Trim(text);
+  if (trimmed.empty()) {
+    return std::nullopt;
+  }
+
+  char* end = nullptr;
+  const long numeric = std::strtol(trimmed.c_str(), &end, 10);
+  if (end && *end == '\0' && end != trimmed.c_str()) {
+    if (numeric >= 1 && numeric <= static_cast<long>(kMissionOptions.size())) {
+      return kMissionOptions[static_cast<std::size_t>(numeric - 1)].descriptor;
+    }
+    return std::nullopt;
+  }
+
+  if (const auto* option = LookupMissionByToken(trimmed)) {
+    return option->descriptor;
+  }
+
+  return std::nullopt;
+}
+
+bool StdinIsInteractive() {
+#if defined(_WIN32)
+  return _isatty(_fileno(stdin)) != 0;
+#else
+  return ::isatty(fileno(stdin)) != 0;
+#endif
+}
+
+fsai::sim::MissionDescriptor ResolveMissionSelection(
+    const std::optional<fsai::sim::MissionDescriptor>& cli_override) {
+  if (cli_override.has_value()) {
+    return *cli_override;
+  }
+
+  const MissionOption& default_option = kMissionOptions[kDefaultMissionIndex];
+  if (!StdinIsInteractive()) {
+    fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                         "No mission specified; defaulting to %s",
+                         default_option.descriptor.name.c_str());
+    return default_option.descriptor;
+  }
+
+  std::cout << "Select a mission to simulate:" << std::endl;
+  for (std::size_t i = 0; i < kMissionOptions.size(); ++i) {
+    std::cout << "  " << (i + 1) << ") "
+              << kMissionOptions[i].descriptor.name << std::endl;
+  }
+  std::cout << "Enter choice [" << (kDefaultMissionIndex + 1) << ": "
+            << default_option.descriptor.name << "]: " << std::flush;
+
+  std::string line;
+  while (true) {
+    if (!std::getline(std::cin, line)) {
+      std::cout << std::endl
+                << "No input detected; defaulting to "
+                << default_option.descriptor.name << std::endl;
+      return default_option.descriptor;
+    }
+
+    const auto parsed = ParseMissionDescriptor(line);
+    const std::string trimmed = Trim(line);
+    if (!parsed.has_value()) {
+      if (trimmed.empty()) {
+        std::cout << default_option.descriptor.name << " selected (default)."
+                  << std::endl;
+        return default_option.descriptor;
+      }
+      std::cout << "Unrecognized mission '" << trimmed
+                << "'. Please enter a number or mission name ["
+                << (kDefaultMissionIndex + 1) << ": "
+                << default_option.descriptor.name << "]: " << std::flush;
+      continue;
+    }
+    return *parsed;
+  }
+}
+
 constexpr double kDefaultDt = 0.01;
 constexpr int kWindowWidth = 800;
 constexpr int kWindowHeight = 600;
@@ -1025,6 +1165,7 @@ int main(int argc, char* argv[]) {
   std::string sensor_config_path = kDefaultSensorConfig;
   std::optional<bool> edge_preview_override;
   std::optional<bool> detection_preview_override;
+  std::optional<fsai::sim::MissionDescriptor> mission_override;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -1049,11 +1190,25 @@ int main(int argc, char* argv[]) {
       detection_preview_override = true;
     } else if (arg == "--no-detection-preview") {
       detection_preview_override = false;
+    } else if (arg == "--mission" && i + 1 < argc) {
+      const std::string mission_value = argv[++i];
+      const auto parsed_mission = ParseMissionDescriptor(mission_value);
+      if (!parsed_mission.has_value()) {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                             "Unrecognized mission '%s'", mission_value.c_str());
+        return EXIT_FAILURE;
+      }
+      mission_override = *parsed_mission;
+    } else if (arg == "--mission") {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                           "--mission flag requires an argument");
+      return EXIT_FAILURE;
     } else if (arg == "--help") {
       fsai::sim::log::LogfToStdout(
           fsai::sim::log::Level::kInfo,
           "Usage: fsai_run [--dt seconds] [--can-if iface|udp:port] [--cmd-port p] "
-          "[--state-port p] [--sensor-config path] [--edge-preview|--no-edge-preview] [--detection-preview|--no-detection_preview]");
+          "[--state-port p] [--sensor-config path] [--mission name] "
+          "[--edge-preview|--no-edge-preview] [--detection-preview|--no-detection_preview]");
       return EXIT_SUCCESS;
     } else if (i == 1 && argc == 2) {
       dt = std::atof(arg.c_str());
@@ -1083,6 +1238,11 @@ int main(int argc, char* argv[]) {
       "Using dt = %.4f seconds, mode=%s, CAN %s (%s), cmd-port %u, state-port %u",
       dt, mode.c_str(), can_iface.c_str(), can_is_udp ? "udp" : "socketcan",
       command_port, telemetry_port);
+
+  const fsai::sim::MissionDescriptor mission =
+      ResolveMissionSelection(mission_override);
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Mission: %s",
+                       mission.name.c_str());
 
   SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(sensor_config_path);
   bool edge_preview_enabled = sensor_cfg.edge_preview_enabled;
@@ -1166,7 +1326,7 @@ int main(int argc, char* argv[]) {
       "CAN transport not wired; pending hardware integration.");
 
   World world;
-  world.init("../configs/vehicle/configDry.yaml");
+  world.init("../configs/vehicle/configDry.yaml", mission);
 
   Graphics graphics{};
   if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,

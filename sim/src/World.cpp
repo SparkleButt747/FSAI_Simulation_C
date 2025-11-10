@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <utility>
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
@@ -63,7 +64,8 @@ void World::setSvcuCommand(float throttle, float brake, float steer) {
     hasSvcuCommand_ = true;
 }
 
-void World::init(const char* yamlFilePath) {
+void World::init(const char* yamlFilePath, fsai::sim::MissionDescriptor mission) {
+    mission_ = std::move(mission);
     // Generate track data
     PathConfig pathConfig;
     int nPoints = pathConfig.resolution;
