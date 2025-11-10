@@ -222,9 +222,11 @@ int main(int argc, char* argv[])
     const Bounds baseBounds = computeTrackBounds(track, nodes, carFront);
 
     constexpr std::size_t kMaxPathLength = 20;
+    int beamWidthSetting = 12;
 
     auto recomputePath = [&]() {
-        std::vector<PathNode> best = bfsLowestCost(adjacency, nodes, carFront, kMaxPathLength);
+        const std::size_t beamWidth = static_cast<std::size_t>(std::max(1, beamWidthSetting));
+        std::vector<PathNode> best = bfsLowestCost(adjacency, nodes, carFront, kMaxPathLength, beamWidth);
         float cost = std::numeric_limits<float>::infinity();
         if (best.size() >= 2) {
             cost = calculateCost(best);
@@ -337,11 +339,12 @@ int main(int argc, char* argv[])
         }
 
         bool weightsChanged = false;
-        weightsChanged |= ImGui::SliderFloat("Angle weight", &weights.angleMax, 0.0f, 1.0f, "%.3f");
-        weightsChanged |= ImGui::SliderFloat("Width std weight", &weights.widthStd, 0.0f, 10.0f, "%.2f");
-        weightsChanged |= ImGui::SliderFloat("Spacing std weight", &weights.spacingStd, 0.0f, 10.0f, "%.2f");
-        weightsChanged |= ImGui::SliderFloat("Color weight", &weights.color, 0.0f, 10.0f, "%.2f");
-        weightsChanged |= ImGui::SliderFloat("Range weight", &weights.rangeSq, 0.0f, 5.0f, "%.3f");
+        weightsChanged |= ImGui::SliderFloat("Curvature weight", &weights.angleMax, 0.0f, 1.0f, "%.3f");
+        weightsChanged |= ImGui::SliderFloat("Width consistency", &weights.widthStd, 0.0f, 10.0f, "%.2f");
+        weightsChanged |= ImGui::SliderFloat("Spacing consistency", &weights.spacingStd, 0.0f, 10.0f, "%.2f");
+        weightsChanged |= ImGui::SliderFloat("Color penalty", &weights.color, 0.0f, 10.0f, "%.2f");
+        weightsChanged |= ImGui::SliderFloat("Progress weight", &weights.rangeSq, 0.0f, 5.0f, "%.3f");
+        bool beamChanged = ImGui::SliderInt("Beam width", &beamWidthSetting, 1, 64);
         if (ImGui::Button("Reset weights")) {
             weights = defaultCostWeights();
             weightsChanged = true;
@@ -349,6 +352,9 @@ int main(int argc, char* argv[])
         if (weightsChanged) {
             setCostWeights(weights);
             std::cout << "Cost weights updated.\n";
+            needsRecompute = true;
+        }
+        if (beamChanged) {
             needsRecompute = true;
         }
 

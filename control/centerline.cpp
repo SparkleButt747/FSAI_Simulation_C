@@ -3,11 +3,11 @@
 #include "types.h"
 
 
-#include <vector>
-#include <cmath>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <numeric>
+#include <vector>
 
 namespace {
 
@@ -55,33 +55,79 @@ float clampAngle(float angle)
 }  // namespace
 
 
-float calculateCost(std::vector<PathNode> path)
+namespace {
+
+float clampAngle(float angle)
 {
-    // discourage super-short paths
-    if(path.size() < 3) return 1e3f;
+    while (angle > static_cast<float>(M_PI)) {
+        angle -= 2.0f * static_cast<float>(M_PI);
+    }
+    while (angle < -static_cast<float>(M_PI)) {
+        angle += 2.0f * static_cast<float>(M_PI);
+    }
+    return angle;
+}
+
+}  // namespace
+
+float calculateCost(const std::vector<PathNode>& path)
+{
+    if (path.size() < 2) {
+        return std::numeric_limits<float>::infinity();
+    }
 
 
     // Tunable weights
     const CostWeights weights = getCostWeights();
 
     constexpr float SENSOR_RANGE  = 10.0f;    // meters
-    constexpr float NOMINAL_TRACK_WIDTH = 3.5f;
+    constexpr float NOMINAL_TRACK_WIDTH = 3.5f;  // see FS Driverless rules / AMZ Driverless
 
 
-    // 1) Maximum angle change between consecutive midpoints
-    float maxAngleChange = 0.0f;
+    // 1) Curvature and smoothness (AMZ Driverless Section 4.3.1 / Table 3)
+    float maxTurn = 0.0f;
+    float turnAccumSq = 0.0f;
+    std::size_t turnSamples = 0;
 
-    for(size_t i = 1; i + 1 < path.size(); i++)
-    {
-        float ang = angleBetween(path[i-1].midpoint, path[i].midpoint, path[i+1].midpoint);
-        // We want CHANGE, i.e., deviation from straight (pi == 180°). Using turning angle:
-        // Turning angle = pi - interior angle (0 for straight, larger for sharp turns).
-        float turn = static_cast<float>(M_PI) - ang;
-        if(turn > maxAngleChange)
-        {
-            maxAngleChange = turn;
+    std::vector<float> headings;
+    headings.reserve(path.size() - 1);
+
+    for (std::size_t i = 1; i < path.size(); ++i) {
+        const auto& prev = path[i - 1].midpoint;
+        const auto& next = path[i].midpoint;
+        const float dx = next.x - prev.x;
+        const float dy = next.y - prev.y;
+        if (dx == 0.0f && dy == 0.0f) {
+            headings.push_back(headings.empty() ? 0.0f : headings.back());
+            continue;
         }
+        float heading = std::atan2(dy, dx);
+        if (!headings.empty()) {
+            heading = clampAngle(headings.back() + clampAngle(heading - headings.back()));
+        }
+        headings.push_back(heading);
     }
+
+    for (std::size_t i = 1; i + 1 < path.size(); ++i) {
+        float ang = angleBetween(path[i - 1].midpoint, path[i].midpoint, path[i + 1].midpoint);
+        float turn = static_cast<float>(M_PI) - ang;
+        turn = std::max(0.0f, turn);
+        maxTurn = std::max(maxTurn, turn);
+        turnAccumSq += turn * turn;
+        ++turnSamples;
+    }
+
+    float headingStd = 0.0f;
+    if (headings.size() >= 2) {
+        headingStd = stdev(headings);
+    }
+
+    float curvatureScore = 0.0f;
+    if (turnSamples > 0) {
+        const float rmsTurn = std::sqrt(turnAccumSq / static_cast<float>(turnSamples));
+        curvatureScore = 0.6f * maxTurn + 0.4f * rmsTurn;
+    }
+    curvatureScore += 0.25f * headingStd;
 
 
     // 2) Standard deviation of track width
@@ -94,6 +140,12 @@ float calculateCost(std::vector<PathNode> path)
     }
 
     float widthStd = stdev(widths);
+    float widthMean = 0.0f;
+    if (!widths.empty()) {
+        widthMean = std::accumulate(widths.begin(), widths.end(), 0.0f) / static_cast<float>(widths.size());
+    }
+    const float widthMeanDeviation = std::abs(widthMean - NOMINAL_TRACK_WIDTH);
+    const float widthScore = 0.7f * widthStd + 0.3f * widthMeanDeviation;
 
 
     // 3) Std dev of distances between consecutive left cones and consecutive right cones
@@ -108,13 +160,25 @@ float calculateCost(std::vector<PathNode> path)
     }
 
     float spacingStd = 0.5f * (stdev(leftSpacing) + stdev(rightSpacing)); // 0.5f bc leftSpacing + rightSpacing
+    float leftMean = 0.0f;
+    float rightMean = 0.0f;
+    if (!leftSpacing.empty()) {
+        leftMean = std::accumulate(leftSpacing.begin(), leftSpacing.end(), 0.0f) /
+                   static_cast<float>(leftSpacing.size());
+    }
+    if (!rightSpacing.empty()) {
+        rightMean = std::accumulate(rightSpacing.begin(), rightSpacing.end(), 0.0f) /
+                    static_cast<float>(rightSpacing.size());
+    }
+    const float spacingAsymmetry = std::abs(leftMean - rightMean);
+    const float spacingScore = spacingStd + 0.2f * spacingAsymmetry;
 
 
     // 4) Color penalty, 0 if any color info missing, else 1 per mismatch
     int sameSide=0;
     int considered=0;
 
-    for(const auto& n : path)
+    for (const auto& n : path)
     {
         const auto a=n.first.side;
         const auto b=n.second.side;
@@ -152,11 +216,19 @@ float calculateCost(std::vector<PathNode> path)
     float rangeCost = (pathLen - SENSOR_RANGE);
     rangeCost *= rangeCost; // squared
 
+    if (path.size() < 4)
+    {
+        // Encourage the beam search to keep extending short candidates.
+        const float minUsefulLength = 0.5f * SENSOR_RANGE;
+        const float shortfall = std::max(0.0f, minUsefulLength - pathLen);
+        rangeCost += shortfall * shortfall;
+    }
+
     // Weighted sum
     const float cost =
-        weights.angleMax   * maxAngleChange +
-        weights.widthStd   * widthStd +
-        weights.spacingStd * spacingStd +
+        weights.angleMax   * curvatureScore +
+        weights.widthStd   * widthScore +
+        weights.spacingStd * spacingScore +
         weights.color      * colorPenalty +
         weights.rangeSq    * rangeCost;
 

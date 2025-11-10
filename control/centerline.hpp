@@ -68,7 +68,7 @@ std::vector<Vector2> getCenterline(
  *
  * see table 3 here: https://arxiv.org/pdf/1905.05150
  */
-float calculateCost(std::vector<PathNode> path);
+float calculateCost(const std::vector<PathNode>& path);
 
 
 struct CostWeights {
