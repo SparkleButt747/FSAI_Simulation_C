@@ -346,7 +346,7 @@ target_link_libraries(svcu_run PRIVATE fsai_sim)
 # Control prototype  [UNCHANGED]
 # ------------------------------------------------------------------------------
 add_executable(fsai_plan ${CONTROL_SOURCE})
-target_link_libraries(fsai_plan PRIVATE fsai_ctrl)
+target_link_libraries(fsai_plan PRIVATE fsai_ctrl imgui)
 add_to_cached_list( CGAL_EXECUTABLE_TARGETS fsai_plan )
 if(TARGET SDL2::SDL2)
   target_link_libraries(fsai_plan PRIVATE SDL2::SDL2)

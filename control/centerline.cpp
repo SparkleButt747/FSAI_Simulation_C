@@ -5,6 +5,37 @@
 
 #include <vector>
 #include <cmath>
+#include <algorithm>
+
+namespace {
+
+CostWeights& costWeightsStorage()
+{
+    static CostWeights weights{};
+    return weights;
+}
+
+}
+
+CostWeights defaultCostWeights()
+{
+    return CostWeights{};
+}
+
+CostWeights getCostWeights()
+{
+    return costWeightsStorage();
+}
+
+void setCostWeights(const CostWeights& weights)
+{
+    auto& storage = costWeightsStorage();
+    storage.angleMax   = std::max(0.0f, weights.angleMax);
+    storage.widthStd   = std::max(0.0f, weights.widthStd);
+    storage.spacingStd = std::max(0.0f, weights.spacingStd);
+    storage.color      = std::max(0.0f, weights.color);
+    storage.rangeSq    = std::max(0.0f, weights.rangeSq);
+}
 
 
 float calculateCost(std::vector<PathNode> path)
@@ -14,11 +45,7 @@ float calculateCost(std::vector<PathNode> path)
 
 
     // Tunable weights
-    constexpr float W_ANGLE_MAX   = 0.15f;     // radians
-    constexpr float W_WIDTH_STD   = 2.0f;     // meters
-    constexpr float W_SPACING_STD = 1.5f;     // meters
-    constexpr float W_COLOR       = 3.0f;     // unitless
-    constexpr float W_RANGE_SQ    = 0.2f;     // meters^2
+    const CostWeights weights = getCostWeights();
 
     constexpr float SENSOR_RANGE  = 10.0f;    // meters
 
@@ -111,11 +138,11 @@ float calculateCost(std::vector<PathNode> path)
 
     // Weighted sum
     const float cost =
-        W_ANGLE_MAX   * maxAngleChange +
-        W_WIDTH_STD   * widthStd +
-        W_SPACING_STD * spacingStd +
-        W_COLOR       * colorPenalty +
-        W_RANGE_SQ    * rangeCost;
+        weights.angleMax   * maxAngleChange +
+        weights.widthStd   * widthStd +
+        weights.spacingStd * spacingStd +
+        weights.color      * colorPenalty +
+        weights.rangeSq    * rangeCost;
 
     return cost;
 }
