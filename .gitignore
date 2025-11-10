@@ -5,5 +5,4 @@
 build/
 build-linux/
 venv/
-merge_into_main.sh
-sync_all_branches.sh
+git_scripts/
