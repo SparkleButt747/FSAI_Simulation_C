@@ -1,14 +1,14 @@
 #include "sim/mission/TrackCsvLoader.hpp"
 
-#include <charconv>
+#include <cerrno>
 #include <cstddef>
+#include <cstdlib>
 #include <fstream>
 #include <numbers>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <vector>
 
 namespace fsai::sim {
@@ -31,15 +31,14 @@ std::string Trim(std::string_view text) {
 }
 
 float ParseFloat(std::string_view token, std::size_t line_number) {
-  token = Trim(token);
-  if (token.empty()) {
+  const std::string trimmed = Trim(token);
+  if (trimmed.empty()) {
     throw std::runtime_error("Empty numeric field on line " + std::to_string(line_number));
   }
-  float value = 0.0f;
-  const auto* begin = token.data();
-  const auto* end = token.data() + token.size();
-  const auto result = std::from_chars(begin, end, value);
-  if (result.ec != std::errc() || result.ptr != end) {
+  char* end_ptr = nullptr;
+  errno = 0;
+  const float value = std::strtof(trimmed.c_str(), &end_ptr);
+  if (end_ptr != trimmed.c_str() + trimmed.size() || errno == ERANGE) {
     throw std::runtime_error("Failed to parse float on line " + std::to_string(line_number));
   }
   return value;
