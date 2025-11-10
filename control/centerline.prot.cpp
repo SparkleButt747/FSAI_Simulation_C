@@ -2,7 +2,9 @@
 
 #include "centerline.prot.hpp"
 #include "centerline.hpp"
-#include "types.h"   
+#include "types.h"
+
+#include <algorithm>
 
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
@@ -306,8 +308,8 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
 }
 
 
-// --- Lowest-cost BFS-style enumerator over midpoint graph ---
-// We enumerate simple paths (no repeated nodes) up to maxLen.
+// --- Beam-search enumerator over midpoint graph ---
+// We enumerate simple paths (no repeated nodes) up to maxLen using a beam search.
 // For each partial path with >= 2 nodes we compute calculateCost(path)
 // and keep the best one seen. Start node is chosen as the node whose
 // midpoint is closest to carFront.
@@ -316,7 +318,8 @@ std::vector<PathNode> bfsLowestCost(
     const std::vector<std::vector<int>>& adj,
     const std::vector<PathNode>& nodes,
     const Point& carFront,
-    std::size_t maxLen
+    std::size_t maxLen,
+    std::size_t beamWidth
 )
 {
     if (nodes.empty()) return {};
@@ -328,35 +331,84 @@ std::vector<PathNode> bfsLowestCost(
         if (d < best) { best = d; start = n.id; }
     }
 
-    struct State { std::vector<int> path; };
-    std::queue<State> q; q.push({{start}});
+    const std::size_t effectiveBeamWidth = std::max<std::size_t>(1, beamWidth);
+
+    struct BeamState {
+        std::vector<int> path;
+        float score;
+    };
+
     std::vector<int> bestPathIdx = {start};
     float bestCost = std::numeric_limits<float>::infinity();
 
-    auto eval = [&](const std::vector<int>& pathIdx){
-        if (pathIdx.size() < 2) return;
-        std::vector<PathNode> path; path.reserve(pathIdx.size());
-        for (int id : pathIdx) path.push_back(nodes[id]);
-        float c = calculateCost(path);  // your cost fn :contentReference[oaicite:2]{index=2}
-        if (c < bestCost) { bestCost = c; bestPathIdx = pathIdx; }
+    auto toNodes = [&](const std::vector<int>& pathIdx) {
+        std::vector<PathNode> path;
+        path.reserve(pathIdx.size());
+        for (int id : pathIdx) {
+            path.push_back(nodes[id]);
+        }
+        return path;
     };
 
-    while (!q.empty()) {
-        auto s = std::move(q.front()); q.pop();
-        eval(s.path);
-        if (s.path.size() >= maxLen) continue;
-
-        int last = s.path.back();
-        for (int nxt : adj[last]) {
-            if (std::find(s.path.begin(), s.path.end(), nxt) != s.path.end()) continue;
-            auto t = s; t.path.push_back(nxt);
-            q.push(std::move(t));
+    auto evaluatePath = [&](const std::vector<int>& pathIdx) {
+        if (pathIdx.size() < 2) {
+            return std::numeric_limits<float>::infinity();
         }
+        auto path = toNodes(pathIdx);
+        float cost = calculateCost(path);
+        if (cost < bestCost) {
+            bestCost = cost;
+            bestPathIdx = pathIdx;
+        }
+        // Encourage longer paths when costs tie.
+        return cost - static_cast<float>(pathIdx.size()) * 1e-3f;
+    };
+
+    std::vector<BeamState> frontier;
+    frontier.push_back({{start}, std::numeric_limits<float>::infinity()});
+
+    while (!frontier.empty()) {
+        std::vector<BeamState> expanded;
+        expanded.reserve(frontier.size() * 2);
+
+        for (auto& state : frontier) {
+            if (state.path.size() >= maxLen) {
+                continue;
+            }
+
+            int last = state.path.back();
+            for (int next : adj[last]) {
+                if (std::find(state.path.begin(), state.path.end(), next) != state.path.end()) {
+                    continue;
+                }
+                auto nextPath = state.path;
+                nextPath.push_back(next);
+                float score = evaluatePath(nextPath);
+                expanded.push_back({std::move(nextPath), score});
+            }
+        }
+
+        if (expanded.empty()) {
+            break;
+        }
+
+        std::sort(expanded.begin(), expanded.end(), [](const BeamState& a, const BeamState& b) {
+            return a.score < b.score;
+        });
+
+        if (expanded.size() > effectiveBeamWidth) {
+            expanded.resize(effectiveBeamWidth);
+        }
+
+        frontier = std::move(expanded);
     }
 
-    std::vector<PathNode> out; out.reserve(bestPathIdx.size());
-    for (int id : bestPathIdx) out.push_back(nodes[id]);
-    return out;
+    if (bestPathIdx.size() < 2) {
+        return {nodes[start]};
+    }
+
+    auto bestPath = toNodes(bestPathIdx);
+    return bestPath;
 }
 
 
