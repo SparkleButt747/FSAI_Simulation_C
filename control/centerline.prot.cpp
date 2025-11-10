@@ -372,6 +372,9 @@ std::vector<PathNode> bfsLowestCost(
         expanded.reserve(frontier.size() * 2);
 
         for (auto& state : frontier) {
+            // Update best path with current state if valid
+            evaluatePath(state.path);
+
             if (state.path.size() >= maxLen) {
                 continue;
             }
