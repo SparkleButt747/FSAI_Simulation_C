@@ -221,7 +221,7 @@ int main(int argc, char* argv[])
 
     const Bounds baseBounds = computeTrackBounds(track, nodes, carFront);
 
-    constexpr std::size_t kMaxPathLength = 20;
+    constexpr std::size_t kMaxPathLength = 30;
     int beamWidthSetting = 12;
 
     auto recomputePath = [&]() {

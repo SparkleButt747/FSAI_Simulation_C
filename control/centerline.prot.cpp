@@ -67,6 +67,8 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         auto it2 = coneToSide.find(p2);
         d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
 
+        if (d1.side == d2.side and d1.side != FSAI_CONE_UNKNOWN) continue;
+
         node.first  = d1;
         node.second = d2;
 

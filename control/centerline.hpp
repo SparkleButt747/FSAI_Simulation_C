@@ -72,11 +72,11 @@ float calculateCost(const std::vector<PathNode>& path);
 
 
 struct CostWeights {
-    float angleMax = 0.15f;
-    float widthStd = 2.0f;
-    float spacingStd = 1.5f;
-    float color = 3.0f;
-    float rangeSq = 0.2f;
+    float angleMax = 0.441f;
+    float widthStd = 1.6f;
+    float spacingStd = 0.0f;
+    float color = 10.0f;
+    float rangeSq = 5.0f;
 };
 
 CostWeights defaultCostWeights();

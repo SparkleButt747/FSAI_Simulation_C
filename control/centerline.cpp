@@ -39,21 +39,6 @@ void setCostWeights(const CostWeights& weights)
     storage.rangeSq    = std::max(0.0f, weights.rangeSq);
 }
 
-namespace {
-
-float clampAngle(float angle)
-{
-    while (angle > static_cast<float>(M_PI)) {
-        angle -= 2.0f * static_cast<float>(M_PI);
-    }
-    while (angle < -static_cast<float>(M_PI)) {
-        angle += 2.0f * static_cast<float>(M_PI);
-    }
-    return angle;
-}
-
-}  // namespace
-
 
 namespace {
 
