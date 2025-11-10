@@ -5,6 +5,8 @@
 #include "types.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
@@ -311,89 +313,186 @@ std::vector<PathNode> bfsLowestCost(
     const std::vector<std::vector<int>>& adj,
     const std::vector<PathNode>& nodes,
     const Point& carFront,
-    std::size_t maxLen
+    std::size_t maxLen,
+    std::size_t beamWidth
 )
 {
-    if(nodes.empty()||adj.empty()||maxLen==0)
+    if (nodes.empty() || adj.empty() || maxLen == 0 || beamWidth == 0)
     {
         return {};
-    }    // pick start = node closest to carFront (simple, deterministic)
-    int start=0;
-    double bestD2=std::numeric_limits<double>::infinity();
-    for(std::size_t i=0;i<nodes.size();++i)
-    {
-        double dx=nodes[i].midpoint.x-carFront.x();
-        double dy=nodes[i].midpoint.y-carFront.y();
-        double d2=dx*dx+dy*dy;
-        if(d2<bestD2)
-        {
-            bestD2=d2;
-            start=(int)i;
-        }
-    }    const int V=(int)adj.size();
-    std::vector<bool> visited((std::size_t)V,false);
-    std::vector<int> parent((std::size_t)V,-1);
-    std::vector<int> depth((std::size_t)V,-1);    std::queue<int> q;
-    visited[(std::size_t)start]=true;
-    depth[(std::size_t)start]=0;
-    q.push(start);    std::vector<int> endsAtTarget;
-    int deepestDepth=0;
-    std::vector<int> endsAtDeepest={start};    while(!q.empty())
-    {
-        int cur=q.front();
-        q.pop();        if(depth[(std::size_t)cur]>deepestDepth)
-        {
-            deepestDepth=depth[(std::size_t)cur];
-            endsAtDeepest.clear();
-            endsAtDeepest.push_back(cur);
-        }
-        else if(depth[(std::size_t)cur]==deepestDepth)
-        {
-            endsAtDeepest.push_back(cur);
-        }        if((std::size_t)depth[(std::size_t)cur]==maxLen-1)
-        {
-            endsAtTarget.push_back(cur);
-            continue; // do not expand beyond target depth
-        }        for(int nb:adj[(std::size_t)cur])
-        {
-            if(nb<0||nb>=V) continue;
-            if(!visited[(std::size_t)nb])
-            {
-                visited[(std::size_t)nb]=true;
-                parent[(std::size_t)nb]=cur;
-                depth[(std::size_t)nb]=depth[(std::size_t)cur]+1;
-                q.push(nb);
-            }
-        }
-    }    auto buildPath=[&](int end)
-    {
-        std::vector<int> ids;
-        for(int v=end; v!=-1; v=parent[(std::size_t)v]) ids.push_back(v);
-        std::reverse(ids.begin(), ids.end());
+    }
+
+    auto buildPathFromIds = [&](const std::vector<int>& ids) {
         std::vector<PathNode> path;
         path.reserve(ids.size());
-        for(int id:ids) path.push_back(nodes[(std::size_t)id]);
-        return path;
-    };    auto pickBestByCost=[&](const std::vector<int>& ends)->std::vector<PathNode>
-    {
-        float bestCost=std::numeric_limits<float>::infinity();
-        std::vector<PathNode> bestPath;
-        for(int e:ends)
+        for (int id : ids)
         {
-            auto p=buildPath(e);
-            float c=calculateCost(p);
-            if(c<bestCost)
+            if (id < 0 || static_cast<std::size_t>(id) >= nodes.size())
             {
-                bestCost=c;
-                bestPath=std::move(p);
+                continue;
+            }
+            path.push_back(nodes[static_cast<std::size_t>(id)]);
+        }
+        return path;
+    };
+
+    auto evaluate = [&](const std::vector<int>& ids) {
+        if (ids.size() < 2)
+        {
+            return 0.0f;
+        }
+        const auto path = buildPathFromIds(ids);
+        return calculateCost(path);
+    };
+
+    // pick start = node closest to carFront (simple, deterministic)
+    int start = 0;
+    double bestD2 = std::numeric_limits<double>::infinity();
+    for (std::size_t i = 0; i < nodes.size(); ++i)
+    {
+        const double dx = nodes[i].midpoint.x - carFront.x();
+        const double dy = nodes[i].midpoint.y - carFront.y();
+        const double d2 = dx * dx + dy * dy;
+        if (d2 < bestD2)
+        {
+            bestD2 = d2;
+            start = static_cast<int>(i);
+        }
+    }
+
+    struct Candidate
+    {
+        std::vector<int> indices;
+        float cost;
+    };
+
+    std::vector<Candidate> beam;
+    beam.push_back(Candidate{{start}, 0.0f});
+
+    Candidate bestCandidate = beam.front();
+    float bestCost = std::numeric_limits<float>::infinity();
+
+    auto updateBest = [&](const Candidate& candidate) {
+        if (candidate.indices.size() < 2)
+        {
+            return;
+        }
+        if (!std::isfinite(candidate.cost))
+        {
+            return;
+        }
+        if (candidate.cost < bestCost ||
+            (candidate.cost == bestCost && candidate.indices.size() > bestCandidate.indices.size()))
+        {
+            bestCost = candidate.cost;
+            bestCandidate = candidate;
+        }
+    };
+
+    for (std::size_t depth = 0; depth < maxLen && !beam.empty(); ++depth)
+    {
+        std::vector<Candidate> next;
+        bool extendedAny = false;
+
+        for (const Candidate& candidate : beam)
+        {
+            if (candidate.indices.size() >= maxLen)
+            {
+                updateBest(candidate);
+                next.push_back(candidate);
+                continue;
+            }
+
+            const int last = candidate.indices.back();
+            bool extendedCurrent = false;
+
+            if (last >= 0 && static_cast<std::size_t>(last) < adj.size())
+            {
+                for (int nb : adj[static_cast<std::size_t>(last)])
+                {
+                    if (nb < 0 || static_cast<std::size_t>(nb) >= nodes.size())
+                    {
+                        continue;
+                    }
+
+                    // avoid loops by preventing revisiting a node already on the path
+                    if (std::find(candidate.indices.begin(), candidate.indices.end(), nb) != candidate.indices.end())
+                    {
+                        continue;
+                    }
+
+                    std::vector<int> indices = candidate.indices;
+                    indices.push_back(nb);
+                    const float score = evaluate(indices);
+                    Candidate expanded{std::move(indices), score};
+                    updateBest(expanded);
+                    next.push_back(std::move(expanded));
+                    extendedCurrent = true;
+                    extendedAny = true;
+                }
+            }
+
+            if (!extendedCurrent)
+            {
+                updateBest(candidate);
+                next.push_back(candidate);
             }
         }
-        return bestPath;
-    };    if(!endsAtTarget.empty())
+
+        if (!extendedAny)
+        {
+            break;
+        }
+
+        std::sort(next.begin(), next.end(), [](const Candidate& a, const Candidate& b) {
+            const bool aFinite = std::isfinite(a.cost);
+            const bool bFinite = std::isfinite(b.cost);
+            if (aFinite != bFinite)
+            {
+                return aFinite;
+            }
+            if (a.cost == b.cost)
+            {
+                return a.indices.size() > b.indices.size();
+            }
+            return a.cost < b.cost;
+        });
+
+        if (next.size() > beamWidth)
+        {
+            next.resize(beamWidth);
+        }
+
+        beam = std::move(next);
+    }
+
+    if (bestCandidate.indices.size() < 2)
     {
-        return pickBestByCost(endsAtTarget);
-    }    // no node at desired length; choose the best among the deepest reached
-    return pickBestByCost(endsAtDeepest);
+        for (const Candidate& candidate : beam)
+        {
+            if (candidate.indices.size() < 2)
+            {
+                continue;
+            }
+            if (!std::isfinite(candidate.cost))
+            {
+                continue;
+            }
+            if (candidate.cost < bestCost ||
+                (candidate.cost == bestCost && candidate.indices.size() > bestCandidate.indices.size()))
+            {
+                bestCost = candidate.cost;
+                bestCandidate = candidate;
+            }
+        }
+    }
+
+    if (bestCandidate.indices.size() < 2)
+    {
+        return {};
+    }
+
+    return buildPathFromIds(bestCandidate.indices);
 }
 
 
