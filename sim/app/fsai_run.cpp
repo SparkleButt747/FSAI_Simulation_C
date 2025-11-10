@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <deque>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -44,8 +45,9 @@
 #include "vision/detection_preview.hpp"
 #include "types.h"
 #include "World.hpp"
-#include "sim/mission_descriptor.hpp"
 #include "sim/cone_constants.hpp"
+#include "sim/mission/MissionDefinition.hpp"
+#include "sim/mission/TrackCsvLoader.hpp"
 #include "adsdv_dbc.hpp"
 #include "link.hpp"
 #include "can_link.hpp"
@@ -184,6 +186,47 @@ fsai::sim::MissionDescriptor ResolveMissionSelection(
     }
     return *parsed;
   }
+}
+
+fsai::sim::MissionDefinition BuildMissionDefinition(
+    const fsai::sim::MissionDescriptor& descriptor) {
+  fsai::sim::MissionDefinition definition;
+  definition.descriptor = descriptor;
+
+  switch (descriptor.type) {
+    case fsai::sim::MissionType::kAcceleration: {
+      const std::filesystem::path csv_path{"../configs/tracks/acceleration.csv"};
+      definition.track =
+          fsai::sim::TrackData::FromTrackResult(fsai::sim::LoadTrackFromCsv(csv_path));
+      definition.targetLaps = 1;
+      definition.allowRegeneration = false;
+      definition.trackSource = fsai::sim::TrackSource::kCsv;
+      break;
+    }
+    case fsai::sim::MissionType::kSkidpad: {
+      const std::filesystem::path csv_path{"../configs/tracks/skidpad.csv"};
+      definition.track =
+          fsai::sim::TrackData::FromTrackResult(fsai::sim::LoadTrackFromCsv(csv_path));
+      definition.targetLaps = 4;
+      definition.allowRegeneration = false;
+      definition.trackSource = fsai::sim::TrackSource::kCsv;
+      break;
+    }
+    case fsai::sim::MissionType::kAutocross: {
+      definition.targetLaps = 1;
+      definition.allowRegeneration = true;
+      definition.trackSource = fsai::sim::TrackSource::kRandom;
+      break;
+    }
+    case fsai::sim::MissionType::kTrackdrive: {
+      definition.targetLaps = 10;
+      definition.allowRegeneration = true;
+      definition.trackSource = fsai::sim::TrackSource::kRandom;
+      break;
+    }
+  }
+
+  return definition;
 }
 
 constexpr double kDefaultDt = 0.01;
@@ -1244,6 +1287,15 @@ int main(int argc, char* argv[]) {
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Mission: %s",
                        mission.name.c_str());
 
+  const fsai::sim::MissionDefinition mission_definition =
+      BuildMissionDefinition(mission);
+  const char* track_source =
+      mission_definition.trackSource == fsai::sim::TrackSource::kCsv ? "CSV" : "Random";
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                       "Track source: %s, target laps: %zu, regeneration %s",
+                       track_source, mission_definition.targetLaps,
+                       mission_definition.allowRegeneration ? "enabled" : "disabled");
+
   SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(sensor_config_path);
   bool edge_preview_enabled = sensor_cfg.edge_preview_enabled;
   if (edge_preview_override.has_value()) {
@@ -1326,7 +1378,7 @@ int main(int argc, char* argv[]) {
       "CAN transport not wired; pending hardware integration.");
 
   World world;
-  world.init("../configs/vehicle/configDry.yaml", mission);
+  world.init("../configs/vehicle/configDry.yaml", mission_definition);
 
   Graphics graphics{};
   if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,
