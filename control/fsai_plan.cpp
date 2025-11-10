@@ -236,6 +236,10 @@ int main(int argc, char* argv[])
 
     auto [bestPath, bestCost] = recomputePath(beamWidth);
 
+#if defined(_WIN32)
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
+#endif
+
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
         return EXIT_FAILURE;
@@ -346,7 +350,34 @@ int main(int argc, char* argv[])
         drawCarFront(renderer, carFront, bounds, renderWidth, renderHeight, kViewMargin);
 
         ImGui::Render();
+
+        const ImGuiIO& frameIo = ImGui::GetIO();
+        float previousScaleX = 1.0f;
+        float previousScaleY = 1.0f;
+        SDL_RenderGetScale(renderer, &previousScaleX, &previousScaleY);
+
+        bool applyScaleCorrection = false;
+        float correctedScaleX = previousScaleX;
+        float correctedScaleY = previousScaleY;
+        if (frameIo.DisplayFramebufferScale.x > 0.0f && frameIo.DisplayFramebufferScale.x < 1.0f) {
+            correctedScaleX = previousScaleX / frameIo.DisplayFramebufferScale.x;
+            applyScaleCorrection = true;
+        }
+        if (frameIo.DisplayFramebufferScale.y > 0.0f && frameIo.DisplayFramebufferScale.y < 1.0f) {
+            correctedScaleY = previousScaleY / frameIo.DisplayFramebufferScale.y;
+            applyScaleCorrection = true;
+        }
+
+        if (applyScaleCorrection) {
+            SDL_RenderSetScale(renderer, correctedScaleX, correctedScaleY);
+        }
+
         ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer);
+
+        if (applyScaleCorrection) {
+            SDL_RenderSetScale(renderer, previousScaleX, previousScaleY);
+        }
+
         SDL_RenderPresent(renderer);
     }
 
