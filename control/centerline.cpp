@@ -41,7 +41,7 @@ void setCostWeights(const CostWeights& weights)
 float calculateCost(std::vector<PathNode> path)
 {
     // discourage super-short paths
-    if(path.size() < 8) return 1e3f;
+    if(path.size() < 2) return 1e3f;
 
 
     // Tunable weights
@@ -100,15 +100,14 @@ float calculateCost(std::vector<PathNode> path)
     {
         if(n.first.side == FSAI_CONE_UNKNOWN or n.second.side == FSAI_CONE_UNKNOWN)
         {
-            anyUnknown = true;
-            break;
+            //anyUnknown = true;
+            //break;
+            continue;
         }
         
-        if(n.first.side  != FSAI_CONE_LEFT)
-        {
-            mismatches++;
-        }
-        if(n.second.side != FSAI_CONE_RIGHT)
+        if(!((n.first.side  == FSAI_CONE_LEFT and n.second.side != FSAI_CONE_RIGHT) or
+             (n.first.side  == FSAI_CONE_RIGHT and n.second.side != FSAI_CONE_LEFT))
+        )
         {
             mismatches++;
         }
