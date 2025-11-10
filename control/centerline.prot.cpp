@@ -307,111 +307,93 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
     return edges;
 }
 
-
-// --- Beam-search enumerator over midpoint graph ---
-// We enumerate simple paths (no repeated nodes) up to maxLen using a beam search.
-// For each partial path with >= 2 nodes we compute calculateCost(path)
-// and keep the best one seen. Start node is chosen as the node whose
-// midpoint is closest to carFront.
-// centerline.prot.cpp
 std::vector<PathNode> bfsLowestCost(
     const std::vector<std::vector<int>>& adj,
     const std::vector<PathNode>& nodes,
     const Point& carFront,
-    std::size_t maxLen,
-    std::size_t beamWidth
+    std::size_t maxLen
 )
 {
-    if (nodes.empty()) return {};
-
-    // pick start (same logic as above)
-    int start = 0; double best = std::numeric_limits<double>::infinity();
-    for (auto& n : nodes) {
-        double d = std::hypot(n.midpoint.x - carFront.x(), n.midpoint.y - carFront.y());
-        if (d < best) { best = d; start = n.id; }
-    }
-
-    const std::size_t effectiveBeamWidth = std::max<std::size_t>(1, beamWidth);
-
-    struct BeamState {
-        std::vector<int> path;
-        float score;
-    };
-
-    std::vector<int> bestPathIdx = {start};
-    float bestCost = std::numeric_limits<float>::infinity();
-
-    auto toNodes = [&](const std::vector<int>& pathIdx) {
+    if(nodes.empty()||adj.empty()||maxLen==0)
+    {
+        return {};
+    }    // pick start = node closest to carFront (simple, deterministic)
+    int start=0;
+    double bestD2=std::numeric_limits<double>::infinity();
+    for(std::size_t i=0;i<nodes.size();++i)
+    {
+        double dx=nodes[i].midpoint.x-carFront.x();
+        double dy=nodes[i].midpoint.y-carFront.y();
+        double d2=dx*dx+dy*dy;
+        if(d2<bestD2)
+        {
+            bestD2=d2;
+            start=(int)i;
+        }
+    }    const int V=(int)adj.size();
+    std::vector<bool> visited((std::size_t)V,false);
+    std::vector<int> parent((std::size_t)V,-1);
+    std::vector<int> depth((std::size_t)V,-1);    std::queue<int> q;
+    visited[(std::size_t)start]=true;
+    depth[(std::size_t)start]=0;
+    q.push(start);    std::vector<int> endsAtTarget;
+    int deepestDepth=0;
+    std::vector<int> endsAtDeepest={start};    while(!q.empty())
+    {
+        int cur=q.front();
+        q.pop();        if(depth[(std::size_t)cur]>deepestDepth)
+        {
+            deepestDepth=depth[(std::size_t)cur];
+            endsAtDeepest.clear();
+            endsAtDeepest.push_back(cur);
+        }
+        else if(depth[(std::size_t)cur]==deepestDepth)
+        {
+            endsAtDeepest.push_back(cur);
+        }        if((std::size_t)depth[(std::size_t)cur]==maxLen-1)
+        {
+            endsAtTarget.push_back(cur);
+            continue; // do not expand beyond target depth
+        }        for(int nb:adj[(std::size_t)cur])
+        {
+            if(nb<0||nb>=V) continue;
+            if(!visited[(std::size_t)nb])
+            {
+                visited[(std::size_t)nb]=true;
+                parent[(std::size_t)nb]=cur;
+                depth[(std::size_t)nb]=depth[(std::size_t)cur]+1;
+                q.push(nb);
+            }
+        }
+    }    auto buildPath=[&](int end)
+    {
+        std::vector<int> ids;
+        for(int v=end; v!=-1; v=parent[(std::size_t)v]) ids.push_back(v);
+        std::reverse(ids.begin(), ids.end());
         std::vector<PathNode> path;
-        path.reserve(pathIdx.size());
-        for (int id : pathIdx) {
-            path.push_back(nodes[id]);
-        }
+        path.reserve(ids.size());
+        for(int id:ids) path.push_back(nodes[(std::size_t)id]);
         return path;
-    };
-
-    auto evaluatePath = [&](const std::vector<int>& pathIdx) {
-        if (pathIdx.size() < 2) {
-            return std::numeric_limits<float>::infinity();
-        }
-        auto path = toNodes(pathIdx);
-        float cost = calculateCost(path);
-        if (cost < bestCost) {
-            bestCost = cost;
-            bestPathIdx = pathIdx;
-        }
-        // Encourage longer paths when costs tie.
-        return cost - static_cast<float>(pathIdx.size()) * 1e-3f;
-    };
-
-    std::vector<BeamState> frontier;
-    frontier.push_back({{start}, std::numeric_limits<float>::infinity()});
-
-    while (!frontier.empty()) {
-        std::vector<BeamState> expanded;
-        expanded.reserve(frontier.size() * 2);
-
-        for (auto& state : frontier) {
-            // Update best path with current state if valid
-            evaluatePath(state.path);
-
-            if (state.path.size() >= maxLen) {
-                continue;
-            }
-
-            int last = state.path.back();
-            for (int next : adj[last]) {
-                if (std::find(state.path.begin(), state.path.end(), next) != state.path.end()) {
-                    continue;
-                }
-                auto nextPath = state.path;
-                nextPath.push_back(next);
-                float score = evaluatePath(nextPath);
-                expanded.push_back({std::move(nextPath), score});
+    };    auto pickBestByCost=[&](const std::vector<int>& ends)->std::vector<PathNode>
+    {
+        float bestCost=std::numeric_limits<float>::infinity();
+        std::vector<PathNode> bestPath;
+        for(int e:ends)
+        {
+            auto p=buildPath(e);
+            float c=calculateCost(p);
+            if(c<bestCost)
+            {
+                bestCost=c;
+                bestPath=std::move(p);
             }
         }
-
-        if (expanded.empty()) {
-            break;
-        }
-
-        std::sort(expanded.begin(), expanded.end(), [](const BeamState& a, const BeamState& b) {
-            return a.score < b.score;
-        });
-
-        if (expanded.size() > effectiveBeamWidth) {
-            expanded.resize(effectiveBeamWidth);
-        }
-
-        frontier = std::move(expanded);
-    }
-
-    if (bestPathIdx.size() < 2) {
-        return {nodes[start]};
-    }
-
-    auto bestPath = toNodes(bestPathIdx);
-    return bestPath;
+        return bestPath;
+    };    if(!endsAtTarget.empty())
+    {
+        return pickBestByCost(endsAtTarget);
+    }    // no node at desired length; choose the best among the deepest reached
+    return pickBestByCost(endsAtDeepest);
 }
 
 

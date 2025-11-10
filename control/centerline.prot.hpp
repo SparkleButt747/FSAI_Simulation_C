@@ -116,8 +116,7 @@ std::vector<PathNode> bfsLowestCost(
   const std::vector<std::vector<int>>& adj,
   const std::vector<PathNode>& nodes,
   const Point& carFront,
-  std::size_t maxLen,
-  std::size_t beamWidth = 10
+  std::size_t maxLen
 );
 
 // Draw a path (by connecting PathNode midpoints).

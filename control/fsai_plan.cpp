@@ -222,11 +222,9 @@ int main(int argc, char* argv[])
     const Bounds baseBounds = computeTrackBounds(track, nodes, carFront);
 
     constexpr std::size_t kMaxPathLength = 10;
-    int beamWidth = 10;
 
-    auto recomputePath = [&](int beam) {
-        const std::size_t width = static_cast<std::size_t>(std::max(1, beam));
-        std::vector<PathNode> best = bfsLowestCost(adjacency, nodes, carFront, kMaxPathLength, width);
+    auto recomputePath = [&]() {
+        std::vector<PathNode> best = bfsLowestCost(adjacency, nodes, carFront, kMaxPathLength);
         float cost = std::numeric_limits<float>::infinity();
         if (best.size() >= 2) {
             cost = calculateCost(best);
@@ -234,7 +232,7 @@ int main(int argc, char* argv[])
         return std::make_pair(std::move(best), cost);
     };
 
-    auto [bestPath, bestCost] = recomputePath(beamWidth);
+    auto [bestPath, bestCost] = recomputePath();
 
 #if defined(_WIN32)
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
@@ -310,7 +308,7 @@ int main(int argc, char* argv[])
             if (event.type == SDL_WINDOWEVENT &&
                 (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
                  event.window.event == SDL_WINDOWEVENT_RESIZED ||
-                 event.window.event == SDL_WINDOWEVENT_DPICHANGED)) {
+                 event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)) {
                 updateRendererScale(window, renderer);
             }
             if (event.type == SDL_QUIT) {
@@ -338,10 +336,6 @@ int main(int argc, char* argv[])
             ImGui::Text("Path cost: n/a");
         }
 
-        if (ImGui::SliderInt("Beam width", &beamWidth, 1, 50)) {
-            needsRecompute = true;
-        }
-
         bool weightsChanged = false;
         weightsChanged |= ImGui::SliderFloat("Angle weight", &weights.angleMax, 0.0f, 1.0f, "%.3f");
         weightsChanged |= ImGui::SliderFloat("Width std weight", &weights.widthStd, 0.0f, 10.0f, "%.2f");
@@ -354,13 +348,14 @@ int main(int argc, char* argv[])
         }
         if (weightsChanged) {
             setCostWeights(weights);
+            std::cout << "Cost weights updated.\n";
             needsRecompute = true;
         }
 
         ImGui::End();
 
         if (needsRecompute) {
-            std::tie(bestPath, bestCost) = recomputePath(beamWidth);
+            std::tie(bestPath, bestCost) = recomputePath();
         }
 
         int renderWidth = 0;
