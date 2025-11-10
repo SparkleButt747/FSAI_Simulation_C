@@ -79,6 +79,7 @@ void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission)
     }
 
     configureTrackState(mission_.track);
+    configureMissionRuntime();
 
     totalTime = 0.0;
     totalDistance = 0.0;
@@ -111,7 +112,11 @@ void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission)
 
 void World::update(double dt) {
     deltaTime = dt;
-    totalTime += dt;
+
+    if (!missionState_.mission_complete()) {
+        missionState_.Update(dt);
+        totalTime += dt;
+    }
 
     if (checkpointPositions.empty()) {
         std::printf("No checkpoints available. Resetting simulation.\n");
@@ -119,11 +124,15 @@ void World::update(double dt) {
         return;
     }
 
-    if (hasSvcuCommand_) {
+    if (hasSvcuCommand_ && missionState_.run_status() == fsai::sim::MissionRunStatus::kRunning) {
         throttleInput = lastSvcuThrottle_;
         brakeInput = lastSvcuBrake_;
         steeringAngle = lastSvcuSteer_;
     }
+
+    hasSvcuCommand_ = false;
+
+    handleMissionCompletion();
 
     const double netAcc = static_cast<double>(throttleInput - brakeInput);
     carInput.acc = netAcc;
@@ -135,15 +144,19 @@ void World::update(double dt) {
     carTransform.position.z = static_cast<float>(carState.position.y());
     carTransform.yaw = static_cast<float>(carState.yaw);
 
-    totalDistance += carState.velocity.x() * dt;
+    const Eigen::Vector2d velocity2d(carState.velocity.x(), carState.velocity.y());
+    if (!missionState_.mission_complete()) {
+        totalDistance += velocity2d.norm() * dt;
+    }
 
     wheelsInfo_ = carModel.getWheelSpeeds(carState, carInput);
-
-    hasSvcuCommand_ = false;
 
     if (!detectCollisions()) {
         return;
     }
+
+    updateStraightLineProgress();
+    handleMissionCompletion();
 
     telemetry();
 }
@@ -159,15 +172,20 @@ bool World::detectCollisions() {
     dx = carTransform.position.x - lastCheckpoint.x;
     dz = carTransform.position.z - lastCheckpoint.z;
     float distToLast = std::sqrt(dx * dx + dz * dz);
-    if (distToLast < config.lapCompletionThreshold) {
+    const bool insideNow = distToLast < config.lapCompletionThreshold;
+    if (insideNow && !insideLastCheckpoint_ && !missionState_.mission_complete()) {
+        missionState_.RegisterLap(totalTime, totalDistance);
+        lapCount = static_cast<int>(missionState_.completed_laps());
         if (lapCount > 0) {
             std::printf("Lap Completed. Time: %.2f s, Distance: %.2f, Lap: %d\n",
                        totalTime, totalDistance, lapCount);
         }
-        lapCount++;
-        totalTime = 0.0;
-        totalDistance = 0.0;
+        if (!missionState_.mission_complete()) {
+            totalTime = 0.0;
+            totalDistance = 0.0;
+        }
     }
+    insideLastCheckpoint_ = insideNow;
 
     for (const auto& cone : startCones) {
         float cdx = carTransform.position.x - cone.position.x;
@@ -208,7 +226,8 @@ bool World::detectCollisions() {
 
 void World::telemetry() const {
     Telemetry_Update(carState, carTransform,
-                     fsai_clock_now(), totalTime, totalDistance, lapCount);
+                     fsai_clock_now(), totalTime, totalDistance, lapCount,
+                     missionState_);
 }
 
 void World::configureTrackState(const fsai::sim::TrackData& track) {
@@ -234,6 +253,27 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
         lastCheckpoint = transformToVector3(track.checkpoints.back());
     } else {
         lastCheckpoint = {0.0f, 0.0f, 0.0f};
+    }
+}
+
+void World::configureMissionRuntime() {
+    missionState_.Reset(mission_);
+    straightTracker_ = {};
+    straightTracker_.valid = false;
+
+    if (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration && checkpointPositions.size() >= 2) {
+        const Vector3& start = checkpointPositions.front();
+        const Vector3& finish = checkpointPositions.back();
+        const Eigen::Vector2d start2(static_cast<double>(start.x), static_cast<double>(start.z));
+        const Eigen::Vector2d finish2(static_cast<double>(finish.x), static_cast<double>(finish.z));
+        const Eigen::Vector2d delta = finish2 - start2;
+        const double length = delta.norm();
+        if (length > 1e-3) {
+            straightTracker_.valid = true;
+            straightTracker_.origin = start2;
+            straightTracker_.direction = delta / length;
+            straightTracker_.length = length;
+        }
     }
 }
 
@@ -272,6 +312,30 @@ void World::initializeVehiclePose() {
     carTransform.yaw = static_cast<float>(carState.yaw);
 }
 
+void World::updateStraightLineProgress() {
+    if (!straightTracker_.valid) {
+        return;
+    }
+    const Eigen::Vector2d position(static_cast<double>(carTransform.position.x),
+                                   static_cast<double>(carTransform.position.z));
+    const Eigen::Vector2d offset = position - straightTracker_.origin;
+    const double projection = offset.dot(straightTracker_.direction);
+    const double clamped = std::clamp(projection, 0.0, straightTracker_.length);
+    missionState_.SetStraightLineProgress(clamped);
+}
+
+void World::handleMissionCompletion() {
+    if (!missionState_.mission_complete()) {
+        return;
+    }
+    throttleInput = 0.0f;
+    brakeInput = 1.0f;
+    if (!missionState_.stop_commanded()) {
+        missionState_.MarkStopCommanded();
+        std::printf("Mission complete. Commanding stop.\n");
+    }
+}
+
 fsai::sim::TrackData World::generateRandomTrack() const {
     PathConfig pathConfig;
     int nPoints = pathConfig.resolution;
@@ -298,6 +362,8 @@ void World::reset() {
     carInput = VehicleInput(0.0, 0.0, 0.0);
     totalTime = 0.0;
     totalDistance = 0.0;
+    lapCount = 0;
+    insideLastCheckpoint_ = false;
 
     if (mission_.allowRegeneration && regenTrack) {
         std::printf("Regenerating track due to cone collision.\n");
@@ -309,6 +375,13 @@ void World::reset() {
         std::printf("Resetting simulation without regenerating track.\n");
     }
 
+    configureMissionRuntime();
+
     initializeVehiclePose();
+
+    const float initDx = carTransform.position.x - lastCheckpoint.x;
+    const float initDz = carTransform.position.z - lastCheckpoint.z;
+    const float initDist = std::sqrt(initDx * initDx + initDz * initDz);
+    insideLastCheckpoint_ = initDist < config.lapCompletionThreshold;
 }
 

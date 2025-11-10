@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <limits>
 #include <optional>
 #include <string>
@@ -8,6 +9,7 @@
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
 #include "types.h"
+#include "sim/MissionRuntimeState.hpp"
 
 namespace fsai::sim::app {
 
@@ -65,6 +67,18 @@ struct RuntimeTelemetry {
     double total_distance_m{0.0};
     int completed_laps{0};
   } lap;
+
+  struct MissionData {
+    double mission_time_s{0.0};
+    double straight_progress_m{0.0};
+    std::size_t target_laps{0};
+    int completed_laps{0};
+    std::size_t segment_completed_laps{0};
+    std::size_t segment_target_laps{0};
+    fsai::sim::MissionRunStatus status{fsai::sim::MissionRunStatus::kRunning};
+    fsai::sim::MissionSegmentType segment{fsai::sim::MissionSegmentType::kTimed};
+    bool stop_commanded{false};
+  } mission;
 
   struct CanData {
     fsai::control::runtime::CanIface::Mode mode{fsai::control::runtime::CanIface::Mode::kSimulation};
