@@ -111,12 +111,13 @@ void drawEdges(
 
 
 // Returns a simple path (sequence of PathNode) with the lowest cost according to calculateCost.
-// Explores all simple paths up to maxLen nodes.
+// Explores candidate paths up to maxLen nodes using a beam search whose width can be tuned.
 std::vector<PathNode> bfsLowestCost(
   const std::vector<std::vector<int>>& adj,
   const std::vector<PathNode>& nodes,
   const Point& carFront,
-  std::size_t maxLen
+  std::size_t maxLen,
+  std::size_t beamWidth = 10
 );
 
 // Draw a path (by connecting PathNode midpoints).
