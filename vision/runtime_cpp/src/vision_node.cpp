@@ -142,7 +142,6 @@ void VisionNode::runProcessingLoop(){
     
     while(running_){
 
-        // FIX 3: Grab the frame from the camera_ member
         // We use tryGetLatestFrame() for a non-blocking loop.
         std::optional<fsai::vision::FrameRingBuffer::FrameHandle> handle_opt =
             camera_->tryGetLatestFrame();

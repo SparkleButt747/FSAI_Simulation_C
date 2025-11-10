@@ -5,6 +5,7 @@
 #include "common/include/common/types.h"
 #include "detect.hpp"
 #include "features.hpp"
+#include "vision/detection_ring_buffer.hpp"
 
 
 #include <atomic>
