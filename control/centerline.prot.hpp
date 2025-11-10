@@ -22,6 +22,7 @@
 #include <map>
 #include <set>
 #include <cstring>
+#include <unordered_map>
 
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
@@ -34,8 +35,9 @@ using VertexHandle=Triangulation::Vertex_handle;
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
     Triangulation& T,
     CGAL::Graphics_scene& scene,
-    Point carFront
-  );
+    Point carFront,
+    std::unordered_map<Point, FsaiConeSide> coneToSide
+);
 
 // Convenience drawer for the PathNode adjacency
 void drawEdges(
@@ -72,7 +74,7 @@ Point getCarFront(
 
 // Modifies the triangulation of the cones visible from the car position assuming
 // a circular sector veiwing area
-void getVisibleTrackTriangulation(
+std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
@@ -81,7 +83,7 @@ void getVisibleTrackTriangulation(
 );
 
 
-Triangulation getVisibleTrackTriangulation(
+std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulation(
   Point carFront,
   double carYaw,
   std::vector<Cone> leftConePositions,

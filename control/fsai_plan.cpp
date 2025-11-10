@@ -214,14 +214,14 @@ int main(int argc, char* argv[])
     std::cout << "Triangulation insert: " << insertTime.count() << "ms\n";
 
     Triangulation visibleT;
-    getVisibleTrackTriangulation(visibleT, carFront, track);
+    auto coneToSide = getVisibleTrackTriangulation(visibleT, carFront, track);
 
     CGAL::Graphics_scene scene;
-    auto [nodes, adjacency] = generateGraph(visibleT, scene, carFront);
+    auto [nodes, adjacency] = generateGraph(visibleT, scene, carFront, coneToSide);
 
     const Bounds baseBounds = computeTrackBounds(track, nodes, carFront);
 
-    constexpr std::size_t kMaxPathLength = 10;
+    constexpr std::size_t kMaxPathLength = 20;
 
     auto recomputePath = [&]() {
         std::vector<PathNode> best = bfsLowestCost(adjacency, nodes, carFront, kMaxPathLength);

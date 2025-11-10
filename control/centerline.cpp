@@ -6,6 +6,8 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <limits>
+#include <numeric>
 
 namespace {
 
@@ -37,17 +39,33 @@ void setCostWeights(const CostWeights& weights)
     storage.rangeSq    = std::max(0.0f, weights.rangeSq);
 }
 
+namespace {
+
+float clampAngle(float angle)
+{
+    while (angle > static_cast<float>(M_PI)) {
+        angle -= 2.0f * static_cast<float>(M_PI);
+    }
+    while (angle < -static_cast<float>(M_PI)) {
+        angle += 2.0f * static_cast<float>(M_PI);
+    }
+    return angle;
+}
+
+}  // namespace
+
 
 float calculateCost(std::vector<PathNode> path)
 {
     // discourage super-short paths
-    if(path.size() < 2) return 1e3f;
+    if(path.size() < 3) return 1e3f;
 
 
     // Tunable weights
     const CostWeights weights = getCostWeights();
 
     constexpr float SENSOR_RANGE  = 10.0f;    // meters
+    constexpr float NOMINAL_TRACK_WIDTH = 3.5f;
 
 
     // 1) Maximum angle change between consecutive midpoints
@@ -93,34 +111,33 @@ float calculateCost(std::vector<PathNode> path)
 
 
     // 4) Color penalty, 0 if any color info missing, else 1 per mismatch
-    bool anyUnknown = false;
-    int mismatches = 0;
+    int sameSide=0;
+    int considered=0;
 
     for(const auto& n : path)
     {
-        if(n.first.side == FSAI_CONE_UNKNOWN or n.second.side == FSAI_CONE_UNKNOWN)
+        const auto a=n.first.side;
+        const auto b=n.second.side;
+
+        if(a==FSAI_CONE_UNKNOWN || b==FSAI_CONE_UNKNOWN)
         {
-            //anyUnknown = true;
-            //break;
             continue;
         }
-        
-        if(!((n.first.side  == FSAI_CONE_LEFT and n.second.side != FSAI_CONE_RIGHT) or
-             (n.first.side  == FSAI_CONE_RIGHT and n.second.side != FSAI_CONE_LEFT))
-        )
+
+        const bool opposite =   (a==FSAI_CONE_LEFT && b==FSAI_CONE_RIGHT) || 
+                                (a==FSAI_CONE_RIGHT && b==FSAI_CONE_LEFT);
+
+        considered++;
+        if(!opposite) 
         {
-            mismatches++;
+            sameSide++;
         }
     }
 
-    float colorPenalty;
-    if(anyUnknown)
+    float colorPenalty = 0.0f;
+    if(considered>0) 
     {
-        colorPenalty = 0.0f;
-    }
-    else
-    {
-        colorPenalty = static_cast<float>(mismatches);
+        colorPenalty = static_cast<float>(sameSide)/static_cast<float>(considered);
     }
 
 

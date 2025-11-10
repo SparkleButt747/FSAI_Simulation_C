@@ -5,6 +5,8 @@
 #include "types.h"
 
 #include <algorithm>
+#include <unordered_map>
+#include <cmath>
 
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
@@ -37,7 +39,7 @@ void printEdges(Triangulation& T) {
   }
 
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
-    Triangulation& T, CGAL::Graphics_scene& scene, Point carFront)
+    Triangulation& T, CGAL::Graphics_scene& scene, Point carFront, std::unordered_map<Point, FsaiConeSide> coneToSide)
 {
     std::vector<PathNode> nodes;
     // map each triangulation vertex to all node-ids that touch it
@@ -59,9 +61,11 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
 
         // endpoints as “detections” (set what you actually need)
         FsaiConeDet d1{}; d1.x = static_cast<float>(p1.x()); d1.y = static_cast<float>(p1.y());
-        d1.side = FSAI_CONE_UNKNOWN;
+        auto it1 = coneToSide.find(p1);
+        d1.side = (it1!=coneToSide.end()) ? it1->second : FSAI_CONE_UNKNOWN;
         FsaiConeDet d2{}; d2.x = static_cast<float>(p2.x()); d2.y = static_cast<float>(p2.y());
-        d2.side = FSAI_CONE_UNKNOWN;
+        auto it2 = coneToSide.find(p2);
+        d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
 
         node.first  = d1;
         node.second = d2;
@@ -207,7 +211,7 @@ Point getCarFront(
 };
 
 
-void getVisibleTrackTriangulation(
+std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
@@ -216,24 +220,26 @@ void getVisibleTrackTriangulation(
 ) {
     double carYaw = getInitialTrackYaw(fullTrack);
     Point carVector = Point(std::cos(carYaw), std::sin(carYaw));
-
+    std::unordered_map<Point, FsaiConeSide> coneToSide;
     // It can be assumed that leftCones.size() == rightCones.size() == checkpoints.size()
-    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &T](std::vector<Transform> cones) {
+    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &T, &coneToSide](std::vector<Transform> cones, FsaiConeSide side) {
       for (int i = 0; i < cones.size(); i++) {
         Point delta = Point(cones[i].position.x - carFront.x(), cones[i].position.z - carFront.y());
         Point cone = Point(cones[i].position.x, cones[i].position.z);
-        if (hypot(delta.x(), delta.y()) > sensorRange) continue;
+        if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
         if (getAngle(carVector, delta) > sensorFOV/2) continue;
+        coneToSide[cone] = side;
         T.insert(cone);
       }
     };
 
-    addCones(fullTrack.startCones);
-    addCones(fullTrack.leftCones);
-    addCones(fullTrack.rightCones);
+    addCones(fullTrack.startCones, FSAI_CONE_UNKNOWN);
+    addCones(fullTrack.leftCones, FSAI_CONE_LEFT);
+    addCones(fullTrack.rightCones, FSAI_CONE_RIGHT);
+    return coneToSide;
 }
 
-Triangulation getVisibleTrackTriangulation(
+std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulation(
   Point carFront,
   double carYaw,
   std::vector<Cone> leftConePositions,
@@ -243,21 +249,23 @@ Triangulation getVisibleTrackTriangulation(
 ) {
     Triangulation visibleTrack;
     Point carVector = Point(std::cos(carYaw), std::sin(carYaw));
+    std::unordered_map<Point, FsaiConeSide> coneToSide;
 
-    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &visibleTrack](std::vector<Cone> cones) {
+    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &visibleTrack, &coneToSide](std::vector<Cone> cones, FsaiConeSide side) {
       for (Cone cone3d: cones) {
         Point delta = Point(cone3d.position.x - carFront.x(), cone3d.position.z - carFront.y());
         Point cone = Point(cone3d.position.x, cone3d.position.z);
         if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
         if (getAngle(carVector, delta) > sensorFOV/2) continue;
+        coneToSide[cone] = side;
         visibleTrack.insert(cone);
       }
     };
 
-    addCones(leftConePositions);
-    addCones(rightConePositions);
+    addCones(leftConePositions, FSAI_CONE_LEFT);
+    addCones(rightConePositions, FSAI_CONE_RIGHT);
 
-    return visibleTrack;
+    return {visibleTrack, coneToSide};
 }
 
 
@@ -268,7 +276,7 @@ void drawVisibleTriangulationEdges(
 ) {
     CGAL::Graphics_scene scene;
     Point carFront = Point(carState.position.x(), carState.position.y());
-    auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw, leftConePositions, rightConePositions);
+    auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw, leftConePositions, rightConePositions).first;
     CGAL::draw(triangulation);
 }
 
@@ -279,7 +287,10 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
 ) {
 
     Point carFront = Point(carState.position.x(), carState.position.y());
-    auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw , leftConePositions, rightConePositions);
+    //auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw , leftConePositions, rightConePositions);
+    auto triangulation_pair = getVisibleTrackTriangulation(carFront, carState.yaw, leftConePositions, rightConePositions);
+    auto triangulation = triangulation_pair.first;
+
 
     std::vector<std::pair<Vector2, Vector2>> edges {};
     for (auto it = triangulation.finite_edges_begin(); it != triangulation.finite_edges_end(); ++it) {
@@ -294,6 +305,7 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
         auto p1 = v1->point();
         auto p2 = v2->point();
 
+        /*
         edges.push_back({
           {
             static_cast<float>(p1.x()),
@@ -301,7 +313,11 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
           }, {
             static_cast<float>(p2.x()),
             static_cast<float>(p2.y())
-          }});
+          }});*/
+          edges.emplace_back(
+          Vector2{ static_cast<float>(p1.x()), static_cast<float>(p1.y()) },
+          Vector2{ static_cast<float>(p2.x()), static_cast<float>(p2.y()) }
+          );
     }
 
     return edges;
