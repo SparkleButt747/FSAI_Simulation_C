@@ -71,6 +71,18 @@ std::vector<Vector2> getCenterline(
 float calculateCost(std::vector<PathNode> path);
 
 
+struct CostWeights {
+    float angleMax = 0.15f;
+    float widthStd = 2.0f;
+    float spacingStd = 1.5f;
+    float color = 3.0f;
+    float rangeSq = 0.2f;
+};
+
+CostWeights defaultCostWeights();
+CostWeights getCostWeights();
+void setCostWeights(const CostWeights& weights);
+
 // Ideas
 // Work out left and right cones relative to the car with cross product
 
