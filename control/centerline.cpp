@@ -14,7 +14,7 @@ float calculateCost(std::vector<PathNode> path)
 
 
     // Tunable weights
-    constexpr float W_ANGLE_MAX   = 1.0f;     // radians
+    constexpr float W_ANGLE_MAX   = 0.15f;     // radians
     constexpr float W_WIDTH_STD   = 2.0f;     // meters
     constexpr float W_SPACING_STD = 1.5f;     // meters
     constexpr float W_COLOR       = 3.0f;     // unitless
