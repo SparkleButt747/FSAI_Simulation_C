@@ -267,6 +267,30 @@ int main(int argc, char* argv[])
     }
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
+    auto updateRendererScale = [&](SDL_Window* sdlWindow, SDL_Renderer* sdlRenderer) {
+        int windowWidth = 0;
+        int windowHeight = 0;
+        SDL_GetWindowSize(sdlWindow, &windowWidth, &windowHeight);
+
+        int outputWidth = 0;
+        int outputHeight = 0;
+        if (SDL_GetRendererOutputSize(sdlRenderer, &outputWidth, &outputHeight) != 0) {
+            SDL_RenderSetScale(sdlRenderer, 1.0f, 1.0f);
+            return;
+        }
+
+        if (windowWidth <= 0 || windowHeight <= 0 || outputWidth <= 0 || outputHeight <= 0) {
+            SDL_RenderSetScale(sdlRenderer, 1.0f, 1.0f);
+            return;
+        }
+
+        const float scaleX = static_cast<float>(outputWidth) / static_cast<float>(windowWidth);
+        const float scaleY = static_cast<float>(outputHeight) / static_cast<float>(windowHeight);
+        SDL_RenderSetScale(sdlRenderer, scaleX, scaleY);
+    };
+
+    updateRendererScale(window, renderer);
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -283,6 +307,12 @@ int main(int argc, char* argv[])
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL2_ProcessEvent(&event);
+            if (event.type == SDL_WINDOWEVENT &&
+                (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                 event.window.event == SDL_WINDOWEVENT_RESIZED ||
+                 event.window.event == SDL_WINDOWEVENT_DPICHANGED)) {
+                updateRendererScale(window, renderer);
+            }
             if (event.type == SDL_QUIT) {
                 running = false;
             }
@@ -335,7 +365,7 @@ int main(int argc, char* argv[])
 
         int renderWidth = 0;
         int renderHeight = 0;
-        SDL_GetRendererOutputSize(renderer, &renderWidth, &renderHeight);
+        SDL_GetWindowSize(window, &renderWidth, &renderHeight);
 
         SDL_SetRenderDrawColor(renderer, 18, 22, 30, 255);
         SDL_RenderClear(renderer);
@@ -351,32 +381,7 @@ int main(int argc, char* argv[])
 
         ImGui::Render();
 
-        const ImGuiIO& frameIo = ImGui::GetIO();
-        float previousScaleX = 1.0f;
-        float previousScaleY = 1.0f;
-        SDL_RenderGetScale(renderer, &previousScaleX, &previousScaleY);
-
-        bool applyScaleCorrection = false;
-        float correctedScaleX = previousScaleX;
-        float correctedScaleY = previousScaleY;
-        if (frameIo.DisplayFramebufferScale.x > 0.0f && frameIo.DisplayFramebufferScale.x < 1.0f) {
-            correctedScaleX = previousScaleX / frameIo.DisplayFramebufferScale.x;
-            applyScaleCorrection = true;
-        }
-        if (frameIo.DisplayFramebufferScale.y > 0.0f && frameIo.DisplayFramebufferScale.y < 1.0f) {
-            correctedScaleY = previousScaleY / frameIo.DisplayFramebufferScale.y;
-            applyScaleCorrection = true;
-        }
-
-        if (applyScaleCorrection) {
-            SDL_RenderSetScale(renderer, correctedScaleX, correctedScaleY);
-        }
-
         ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer);
-
-        if (applyScaleCorrection) {
-            SDL_RenderSetScale(renderer, previousScaleX, previousScaleY);
-        }
 
         SDL_RenderPresent(renderer);
     }
