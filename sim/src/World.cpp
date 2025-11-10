@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <numbers>
+#include <stdexcept>
 #include <utility>
 #include "fsai_clock.h"
 #include "World.hpp"
@@ -64,81 +66,41 @@ void World::setSvcuCommand(float throttle, float brake, float steer) {
     hasSvcuCommand_ = true;
 }
 
-void World::init(const char* yamlFilePath, fsai::sim::MissionDescriptor mission) {
+void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission) {
     mission_ = std::move(mission);
-    // Generate track data
-    PathConfig pathConfig;
-    int nPoints = pathConfig.resolution;
-    PathGenerator pathGen(pathConfig);
-    PathResult path = pathGen.generatePath(nPoints);
-    TrackGenerator trackGen;
-    TrackResult track = trackGen.generateTrack(pathConfig, path);
 
-    // Store checkpoint and cone data
-    checkpointPositions.clear();
-    startCones.clear();
-    leftCones.clear();
-    rightCones.clear();
-    for (const auto& cp : track.checkpoints) {
-        checkpointPositions.push_back(transformToVector3(cp));
-    }
-    for (const auto& sc : track.startCones) {
-        startCones.push_back(makeCone(sc, ConeType::Start));
-    }
-    for (const auto& lc : track.leftCones) {
-        leftCones.push_back(makeCone(lc, ConeType::Left));
-    }
-    for (const auto& rc : track.rightCones) {
-        rightCones.push_back(makeCone(rc, ConeType::Right));
-    }
-    if (!track.checkpoints.empty()) {
-        lastCheckpoint = transformToVector3(track.checkpoints.back());
-    } else {
-        lastCheckpoint = {0, 0, 0};
+    if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
+        mission_.track.checkpoints.empty()) {
+        mission_.track = generateRandomTrack();
     }
 
-    // Initialize simulation variables
+    if (mission_.track.checkpoints.empty()) {
+        throw std::runtime_error("MissionDefinition did not provide any checkpoints");
+    }
+
+    configureTrackState(mission_.track);
+
     totalTime = 0.0;
     totalDistance = 0.0;
     lapCount = 0;
     deltaTime = 0.0;
 
-    // Controller configuration
     config.collisionThreshold = 1.75f;
     config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
     config.lapCompletionThreshold = 0.2f;
 
-    // Use racing algorithm by default
     useController = 1;
+    regenTrack = mission_.allowRegeneration ? 1 : 0;
 
-    // Regenerate track after cone collision
-    regenTrack = 1;
-
-    // Racing algorithm configuration
     racingConfig.speedLookAheadSensitivity = 0.5f;
     racingConfig.steeringLookAheadSensitivity = 0;
     racingConfig.accelerationFactor = 0.0019f;
 
-    // Make sure car starts on the track
-    float startX = checkpointPositions[0].x;
-    float startZ = checkpointPositions[0].z;
-    float nextX = checkpointPositions[10].x;
-    float nextZ = checkpointPositions[10].z;
-    Vector2 zeroVector{0,0};
-    Vector2 startVector{nextX - startX, nextZ - startZ};
-    float startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180.0f;
-
-    // Initialize car model, state, and transform
     VehicleParam vp = VehicleParam::loadFromFile(yamlFilePath);
     carModel = DynamicBicycle(vp);
     carInput = VehicleInput(0.0, 0.0, 0.0);
-    carState = VehicleState(Eigen::Vector3d(startX, startZ, 0.0), startYaw,
-                            Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                            Eigen::Vector3d::Zero());
-    carTransform.position.x = static_cast<float>(carState.position.x());
-    carTransform.position.y = 0.5f;
-    carTransform.position.z = static_cast<float>(carState.position.y());
-    carTransform.yaw = static_cast<float>(carState.yaw);
+
+    initializeVehiclePose();
 
     wheelsInfo_ = WheelsInfo_default();
     hasSvcuCommand_ = false;
@@ -249,6 +211,77 @@ void World::telemetry() const {
                      fsai_clock_now(), totalTime, totalDistance, lapCount);
 }
 
+void World::configureTrackState(const fsai::sim::TrackData& track) {
+    checkpointPositions.clear();
+    startCones.clear();
+    leftCones.clear();
+    rightCones.clear();
+
+    for (const auto& cp : track.checkpoints) {
+        checkpointPositions.push_back(transformToVector3(cp));
+    }
+    for (const auto& sc : track.startCones) {
+        startCones.push_back(makeCone(sc, ConeType::Start));
+    }
+    for (const auto& lc : track.leftCones) {
+        leftCones.push_back(makeCone(lc, ConeType::Left));
+    }
+    for (const auto& rc : track.rightCones) {
+        rightCones.push_back(makeCone(rc, ConeType::Right));
+    }
+
+    if (!track.checkpoints.empty()) {
+        lastCheckpoint = transformToVector3(track.checkpoints.back());
+    } else {
+        lastCheckpoint = {0.0f, 0.0f, 0.0f};
+    }
+}
+
+void World::initializeVehiclePose() {
+    if (checkpointPositions.empty()) {
+        carState = VehicleState(Eigen::Vector3d::Zero(), 0.0,
+                                Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+                                Eigen::Vector3d::Zero());
+        carTransform.position.x = 0.0f;
+        carTransform.position.y = 0.5f;
+        carTransform.position.z = 0.0f;
+        carTransform.yaw = 0.0f;
+        return;
+    }
+
+    const Vector3& start = checkpointPositions.front();
+    const std::size_t lookaheadIndex = checkpointPositions.size() > 1
+                                           ? std::min<std::size_t>(10, checkpointPositions.size() - 1)
+                                           : 0;
+    const Vector3& next = checkpointPositions[lookaheadIndex];
+    Vector2 startVector{next.x - start.x, next.z - start.z};
+
+    float startYaw = 0.0f;
+    if (checkpointPositions.size() > 1) {
+        Vector2 zeroVector{0.0f, 0.0f};
+        startYaw = Vector2_SignedAngle(zeroVector, startVector) *
+                   (std::numbers::pi_v<float> / 180.0f);
+    }
+
+    carState = VehicleState(
+        Eigen::Vector3d(static_cast<double>(start.x), static_cast<double>(start.z), 0.0),
+        startYaw, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+    carTransform.position.x = static_cast<float>(carState.position.x());
+    carTransform.position.y = 0.5f;
+    carTransform.position.z = static_cast<float>(carState.position.y());
+    carTransform.yaw = static_cast<float>(carState.yaw);
+}
+
+fsai::sim::TrackData World::generateRandomTrack() const {
+    PathConfig pathConfig;
+    int nPoints = pathConfig.resolution;
+    PathGenerator pathGen(pathConfig);
+    PathResult path = pathGen.generatePath(nPoints);
+    TrackGenerator trackGen;
+    TrackResult track = trackGen.generateTrack(pathConfig, path);
+    return fsai::sim::TrackData::FromTrackResult(track);
+}
+
 void World::moveNextCheckpointToLast() {
     if (!checkpointPositions.empty()) {
         std::rotate(checkpointPositions.begin(), checkpointPositions.begin() + 1, checkpointPositions.end());
@@ -262,80 +295,20 @@ void World::moveNextCheckpointToLast() {
 }
 
 void World::reset() {
-    if (regenTrack) {
-        totalTime = 0.0;
-        totalDistance = 0.0;
+    carInput = VehicleInput(0.0, 0.0, 0.0);
+    totalTime = 0.0;
+    totalDistance = 0.0;
 
+    if (mission_.allowRegeneration && regenTrack) {
         std::printf("Regenerating track due to cone collision.\n");
-
-        PathConfig pathConfig;
-        int nPoints = pathConfig.resolution;
-        PathGenerator pathGen(pathConfig);
-        PathResult path = pathGen.generatePath(nPoints);
-        TrackGenerator trackGen;
-        TrackResult track = trackGen.generateTrack(pathConfig, path);
-
-        checkpointPositions.clear();
-        startCones.clear();
-        leftCones.clear();
-        rightCones.clear();
-        for (const auto& cp : track.checkpoints) {
-            checkpointPositions.push_back(transformToVector3(cp));
+        if (mission_.trackSource == fsai::sim::TrackSource::kRandom) {
+            mission_.track = generateRandomTrack();
         }
-        for (const auto& sc : track.startCones) {
-            startCones.push_back(makeCone(sc, ConeType::Start));
-        }
-        for (const auto& lc : track.leftCones) {
-            leftCones.push_back(makeCone(lc, ConeType::Left));
-        }
-        for (const auto& rc : track.rightCones) {
-            rightCones.push_back(makeCone(rc, ConeType::Right));
-        }
-        if (!track.checkpoints.empty()) {
-            lastCheckpoint = transformToVector3(track.checkpoints.back());
-        } else {
-            lastCheckpoint = {0,0,0};
-        }
-
-        carInput = VehicleInput(0.0, 0.0, 0.0);
-
-        float startX = checkpointPositions[0].x;
-        float startZ = checkpointPositions[0].z;
-        float nextX = checkpointPositions[10].x;
-        float nextZ = checkpointPositions[10].z;
-        Vector2 zeroVector{0,0};
-        Vector2 startVector{nextX - startX, nextZ - startZ};
-        float startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180.0f;
-
-        carState = VehicleState(Eigen::Vector3d(startX, startZ, 0.0), startYaw,
-                                Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                                Eigen::Vector3d::Zero());
-        carTransform.position.x = static_cast<float>(carState.position.x());
-        carTransform.position.y = 0.5f;
-        carTransform.position.z = static_cast<float>(carState.position.y());
-        carTransform.yaw = static_cast<float>(carState.yaw);
+        configureTrackState(mission_.track);
     } else {
-        carInput = VehicleInput(0.0, 0.0, 0.0);
-        totalTime = 0.0;
-        totalDistance = 0.0;
-
         std::printf("Resetting simulation without regenerating track.\n");
-
-        float startX = checkpointPositions[0].x;
-        float startZ = checkpointPositions[0].z;
-        float nextX = checkpointPositions[10].x;
-        float nextZ = checkpointPositions[10].z;
-        Vector2 zeroVector{0,0};
-        Vector2 startVector{nextX - startX, nextZ - startZ};
-        float startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180.0f;
-
-        carState = VehicleState(Eigen::Vector3d(startX, startZ, 0.0), startYaw,
-                                Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                                Eigen::Vector3d::Zero());
-        carTransform.position.x = static_cast<float>(carState.position.x());
-        carTransform.position.y = 0.5f;
-        carTransform.position.z = static_cast<float>(carState.position.y());
-        carTransform.yaw = static_cast<float>(carState.yaw);
     }
+
+    initializeVehiclePose();
 }
 

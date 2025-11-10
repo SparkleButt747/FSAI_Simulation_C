@@ -12,7 +12,7 @@
 #include "PathConfig.hpp"
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
-#include "sim/mission_descriptor.hpp"
+#include "sim/mission/MissionDefinition.hpp"
 
 enum class ConeType {
     Start,
@@ -32,7 +32,7 @@ public:
     World() = default;
 
     // Initialize the world with vehicle parameters and generate track.
-    void init(const char* yamlFilePath, fsai::sim::MissionDescriptor mission);
+    void init(const char* yamlFilePath, fsai::sim::MissionDefinition mission);
 
     // Update simulation by dt seconds.
     void update(double dt);
@@ -95,11 +95,14 @@ public:
     bool hasSvcuCommand() const { return hasSvcuCommand_; }
     const DynamicBicycle& model() const { return carModel; }
 
-    const fsai::sim::MissionDescriptor& mission() const { return mission_; }
+    const fsai::sim::MissionDefinition& mission() const { return mission_; }
 
 private:
     void moveNextCheckpointToLast();
     void reset();
+    void configureTrackState(const fsai::sim::TrackData& track);
+    void initializeVehiclePose();
+    fsai::sim::TrackData generateRandomTrack() const;
 
     DynamicBicycle carModel{VehicleParam()};
     VehicleState carState{Eigen::Vector3d::Zero(), 0.0,
@@ -133,6 +136,6 @@ private:
     double deltaTime{0.0};
     double totalDistance{0.0};
     int lapCount{0};
-    fsai::sim::MissionDescriptor mission_{};
+    fsai::sim::MissionDefinition mission_{};
 };
 
