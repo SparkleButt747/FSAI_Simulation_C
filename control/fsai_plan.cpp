@@ -222,11 +222,9 @@ int main(int argc, char* argv[])
     const Bounds baseBounds = computeTrackBounds(track, nodes, carFront);
 
     constexpr std::size_t kMaxPathLength = 10;
-    int beamWidth = 10;
 
-    auto recomputePath = [&](int beam) {
-        const std::size_t width = static_cast<std::size_t>(std::max(1, beam));
-        std::vector<PathNode> best = bfsLowestCost(adjacency, nodes, carFront, kMaxPathLength, width);
+    auto recomputePath = [&]() {
+        std::vector<PathNode> best = bfsLowestCost(adjacency, nodes, carFront, kMaxPathLength);
         float cost = std::numeric_limits<float>::infinity();
         if (best.size() >= 2) {
             cost = calculateCost(best);
@@ -234,7 +232,11 @@ int main(int argc, char* argv[])
         return std::make_pair(std::move(best), cost);
     };
 
-    auto [bestPath, bestCost] = recomputePath(beamWidth);
+    auto [bestPath, bestCost] = recomputePath();
+
+#if defined(_WIN32)
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
+#endif
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
@@ -263,6 +265,30 @@ int main(int argc, char* argv[])
     }
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
+    auto updateRendererScale = [&](SDL_Window* sdlWindow, SDL_Renderer* sdlRenderer) {
+        int windowWidth = 0;
+        int windowHeight = 0;
+        SDL_GetWindowSize(sdlWindow, &windowWidth, &windowHeight);
+
+        int outputWidth = 0;
+        int outputHeight = 0;
+        if (SDL_GetRendererOutputSize(sdlRenderer, &outputWidth, &outputHeight) != 0) {
+            SDL_RenderSetScale(sdlRenderer, 1.0f, 1.0f);
+            return;
+        }
+
+        if (windowWidth <= 0 || windowHeight <= 0 || outputWidth <= 0 || outputHeight <= 0) {
+            SDL_RenderSetScale(sdlRenderer, 1.0f, 1.0f);
+            return;
+        }
+
+        const float scaleX = static_cast<float>(outputWidth) / static_cast<float>(windowWidth);
+        const float scaleY = static_cast<float>(outputHeight) / static_cast<float>(windowHeight);
+        SDL_RenderSetScale(sdlRenderer, scaleX, scaleY);
+    };
+
+    updateRendererScale(window, renderer);
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -279,6 +305,12 @@ int main(int argc, char* argv[])
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL2_ProcessEvent(&event);
+            if (event.type == SDL_WINDOWEVENT &&
+                (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                 event.window.event == SDL_WINDOWEVENT_RESIZED ||
+                 event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)) {
+                updateRendererScale(window, renderer);
+            }
             if (event.type == SDL_QUIT) {
                 running = false;
             }
@@ -304,10 +336,6 @@ int main(int argc, char* argv[])
             ImGui::Text("Path cost: n/a");
         }
 
-        if (ImGui::SliderInt("Beam width", &beamWidth, 1, 50)) {
-            needsRecompute = true;
-        }
-
         bool weightsChanged = false;
         weightsChanged |= ImGui::SliderFloat("Angle weight", &weights.angleMax, 0.0f, 1.0f, "%.3f");
         weightsChanged |= ImGui::SliderFloat("Width std weight", &weights.widthStd, 0.0f, 10.0f, "%.2f");
@@ -320,18 +348,19 @@ int main(int argc, char* argv[])
         }
         if (weightsChanged) {
             setCostWeights(weights);
+            std::cout << "Cost weights updated.\n";
             needsRecompute = true;
         }
 
         ImGui::End();
 
         if (needsRecompute) {
-            std::tie(bestPath, bestCost) = recomputePath(beamWidth);
+            std::tie(bestPath, bestCost) = recomputePath();
         }
 
         int renderWidth = 0;
         int renderHeight = 0;
-        SDL_GetRendererOutputSize(renderer, &renderWidth, &renderHeight);
+        SDL_GetWindowSize(window, &renderWidth, &renderHeight);
 
         SDL_SetRenderDrawColor(renderer, 18, 22, 30, 255);
         SDL_RenderClear(renderer);
@@ -346,7 +375,9 @@ int main(int argc, char* argv[])
         drawCarFront(renderer, carFront, bounds, renderWidth, renderHeight, kViewMargin);
 
         ImGui::Render();
+
         ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer);
+
         SDL_RenderPresent(renderer);
     }
 
