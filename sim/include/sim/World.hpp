@@ -28,6 +28,14 @@ struct Cone {
     ConeType type{ConeType::Left};
 };
 
+struct CollisionSegment {
+    Vector2 start{0.0f, 0.0f};
+    Vector2 end{0.0f, 0.0f};
+    float radius{0.0f};
+    Vector2 boundsMin{0.0f, 0.0f};
+    Vector2 boundsMax{0.0f, 0.0f};
+};
+
 class World {
 public:
     World() = default;
@@ -122,6 +130,8 @@ private:
     std::vector<Cone> startCones{};
     std::vector<Cone> leftCones{};
     std::vector<Cone> rightCones{};
+    std::vector<CollisionSegment> gateSegments_{};
+    std::vector<CollisionSegment> boundarySegments_{};
     Vector3 lastCheckpoint{0.0f, 0.0f, 0.0f};
 
     WheelsInfo wheelsInfo_{WheelsInfo_default()};
