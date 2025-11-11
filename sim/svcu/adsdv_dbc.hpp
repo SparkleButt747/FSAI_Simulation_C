@@ -88,6 +88,9 @@ struct Vcu2AiStatus {
   SteeringStatus steering_status{SteeringStatus::kOff};
   bool fault{false};
   bool warning{false};
+  bool mission_complete{false};
+  MissionStatus mission_status{MissionStatus::kNotSelected};
+  uint8_t mission_id{0};
   uint8_t ami_state{0};
   bool ai_estop_request{false};
   bool hvil_open_fault{false};
