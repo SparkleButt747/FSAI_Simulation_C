@@ -52,8 +52,10 @@ int main() {
                 max_lat = std::max(max_lat, std::abs(state.velocity.y()));
                 max_yaw = std::max(max_yaw, std::abs(state.rotation.z()));
             }
-            assert(max_lat < 3.0);
-            assert(max_yaw < 8.0);
+            assert(max_lat < 2.0);
+            assert(max_yaw < 5.0);
+            assert(std::abs(state.velocity.y()) < 0.05);
+            assert(std::abs(state.rotation.z()) < 0.2);
         }
 
         // --- Low-speed with residual yaw: exponential damping ---
@@ -68,8 +70,9 @@ int main() {
                 model.updateState(state, input, dt);
                 assertFiniteState(state);
             }
-            assert(std::abs(state.velocity.y()) < 0.5);
-            assert(std::abs(state.rotation.z()) < 1.0);
+            assert(std::abs(state.velocity.y()) < 0.05);
+            assert(std::abs(state.rotation.z()) < 0.15);
+            assert(std::abs(state.yaw) < 0.3);
         }
 
         // --- Moderate-speed drift capability check ---

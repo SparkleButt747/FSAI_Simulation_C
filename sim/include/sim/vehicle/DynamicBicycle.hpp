@@ -47,6 +47,10 @@ private:
   mutable BrakeStatus       last_brake_status_{};
   mutable bool              systems_configured_{false};
 
+  // Slip relaxation states (mutable so computeForces can maintain them)
+  mutable double alpha_front_rel_{0.0};
+  mutable double alpha_rear_rel_{0.0};
+
   Forces computeForces(const VehicleState& state, const VehicleInput& input, double dt) const;
 
     // helpers
