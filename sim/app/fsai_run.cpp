@@ -431,6 +431,66 @@ ImVec4 MissionStatusColor(fsai::sim::MissionRunStatus status, bool stop_commande
   return Rgba255(229, 57, 53);
 }
 
+struct MissionStatusDisplay {
+  std::string label;
+  ImVec4 color{Rgba255(189, 189, 189)};
+  bool finished{false};
+};
+
+bool CanStatusHasFault(const fsai::sim::svcu::dbc::Vcu2AiStatus& status) {
+  return status.fault || status.mission_status_fault || status.ai_estop_request ||
+         status.hvil_open_fault || status.hvil_short_fault || status.ebs_fault ||
+         status.offboard_charger_fault || status.charge_procedure_fault ||
+         status.autonomous_braking_fault || status.bms_fault ||
+         status.brake_plausibility_fault;
+}
+
+MissionStatusDisplay FormatCanMissionStatus(
+    const fsai::sim::svcu::dbc::Vcu2AiStatus& status) {
+  MissionStatusDisplay display;
+  display.finished = status.mission_complete ||
+                     status.mission_status == fsai::sim::svcu::dbc::MissionStatus::kFinished;
+
+  switch (status.mission_status) {
+    case fsai::sim::svcu::dbc::MissionStatus::kRunning:
+      display.label = MissionRunStatusLabel(fsai::sim::MissionRunStatus::kRunning, false);
+      break;
+    case fsai::sim::svcu::dbc::MissionStatus::kFinished:
+      display.label = MissionRunStatusLabel(fsai::sim::MissionRunStatus::kCompleted, false);
+      break;
+    case fsai::sim::svcu::dbc::MissionStatus::kSelected:
+      display.label = "Selected";
+      break;
+    case fsai::sim::svcu::dbc::MissionStatus::kNotSelected:
+    default:
+      display.label = "Not Selected";
+      break;
+  }
+
+  if (CanStatusHasFault(status)) {
+    display.color = Rgba255(229, 57, 53);
+  } else if (display.finished) {
+    display.color = MissionStatusColor(fsai::sim::MissionRunStatus::kCompleted, false);
+  } else if (status.mission_status == fsai::sim::svcu::dbc::MissionStatus::kRunning) {
+    display.color = MissionStatusColor(fsai::sim::MissionRunStatus::kRunning, false);
+  }
+
+  return display;
+}
+
+void DrawWarningBadge(std::string_view message) {
+  const ImVec4 badge_color = Rgba255(255, 193, 7);
+  ImGui::SameLine();
+  std::string label = "⚠";
+  if (!message.empty()) {
+    label.append(" ");
+    label.append(message);
+  }
+  ImGui::PushStyleColor(ImGuiCol_Text, badge_color);
+  ImGui::TextUnformatted(label.c_str());
+  ImGui::PopStyleColor();
+}
+
 ImVec4 MissionSegmentTypeColor(fsai::sim::MissionSegmentType type) {
   switch (type) {
     case fsai::sim::MissionSegmentType::kWarmup:
@@ -944,6 +1004,35 @@ void DrawCanPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
                   status.shutdown_request ? "Yes" : "No",
                   status.fault ? "Yes" : "No",
                   status.warning ? "Yes" : "No");
+      const bool has_mission_feedback =
+          status.mission_id != 0 || status.mission_complete ||
+          status.mission_status != fsai::sim::svcu::dbc::MissionStatus::kNotSelected;
+      if (has_mission_feedback) {
+        ImGui::Text("Mission ID: %u", static_cast<unsigned int>(status.mission_id));
+
+        const MissionStatusDisplay mission_display = FormatCanMissionStatus(status);
+        ImGui::TextColored(mission_display.color, "Mission status: %s",
+                           mission_display.label.c_str());
+
+        const bool simulator_completed =
+            telemetry.mission.status == fsai::sim::MissionRunStatus::kCompleted;
+        ImGui::TextColored(mission_display.color, "Mission complete: %s",
+                           status.mission_complete ? "Yes" : "No");
+        std::string discrepancy_message;
+        if (simulator_completed && !mission_display.finished) {
+          discrepancy_message = "Sim complete; CAN pending";
+        } else if (!simulator_completed && mission_display.finished) {
+          discrepancy_message = "CAN complete; sim running";
+        }
+        if (!discrepancy_message.empty()) {
+          DrawWarningBadge(discrepancy_message);
+        }
+      } else {
+        ImGui::Text("Mission ID: n/a");
+        ImGui::TextColored(Rgba255(189, 189, 189), "Mission status: Not reported");
+        ImGui::TextColored(Rgba255(189, 189, 189), "Mission complete: No");
+      }
+
       const struct {
         bool flag;
         const char* label;
