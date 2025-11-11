@@ -11,6 +11,44 @@ double TrackGenerator::complexDistance(const cdouble& a, const cdouble& b) {
     return std::abs(a - b);
 }
 
+std::vector<std::pair<Transform, Transform>> MatchConeBoundaries(
+    const std::vector<Transform>& left,
+    const std::vector<Transform>& right) {
+    std::vector<std::pair<Transform, Transform>> matches;
+    if (left.empty() || right.empty()) {
+        return matches;
+    }
+
+    std::vector<bool> right_used(right.size(), false);
+    matches.reserve(std::min(left.size(), right.size()));
+
+    for (const auto& left_cone : left) {
+        float best_distance = std::numeric_limits<float>::infinity();
+        std::size_t best_index = right.size();
+        for (std::size_t i = 0; i < right.size(); ++i) {
+            if (right_used[i]) {
+                continue;
+            }
+            const float dx = right[i].position.x - left_cone.position.x;
+            const float dz = right[i].position.z - left_cone.position.z;
+            const float distance_sq = dx * dx + dz * dz;
+            if (distance_sq < best_distance) {
+                best_distance = distance_sq;
+                best_index = i;
+            }
+        }
+
+        if (best_index == right.size()) {
+            continue;
+        }
+
+        right_used[best_index] = true;
+        matches.emplace_back(left_cone, right[best_index]);
+    }
+
+    return matches;
+}
+
 std::vector<double> TrackGenerator::calcDistanceToNext(const std::vector<cdouble>& points) {
     int n = points.size();
     std::vector<double> distances(n);
@@ -383,30 +421,46 @@ TrackResult TrackGenerator::generateTrack(const PathConfig& config, const PathRe
         }
     }
 
-    int nResample = static_cast<int>(std::min(leftConesC.size(), rightConesC.size()));
-    if (nResample < 2) throw std::runtime_error("Not enough cones on one side to compute a racing line.");
+    if (leftConesC.size() < 2 || rightConesC.size() < 2) {
+        throw std::runtime_error("Not enough cones on one side to compute a racing line.");
+    }
 
-    auto leftResampled = resampleBoundary(leftConesC, nResample);
-    auto rightResampled = resampleBoundary(rightConesC, nResample);
+    std::vector<Transform> leftTransforms;
+    leftTransforms.reserve(leftConesC.size());
+    for (const auto& cone : leftConesC) {
+        Transform transform{};
+        transform.position = complexToVector3(cone);
+        transform.yaw = 0.0f;
+        leftTransforms.push_back(transform);
+    }
 
-    std::vector<Transform> leftTransforms(nResample);
-    std::vector<Transform> rightTransforms(nResample);
-    std::vector<Transform> checkpoints(nResample);
+    std::vector<Transform> rightTransforms;
+    rightTransforms.reserve(rightConesC.size());
+    for (const auto& cone : rightConesC) {
+        Transform transform{};
+        transform.position = complexToVector3(cone);
+        transform.yaw = 0.0f;
+        rightTransforms.push_back(transform);
+    }
+
+    auto gates = MatchConeBoundaries(leftTransforms, rightTransforms);
+    if (gates.size() < 2) {
+        throw std::runtime_error("Failed to match enough cone pairs to compute a racing line.");
+    }
+
+    std::vector<Transform> checkpoints;
+    checkpoints.reserve(gates.size());
     std::vector<Transform> startTransforms(startConesC.size());
 
-    for (int i = 0; i < nResample; ++i) {
-        leftTransforms[i].position = complexToVector3(leftResampled[i]);
-        leftTransforms[i].yaw = 0.0f;
-        rightTransforms[i].position = complexToVector3(rightResampled[i]);
-        rightTransforms[i].yaw = 0.0f;
-        double cx = (leftResampled[i].real() + rightResampled[i].real()) / 2.0;
-        double cz = (leftResampled[i].imag() + rightResampled[i].imag()) / 2.0;
-        checkpoints[i].position.x = static_cast<float>(cx);
-        checkpoints[i].position.y = 0.0f;
-        checkpoints[i].position.z = static_cast<float>(cz);
-        double dx = rightResampled[i].real() - leftResampled[i].real();
-        double dz = rightResampled[i].imag() - leftResampled[i].imag();
-        checkpoints[i].yaw = static_cast<float>(std::atan2(dz, dx));
+    for (const auto& gate : gates) {
+        Transform checkpoint{};
+        checkpoint.position.x = 0.5f * (gate.first.position.x + gate.second.position.x);
+        checkpoint.position.y = 0.0f;
+        checkpoint.position.z = 0.5f * (gate.first.position.z + gate.second.position.z);
+        const float dx = gate.second.position.x - gate.first.position.x;
+        const float dz = gate.second.position.z - gate.first.position.z;
+        checkpoint.yaw = std::atan2(dz, dx);
+        checkpoints.push_back(checkpoint);
     }
     for (int i = 0; i < static_cast<int>(startConesC.size()); ++i) {
         startTransforms[i].position = complexToVector3(startConesC[i]);
@@ -418,6 +472,7 @@ TrackResult TrackGenerator::generateTrack(const PathConfig& config, const PathRe
     result.leftCones = std::move(leftTransforms);
     result.rightCones = std::move(rightTransforms);
     result.checkpoints = std::move(checkpoints);
+    result.gates = std::move(gates);
     return result;
 }
 

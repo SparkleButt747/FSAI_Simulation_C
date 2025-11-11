@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <vector>
+#include <utility>
 
 #include "Transform.h"
 #include "sim/mission_descriptor.hpp"
@@ -19,6 +20,7 @@ struct TrackData {
   std::vector<Transform> leftCones;
   std::vector<Transform> rightCones;
   std::vector<Transform> checkpoints;
+  std::vector<std::pair<Transform, Transform>> gates;
 
   static TrackData FromTrackResult(const TrackResult& track);
 };
@@ -37,6 +39,7 @@ inline TrackData TrackData::FromTrackResult(const TrackResult& track) {
   data.leftCones = track.leftCones;
   data.rightCones = track.rightCones;
   data.checkpoints = track.checkpoints;
+  data.gates = track.gates;
   return data;
 }
 
