@@ -5,6 +5,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
@@ -78,6 +79,17 @@ struct RuntimeTelemetry {
     fsai::sim::MissionRunStatus status{fsai::sim::MissionRunStatus::kRunning};
     fsai::sim::MissionSegmentType segment{fsai::sim::MissionSegmentType::kTimed};
     bool stop_commanded{false};
+    std::string mission_name;
+    std::string mission_short_name;
+    fsai::sim::MissionType mission_type{fsai::sim::MissionType::kAutocross};
+    struct SegmentInfo {
+      fsai::sim::MissionSegmentType type{fsai::sim::MissionSegmentType::kTimed};
+      std::size_t completed_laps{0};
+      std::size_t target_laps{0};
+      double elapsed_time_s{0.0};
+    };
+    std::vector<SegmentInfo> segments;
+    std::optional<std::size_t> active_segment_index{};
   } mission;
 
   struct CanData {

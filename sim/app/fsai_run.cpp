@@ -359,6 +359,48 @@ const char* EbsStatusToString(fsai::sim::svcu::dbc::EbsStatus status) {
   return "Unknown";
 }
 
+const char* MissionRunStatusToString(fsai::sim::MissionRunStatus status) {
+  switch (status) {
+    case fsai::sim::MissionRunStatus::kRunning:
+      return "Running";
+    case fsai::sim::MissionRunStatus::kCompleted:
+      return "Completed";
+  }
+  return "Unknown";
+}
+
+const char* MissionSegmentTypeToString(fsai::sim::MissionSegmentType type) {
+  switch (type) {
+    case fsai::sim::MissionSegmentType::kWarmup:
+      return "Warmup";
+    case fsai::sim::MissionSegmentType::kTimed:
+      return "Timed";
+    case fsai::sim::MissionSegmentType::kExit:
+      return "Exit";
+  }
+  return "Unknown";
+}
+
+ImVec4 MissionStatusColor(fsai::sim::MissionRunStatus status, bool stop_commanded) {
+  if (status == fsai::sim::MissionRunStatus::kCompleted) {
+    return ImVec4(0.2f, 0.75f, 0.2f, 1.0f);
+  }
+  if (stop_commanded) {
+    return ImVec4(0.9f, 0.45f, 0.25f, 1.0f);
+  }
+  return ImVec4(0.95f, 0.85f, 0.25f, 1.0f);
+}
+
+ImVec4 MissionSegmentStateColor(bool active, bool complete) {
+  if (complete) {
+    return ImVec4(0.2f, 0.75f, 0.2f, 1.0f);
+  }
+  if (active) {
+    return ImVec4(0.3f, 0.6f, 0.95f, 1.0f);
+  }
+  return ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+}
+
 ImVec4 ColorForFreshness(double age_s, bool valid) {
   if (!valid || !std::isfinite(age_s)) {
     return ImVec4(0.85f, 0.3f, 0.3f, 1.0f);
@@ -384,6 +426,132 @@ void WithFreshnessColor(const fsai::sim::app::RuntimeTelemetry::TimedSample<T>& 
   ImGui::PushStyleColor(ImGuiCol_Text, color);
   fn();
   ImGui::PopStyleColor();
+}
+
+void DrawMissionPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
+  const auto& mission = telemetry.mission;
+  ImGui::Begin("Mission");
+
+  const std::string& mission_name = mission.mission_name.empty()
+                                        ? mission.mission_short_name
+                                        : mission.mission_name;
+  if (!mission_name.empty()) {
+    ImGui::Text("%s", mission_name.c_str());
+  } else {
+    ImGui::TextUnformatted("Mission");
+  }
+
+  const ImVec4 status_color = MissionStatusColor(mission.status, mission.stop_commanded);
+  ImGui::PushStyleColor(ImGuiCol_Text, status_color);
+  ImGui::Text("%s", MissionRunStatusToString(mission.status));
+  ImGui::PopStyleColor();
+  if (mission.stop_commanded) {
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.9f, 0.45f, 0.25f, 1.0f), "(Stop commanded)");
+  }
+
+  ImGui::Spacing();
+  ImGui::Text("Mission time: %.1f s", mission.mission_time_s);
+
+  const double total_target_laps = static_cast<double>(mission.target_laps);
+  const double total_completed_laps = static_cast<double>(mission.completed_laps);
+  float laps_ratio = 0.0f;
+  if (total_target_laps > 0.0) {
+    laps_ratio = static_cast<float>(std::clamp(total_completed_laps / total_target_laps, 0.0, 1.0));
+  } else if (mission.status == fsai::sim::MissionRunStatus::kCompleted) {
+    laps_ratio = 1.0f;
+  }
+  char lap_progress_label[64];
+  std::snprintf(lap_progress_label, sizeof(lap_progress_label), "%d / %zu laps",
+                mission.completed_laps, mission.target_laps);
+  ImGui::ProgressBar(laps_ratio, ImVec2(-FLT_MIN, 0.0f), lap_progress_label);
+
+  if (!mission.segments.empty()) {
+    ImGui::Spacing();
+    if (ImGui::BeginTable("mission_segments", 4,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+      ImGui::TableSetupColumn("Segment");
+      ImGui::TableSetupColumn("Status");
+      ImGui::TableSetupColumn("Progress");
+      ImGui::TableSetupColumn("Elapsed");
+      ImGui::TableHeadersRow();
+
+      for (std::size_t i = 0; i < mission.segments.size(); ++i) {
+        const auto& segment = mission.segments[i];
+        const bool complete = segment.target_laps > 0 &&
+                              segment.completed_laps >= segment.target_laps;
+        const bool active = mission.active_segment_index.has_value() &&
+                            mission.active_segment_index == i;
+        const ImVec4 segment_color = MissionSegmentStateColor(active, complete);
+
+        ImGui::TableNextRow();
+        if (active) {
+          ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
+                                 ImGui::GetColorU32(ImVec4(0.15f, 0.25f, 0.45f, 0.25f)));
+        }
+
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("%s", MissionSegmentTypeToString(segment.type));
+
+        ImGui::TableSetColumnIndex(1);
+        const char* state_label = complete ? "Complete" : (active ? "In progress" : "Queued");
+        ImGui::PushStyleColor(ImGuiCol_Text, segment_color);
+        ImGui::TextUnformatted(state_label);
+        ImGui::PopStyleColor();
+
+        ImGui::TableSetColumnIndex(2);
+        float segment_ratio = 0.0f;
+        if (segment.target_laps > 0) {
+          segment_ratio =
+              static_cast<float>(std::clamp(static_cast<double>(segment.completed_laps) /
+                                                 static_cast<double>(segment.target_laps),
+                                             0.0, 1.0));
+        } else if (complete) {
+          segment_ratio = 1.0f;
+        }
+        char segment_label[48];
+        std::snprintf(segment_label, sizeof(segment_label), "%zu / %zu",
+                      segment.completed_laps, segment.target_laps);
+        ImGui::ProgressBar(segment_ratio, ImVec2(-FLT_MIN, 0.0f), segment_label);
+
+        ImGui::TableSetColumnIndex(3);
+        ImGui::Text("%.1f s", segment.elapsed_time_s);
+      }
+      ImGui::EndTable();
+    }
+  } else {
+    ImGui::Spacing();
+    ImGui::Text("Segment: %s (%zu / %zu laps)",
+                MissionSegmentTypeToString(mission.segment),
+                mission.segment_completed_laps, mission.segment_target_laps);
+  }
+
+  if (mission.straight_progress_m > 0.0) {
+    static std::string last_mission_id;
+    static double straight_span_m = 1.0;
+    const std::string& mission_id = mission.mission_short_name.empty()
+                                        ? mission_name
+                                        : mission.mission_short_name;
+    if (mission_id != last_mission_id || (mission.mission_time_s < 0.1 &&
+                                          mission.completed_laps == 0)) {
+      last_mission_id = mission_id;
+      straight_span_m = std::max(1.0, mission.straight_progress_m);
+    }
+    straight_span_m = std::max(straight_span_m, std::max(1.0, mission.straight_progress_m));
+    float straight_ratio = static_cast<float>(std::clamp(
+        mission.straight_progress_m / straight_span_m, 0.0, 1.0));
+    char straight_label[64];
+    std::snprintf(straight_label, sizeof(straight_label), "%.1f m", mission.straight_progress_m);
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Straight-line progress");
+    ImGui::ProgressBar(straight_ratio, ImVec2(-FLT_MIN, 0.0f), straight_label);
+  } else {
+    ImGui::Spacing();
+    ImGui::Text("Straight-line progress: %.1f m", mission.straight_progress_m);
+  }
+
+  ImGui::End();
 }
 
 void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
@@ -1799,12 +1967,33 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.lap.total_distance_m = world.totalDistanceMeters();
     runtime_telemetry.lap.completed_laps = world.completedLaps();
     const auto& mission_state = world.missionRuntime();
+    const auto& mission_definition = world.mission();
     runtime_telemetry.mission.mission_time_s = mission_state.mission_time_seconds();
     runtime_telemetry.mission.straight_progress_m = mission_state.straight_line_progress_m();
     runtime_telemetry.mission.target_laps = mission_state.target_laps();
     runtime_telemetry.mission.completed_laps = static_cast<int>(mission_state.completed_laps());
     runtime_telemetry.mission.status = mission_state.run_status();
     runtime_telemetry.mission.stop_commanded = mission_state.stop_commanded();
+    runtime_telemetry.mission.mission_name = mission_definition.descriptor.name;
+    runtime_telemetry.mission.mission_short_name = mission_definition.descriptor.short_name;
+    runtime_telemetry.mission.mission_type = mission_definition.descriptor.type;
+    runtime_telemetry.mission.segments.clear();
+    runtime_telemetry.mission.active_segment_index.reset();
+    const auto& runtime_segments = mission_state.segments();
+    const auto* active_segment = mission_state.current_segment();
+    runtime_telemetry.mission.segments.reserve(runtime_segments.size());
+    for (std::size_t i = 0; i < runtime_segments.size(); ++i) {
+      const auto& segment = runtime_segments[i];
+      fsai::sim::app::RuntimeTelemetry::MissionData::SegmentInfo info;
+      info.type = segment.spec.type;
+      info.completed_laps = segment.completed_laps;
+      info.target_laps = segment.spec.laps;
+      info.elapsed_time_s = segment.elapsed_time_s;
+      runtime_telemetry.mission.segments.push_back(info);
+      if (active_segment == &segment) {
+        runtime_telemetry.mission.active_segment_index = i;
+      }
+    }
     if (const auto* segment = mission_state.current_segment()) {
       runtime_telemetry.mission.segment = segment->spec.type;
       runtime_telemetry.mission.segment_completed_laps = segment->completed_laps;
@@ -1898,6 +2087,7 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.mode.use_controller = world.useController != 0;
     runtime_telemetry.mode.runtime_mode = mode;
 
+    DrawMissionPanel(runtime_telemetry);
     DrawSimulationPanel(runtime_telemetry);
     DrawControlPanel(runtime_telemetry);
     DrawCanPanel(runtime_telemetry);
