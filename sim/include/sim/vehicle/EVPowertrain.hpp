@@ -102,7 +102,7 @@ private:
 
   static inline double safeEff(double e){ return (e>1e-6)? e : 1.0; }
 
-  double torqueFromPowerLimit(double motor_omega, double max_power_kw, int /*motors*/) const {
+  double torqueFromPowerLimit(double motor_omega, double max_power_kw) const {
     double P = std::max(0.0, max_power_kw) * 1000.0;
     if (P<=0.0 || motor_omega<=1e-6) return std::numeric_limits<double>::infinity();
     return P / motor_omega;
@@ -135,7 +135,7 @@ private:
     T_limit *= driveSocScale();
     if (T_req > T_limit) T_req = T_limit;
 
-    double T_power = torqueFromPowerLimit(motor_omega, P_.max_power_kw, motor_count_);
+    double T_power = torqueFromPowerLimit(motor_omega, P_.max_power_kw);
     if (T_req > T_power) T_req = T_power;
 
     T_req = std::max(0.0, T_req);
@@ -156,7 +156,7 @@ private:
     T_limit *= regenSocScale();
     if (T_req > T_limit) T_req = T_limit;
 
-    double T_power = torqueFromPowerLimit(motor_omega, P_.max_regen_kw, motor_count_);
+    double T_power = torqueFromPowerLimit(motor_omega, P_.max_regen_kw);
     if (T_req > T_power) T_req = T_power;
 
     T_req = std::max(0.0, T_req);

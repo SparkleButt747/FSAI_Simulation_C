@@ -67,10 +67,9 @@ VehicleParam VehicleParam::loadFromFile(const std::string& yamlFile){
   if (auto n = root["tire"]) {
     double coef = getD(n, "tire_coefficient", 1.0);
     vp.tire.tire_coefficient = coef;
-    // parity with Python: scale B and D
-    vp.tire.B = getD(n, "B") / std::max(1e-12, coef);
+    vp.tire.B = getD(n, "B");
     vp.tire.C = getD(n, "C");
-    vp.tire.D = getD(n, "D") * coef;
+    vp.tire.D = getD(n, "D");
     vp.tire.E = getD(n, "E");
     vp.tire.radius = getD(n, "radius");
   }
@@ -157,5 +156,26 @@ VehicleParam VehicleParam::loadFromFile(const std::string& yamlFile){
   }
 
   vp.source_path = yamlFile;  // keep the breadcrumb
+  vp.validate();
   return vp;
+}
+
+void VehicleParam::validate() const {
+  auto withSource = [&](const char* msg) {
+    if (source_path.empty()) return std::string(msg);
+    return std::string(msg) + " (" + source_path + ")";
+  };
+
+  if (inertia.m <= 0.0) {
+    throw std::runtime_error(withSource("vehicle mass must be positive"));
+  }
+  if (kinematic.l_F <= 0.0 || kinematic.l_R <= 0.0) {
+    throw std::runtime_error(withSource("axle distances l_F and l_R must be positive"));
+  }
+  if (tire.B <= 0.0 || tire.C <= 0.0 || tire.D <= 0.0) {
+    throw std::runtime_error(withSource("tire Magic Formula coefficients B, C, D must be positive"));
+  }
+  if (tire.radius <= 0.0) {
+    throw std::runtime_error(withSource("tire radius must be positive"));
+  }
 }

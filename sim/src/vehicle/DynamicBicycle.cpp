@@ -12,7 +12,7 @@ namespace {
 constexpr double kBlendStart          = 0.6;   // [m/s] begin reducing slip forces
 constexpr double kBlendEnd            = 1.8;   // [m/s] full dynamic behaviour restored
 constexpr double kHalfPi              = 1.5707963267948966;
-constexpr double kMinLongitudinalMag  = 0.35;  // [m/s] prevents singular slip angles
+constexpr double kMinLongitudinalMag  = 0.20;  // [m/s] prevents singular slip angles
 constexpr double kRelaxationLength    = 5.0;   // [m] pneumatic trail approximation
 constexpr double kMinRelaxationRate   = 5.0;   // [1/s] ensures slip states bleed off when nearly stopped
 constexpr double kLowSpeedLeakRate    = 6.0;   // [1/s] extra decay for slip states at standstill
@@ -213,18 +213,13 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
         alpha_rear_rel_  *= (1.0 - leak);
     }
     if (speed < 0.25) {
-        double decay_rate = 4.0 + 8.0 * std::max(0.0, brk_eff_);
-        if (speed < 0.1) {
-            decay_rate += 6.0;
-        }
-        const double decay = std::exp(-decay_rate * dt);
+        const double base_rate   = 4.0;
+        const double brake_bonus = 6.0 * std::clamp(brk_eff_, 0.0, 1.0);
+        const double decay_rate  = base_rate + brake_bonus;
+        const double decay       = std::exp(-decay_rate * dt);
         alpha_front_rel_ *= decay;
         alpha_rear_rel_  *= decay;
         if (speed < 0.05) {
-            alpha_front_rel_ = 0.0;
-            alpha_rear_rel_  = 0.0;
-        }
-        if (speed < 0.15 && brk_eff_ > 0.05) {
             alpha_front_rel_ = 0.0;
             alpha_rear_rel_  = 0.0;
         }
@@ -246,10 +241,6 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     // Raw Fx components (before ellipse), sign convention: forward positive
     double Fx_drive = double(ps.wheel_force);
     double Fx_mech_brake = double(bst.total_mechanical_force);
-    if (brk_eff_ > 1e-3) {
-        Fx_drive      *= slip_blend * slip_blend;
-        Fx_mech_brake *= slip_blend * slip_blend;
-    }
     double Fx_raw = Fx_drive - Fdrag - Frr - Fx_mech_brake;
 
     // Estimate ax, ay (body) using first-pass Fy for dynamic load transfer
@@ -318,7 +309,7 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     Fx_rl = clipped_rl.first; Fy_rl = clipped_rl.second;
     Fx_rr = clipped_rr.first; Fy_rr = clipped_rr.second;
 
-    // Sum totals and apply body resistive forces directly in longitudinal channel
+    // Sum totals: per-wheel forces already include rolling resistance; subtract aero drag here.
     Forces out{};
     out.Fx  = Fx_fl + Fx_fr + Fx_rl + Fx_rr - Fdrag;
     out.FyF = Fy_fl + Fy_fr;

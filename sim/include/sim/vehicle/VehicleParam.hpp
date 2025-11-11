@@ -154,4 +154,5 @@ public:
 
   // Implemented in VehicleParam.cpp (yaml-cpp)
   static VehicleParam loadFromFile(const std::string& yamlFile);
+  void validate() const;
 };
