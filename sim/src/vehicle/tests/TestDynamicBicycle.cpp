@@ -11,6 +11,10 @@ namespace {
 
 VehicleParam loadVehicleParams() {
     const std::vector<std::string> candidates = {
+        "configs/vehicle/configDryS.yaml",
+        "../configs/vehicle/configDryS.yaml",
+        "../../configs/vehicle/configDryS.yaml",
+        "../../../../configs/vehicle/configDryS.yaml",
         "configs/vehicle/configDry.yaml",
         "../configs/vehicle/configDry.yaml",
         "../../configs/vehicle/configDry.yaml",
