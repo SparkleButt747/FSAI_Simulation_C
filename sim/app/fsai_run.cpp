@@ -1688,6 +1688,7 @@ int main(int argc, char* argv[]) {
     control_cmd.t_ns = now_ns;
 
     if (now_ns - last_ai2vcu_tx_ns >= ai2vcu_period_ns) {
+      const auto& mission_state = world.missionRuntime();
       fsai::control::runtime::Ai2VcuAdapter::AdapterTelemetry adapter_telemetry{};
       adapter_telemetry.measured_speed_mps = measured_speed_mps;
       adapter_telemetry.lap_counter = static_cast<uint8_t>(
