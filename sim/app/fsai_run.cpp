@@ -828,6 +828,19 @@ void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
     }
   }
 
+  if (ImGui::CollapsingHeader("Tire Forces & Slip", ImGuiTreeNodeFlags_DefaultOpen)) {
+    const float alpha_f_deg = telemetry.tire.alpha_front_rad * fsai::sim::svcu::dbc::kRadToDeg;
+    const float alpha_r_deg = telemetry.tire.alpha_rear_rad * fsai::sim::svcu::dbc::kRadToDeg;
+    ImGui::Text("Speed / Steering: %.2f m/s | %.1f deg", telemetry.tire.speed_mps,
+                telemetry.tire.steer_deg);
+    ImGui::Text("Front / Rear slip angle: %.2f deg | %.2f deg", alpha_f_deg, alpha_r_deg);
+    ImGui::Text("Front / Rear lateral force: %.0f N | %.0f N",
+                telemetry.tire.front_lateral_force_n,
+                telemetry.tire.rear_lateral_force_n);
+    ImGui::Text("Net longitudinal force: %.0f N", telemetry.tire.longitudinal_force_n);
+    ImGui::Text("m_lat utilization: %.2f", telemetry.tire.mu_lat);
+  }
+
   if (ImGui::CollapsingHeader("Lap Stats", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::Text("Completed laps: %d", telemetry.lap.completed_laps);
     ImGui::Text("Current lap time: %.1f s", telemetry.lap.current_lap_time_s);
@@ -2194,6 +2207,17 @@ int main(int argc, char* argv[]) {
         static_cast<float>(vehicle_state.acceleration.z());
     runtime_telemetry.acceleration.yaw_rate_degps =
         static_cast<float>(vehicle_state.rotation.z() * fsai::sim::svcu::dbc::kRadToDeg);
+
+    const auto& tire_debug = model.lastTireDebug();
+    runtime_telemetry.tire.alpha_front_rad = static_cast<float>(tire_debug.alpha_front);
+    runtime_telemetry.tire.alpha_rear_rad  = static_cast<float>(tire_debug.alpha_rear);
+    runtime_telemetry.tire.front_lateral_force_n = static_cast<float>(tire_debug.fy_front);
+    runtime_telemetry.tire.rear_lateral_force_n  = static_cast<float>(tire_debug.fy_rear);
+    runtime_telemetry.tire.longitudinal_force_n  = static_cast<float>(tire_debug.fx_total);
+    runtime_telemetry.tire.mu_lat = static_cast<float>(tire_debug.mu_lat);
+    runtime_telemetry.tire.speed_mps = static_cast<float>(tire_debug.speed);
+    runtime_telemetry.tire.steer_deg = static_cast<float>(
+        tire_debug.steer * fsai::sim::svcu::dbc::kRadToDeg);
     runtime_telemetry.lap.current_lap_time_s = world.lapTimeSeconds();
     runtime_telemetry.lap.total_distance_m = world.totalDistanceMeters();
     runtime_telemetry.lap.completed_laps = world.completedLaps();

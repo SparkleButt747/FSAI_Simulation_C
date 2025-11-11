@@ -165,6 +165,7 @@ double DynamicBicycle::calculateMagnitude(double x, double y){ return std::sqrt(
 DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, const VehicleInput& u_in, double dt) const {
     // lazy init powertrain/brake with config
     if (!systems_configured_) {
+        param_.validate();
         pt_.configure(param_.powertrain, static_cast<float>(param_.tire.radius));
         br_ = BrakeController(param_.brakes);
         systems_configured_ = true;
@@ -310,10 +311,30 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     Fx_rr = clipped_rr.first; Fy_rr = clipped_rr.second;
 
     // Sum totals: per-wheel forces already include rolling resistance; subtract aero drag here.
+    const double Fy_front = Fy_fl + Fy_fr;
+    const double Fy_rear  = Fy_rl + Fy_rr;
+    const double Fx_sum   = Fx_fl + Fx_fr + Fx_rl + Fx_rr;
+
     Forces out{};
-    out.Fx  = Fx_fl + Fx_fr + Fx_rl + Fx_rr - Fdrag;
-    out.FyF = Fy_fl + Fy_fr;
-    out.FyR = Fy_rl + Fy_rr;
+    out.Fx  = Fx_sum - Fdrag;
+    out.FyF = Fy_front;
+    out.FyR = Fy_rear;
+
+    double mu_lat = 0.0;
+    if (mu > 1e-6 && total_Fz > 1e-6) {
+        const double Fy_total_abs = std::abs(Fy_fl) + std::abs(Fy_fr) + std::abs(Fy_rl) + std::abs(Fy_rr);
+        mu_lat = Fy_total_abs / (mu * total_Fz);
+    }
+
+    last_debug_.alpha_front = alpha_f;
+    last_debug_.alpha_rear  = alpha_r;
+    last_debug_.fy_front    = Fy_front;
+    last_debug_.fy_rear     = Fy_rear;
+    last_debug_.fx_total    = out.Fx;
+    last_debug_.mu_lat      = mu_lat;
+    last_debug_.speed       = speed;
+    last_debug_.steer       = u_in.delta;
+
     return out;
 }
 

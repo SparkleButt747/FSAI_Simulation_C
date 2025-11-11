@@ -28,12 +28,23 @@ class DynamicBicycle : public VehicleModel {
 public:
     using VehicleModel::VehicleModel;
   struct Forces { double Fx; double FyF; double FyR; };
+  struct TireDebug {
+    double alpha_front{0.0};
+    double alpha_rear{0.0};
+    double fy_front{0.0};
+    double fy_rear{0.0};
+    double fx_total{0.0};
+    double mu_lat{0.0};
+    double speed{0.0};
+    double steer{0.0};
+  };
 
   void updateState(VehicleState& state, const VehicleInput& input, double dt) override;
   static double calculateMagnitude(double x, double y);
 
   const PowertrainStatus& lastPowertrainStatus() const { return last_pt_status_; }
   const BrakeStatus& lastBrakeStatus() const { return last_brake_status_; }
+  const TireDebug& lastTireDebug() const { return last_debug_; }
 
 private:
   // Actuator states (first-order lags)
@@ -50,6 +61,7 @@ private:
   // Slip relaxation states (mutable so computeForces can maintain them)
   mutable double alpha_front_rel_{0.0};
   mutable double alpha_rear_rel_{0.0};
+  mutable TireDebug        last_debug_{};
 
   Forces computeForces(const VehicleState& state, const VehicleInput& input, double dt) const;
 

@@ -56,6 +56,17 @@ struct RuntimeTelemetry {
     float rear_pct{0.0f};
   } brake;
 
+  struct TireData {
+    float alpha_front_rad{0.0f};
+    float alpha_rear_rad{0.0f};
+    float front_lateral_force_n{0.0f};
+    float rear_lateral_force_n{0.0f};
+    float longitudinal_force_n{0.0f};
+    float mu_lat{0.0f};
+    float speed_mps{0.0f};
+    float steer_deg{0.0f};
+  } tire;
+
   struct AccelerationData {
     float longitudinal_mps2{0.0f};
     float lateral_mps2{0.0f};
