@@ -58,6 +58,18 @@ int main() {
             assert(std::abs(state.rotation.z()) < 0.2);
         }
 
+        // --- Launch from rest should build forward speed ---
+        {
+            VehicleState state;
+            VehicleInput input(0.6, 0.0, 0.0);
+            constexpr double dt = 0.01;
+            for (int i = 0; i < 400; ++i) {
+                model.updateState(state, input, dt);
+                assertFiniteState(state);
+            }
+            assert(state.velocity.x() > 3.0);
+        }
+
         // --- Low-speed with residual yaw: exponential damping ---
         {
             VehicleState state;

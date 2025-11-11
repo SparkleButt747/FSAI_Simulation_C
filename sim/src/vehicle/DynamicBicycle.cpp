@@ -18,6 +18,7 @@ constexpr double kMinLongitudinalMag  = 0.35;  // [m/s] prevents singular slip a
 constexpr double kRelaxationLength    = 5.0;   // [m] pneumatic trail approximation
 constexpr double kMinRelaxationRate   = 5.0;   // [1/s] ensures slip states bleed off when nearly stopped
 constexpr double kLowSpeedLeakRate    = 6.0;   // [1/s] extra decay for slip states at standstill
+constexpr double kRollFadeSpeed       = 0.6;   // [m/s] fade rolling resistance near standstill
 
 inline double smoothBlend01(double t) {
     t = std::clamp(t, 0.0, 1.0);
@@ -52,6 +53,15 @@ inline double lowSpeedSlipLeak(double blend, double brake, double dt) {
     if (leak_rate <= 0.0) return 0.0;
     const double leak = 1.0 - std::exp(-leak_rate * dt);
     return std::clamp(leak, 0.0, 1.0);
+}
+
+inline double rollingResistanceForce(double base_rr, double vx) {
+    if (base_rr <= 0.0) return 0.0;
+    const double mag  = std::abs(vx);
+    if (mag < 1e-6) return 0.0;
+    const double sign = (vx >= 0.0) ? 1.0 : -1.0;
+    const double fade = std::tanh(mag / kRollFadeSpeed);
+    return base_rr * fade * sign;
 }
 
 struct WheelLoads { double Fz_fl, Fz_fr, Fz_rl, Fz_rr; };
@@ -175,16 +185,18 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     brk_eff_ = a_br * brk_eff_ + (1.0 - a_br) * brk_cmd;
 
     const double vx_body = x.velocity.x();
-    const double vx = std::max(0.0, vx_body);
+    const double vx_mag  = std::abs(vx_body);
+    const double vx = vx_mag;
     const double vy = x.velocity.y();
     const double r  = x.rotation.z();
     const double speed = std::sqrt(vx_body * vx_body + vy * vy);
     const double slip_blend = lowSpeedBlend(speed);
 
     // Aero + rolling resistance
-    const double Fdrag = param_.aero.c_drag * vx * vx;
     const double Fdown = param_.aero.c_down * vx * vx;
-    const double Frr   = param_.physics.c_rr * param_.inertia.m * param_.inertia.g * sgn(vx);
+    const double Fdrag = param_.aero.c_drag * vx_body * vx;
+    const double base_rr = param_.physics.c_rr * param_.inertia.m * param_.inertia.g;
+    const double Frr   = rollingResistanceForce(base_rr, vx_body);
 
     // First pass: static loads → lateral forces
     const double Wtot = param_.inertia.m * param_.inertia.g + Fdown;
@@ -253,7 +265,7 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     const double FyFtot0 = FyF_0;
     const double FyRtot0 = FyR_0;
     const double ax_est = (r * vy + (Fx_raw - std::sin(u_in.delta) * FyFtot0)) / m;
-    const double ay_est = ((std::cos(u_in.delta) * FyFtot0) + FyRtot0) / m - (r * vx);
+    const double ay_est = ((std::cos(u_in.delta) * FyFtot0) + FyRtot0) / m - (r * vx_body);
 
     // Dynamic loads
     WheelLoads WL = computeWheelLoads(param_, Fdown, ax_est, ay_est);
