@@ -196,30 +196,36 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     const double alpha_f_target = getSlipAngle(x, u_in, true);
     const double alpha_r_target = getSlipAngle(x, u_in, false);
 
-    const double relax_lerp = relaxationLerp(speed, slip_blend, dt);
-    alpha_front_rel_ += (alpha_f_target - alpha_front_rel_) * relax_lerp;
-    alpha_rear_rel_  += (alpha_r_target - alpha_rear_rel_) * relax_lerp;
+    if (slip_blend > 0.999 || speed > 3.0) {
+        // At realistic speeds track the instantaneous slip so we retain the stock non-linear behaviour
+        alpha_front_rel_ = alpha_f_target;
+        alpha_rear_rel_  = alpha_r_target;
+    } else {
+        const double relax_lerp = relaxationLerp(speed, slip_blend, dt);
+        alpha_front_rel_ += (alpha_f_target - alpha_front_rel_) * relax_lerp;
+        alpha_rear_rel_  += (alpha_r_target - alpha_rear_rel_) * relax_lerp;
 
-    const double leak = lowSpeedSlipLeak(slip_blend, brk_eff_, dt);
-    if (leak > 0.0) {
-        alpha_front_rel_ *= (1.0 - leak);
-        alpha_rear_rel_  *= (1.0 - leak);
-    }
-    if (speed < 0.25) {
-        double decay_rate = 4.0 + 8.0 * std::max(0.0, brk_eff_);
-        if (speed < 0.1) {
-            decay_rate += 6.0;
+        const double leak = lowSpeedSlipLeak(slip_blend, brk_eff_, dt);
+        if (leak > 0.0) {
+            alpha_front_rel_ *= (1.0 - leak);
+            alpha_rear_rel_  *= (1.0 - leak);
         }
-        const double decay = std::exp(-decay_rate * dt);
-        alpha_front_rel_ *= decay;
-        alpha_rear_rel_  *= decay;
-        if (speed < 0.05) {
-            alpha_front_rel_ = 0.0;
-            alpha_rear_rel_  = 0.0;
-        }
-        if (speed < 0.15 && brk_eff_ > 0.05) {
-            alpha_front_rel_ = 0.0;
-            alpha_rear_rel_  = 0.0;
+        if (speed < 0.25) {
+            double decay_rate = 4.0 + 8.0 * std::max(0.0, brk_eff_);
+            if (speed < 0.1) {
+                decay_rate += 6.0;
+            }
+            const double decay = std::exp(-decay_rate * dt);
+            alpha_front_rel_ *= decay;
+            alpha_rear_rel_  *= decay;
+            if (speed < 0.05) {
+                alpha_front_rel_ = 0.0;
+                alpha_rear_rel_  = 0.0;
+            }
+            if (speed < 0.15 && brk_eff_ > 0.05) {
+                alpha_front_rel_ = 0.0;
+                alpha_rear_rel_  = 0.0;
+            }
         }
     }
 
