@@ -1307,16 +1307,61 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   Graphics_Clear(graphics);
   Graphics_DrawGrid(graphics, 50);
 
-  const auto& checkpoints = world.checkpointPositionsWorld();
-  if (!checkpoints.empty()) {
-    SDL_SetRenderDrawColor(graphics->renderer, 200, 0, 200, 255);
-    Graphics_DrawFilledCircle(
-        graphics,
-        static_cast<int>(checkpoints.front().x * K_RENDER_SCALE +
-                         graphics->width / 2.0f),
-        static_cast<int>(checkpoints.front().z * K_RENDER_SCALE +
-                         graphics->height / 2.0f),
-        static_cast<int>(K_RENDER_SCALE));
+  const auto& left_cones = world.getLeftCones();
+  const auto& right_cones = world.getRightCones();
+  const std::size_t gate_count =
+      std::min(left_cones.size(), right_cones.size());
+
+  if (gate_count > 0) {
+    for (std::size_t i = 0; i < gate_count; ++i) {
+      const bool is_current_gate = (i == 0);
+      const SDL_Color color = is_current_gate
+                                  ? SDL_Color{200, 0, 200, 255}
+                                  : SDL_Color{120, 120, 200, 180};
+      const auto& left = left_cones[i].position;
+      const auto& right = right_cones[i].position;
+
+      const float left_x = left.x * K_RENDER_SCALE + graphics->width / 2.0f;
+      const float left_y = left.z * K_RENDER_SCALE + graphics->height / 2.0f;
+      const float right_x = right.x * K_RENDER_SCALE + graphics->width / 2.0f;
+      const float right_y = right.z * K_RENDER_SCALE + graphics->height / 2.0f;
+
+      SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
+                             color.a);
+      SDL_RenderDrawLineF(graphics->renderer, left_x, left_y, right_x,
+                          right_y);
+
+      if (is_current_gate) {
+        const float thickness = std::max(1.5f, K_RENDER_SCALE * 0.15f);
+        const float dx = right_x - left_x;
+        const float dy = right_y - left_y;
+        const float length = std::hypot(dx, dy);
+        if (length > std::numeric_limits<float>::epsilon()) {
+          const float nx = -dy / length;
+          const float ny = dx / length;
+          const float offset_x = nx * thickness * 0.5f;
+          const float offset_y = ny * thickness * 0.5f;
+          SDL_RenderDrawLineF(graphics->renderer, left_x + offset_x,
+                              left_y + offset_y, right_x + offset_x,
+                              right_y + offset_y);
+          SDL_RenderDrawLineF(graphics->renderer, left_x - offset_x,
+                              left_y - offset_y, right_x - offset_x,
+                              right_y - offset_y);
+        }
+      }
+    }
+  } else {
+    const auto& checkpoints = world.checkpointPositionsWorld();
+    if (!checkpoints.empty()) {
+      SDL_SetRenderDrawColor(graphics->renderer, 200, 0, 200, 255);
+      Graphics_DrawFilledCircle(
+          graphics,
+          static_cast<int>(checkpoints.front().x * K_RENDER_SCALE +
+                           graphics->width / 2.0f),
+          static_cast<int>(checkpoints.front().z * K_RENDER_SCALE +
+                           graphics->height / 2.0f),
+          static_cast<int>(K_RENDER_SCALE));
+    }
   }
 
   const auto& lookahead = world.lookahead();
