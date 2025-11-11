@@ -1575,6 +1575,7 @@ int main(int argc, char* argv[]) {
   adapter_cfg.brake_rear_bias = brake_rear_bias;
   adapter_cfg.max_speed_kph =
       static_cast<float>(vehicle_param.input_ranges.vel.max * 3.6);
+  adapter_cfg.mission_descriptor = mission_definition.descriptor;
   fsai::control::runtime::Ai2VcuAdapter ai2vcu_adapter(adapter_cfg);
 
   fsai::control::runtime::Ai2VcuCommandSet last_ai2vcu_commands{};
@@ -1691,6 +1692,18 @@ int main(int argc, char* argv[]) {
       adapter_telemetry.measured_speed_mps = measured_speed_mps;
       adapter_telemetry.lap_counter = static_cast<uint8_t>(
           std::clamp(world.completedLaps(), 0, 15));
+      adapter_telemetry.mission_laps_completed = static_cast<uint16_t>(
+          std::min<std::size_t>(mission_state.completed_laps(),
+                                 std::numeric_limits<uint16_t>::max()));
+      adapter_telemetry.mission_laps_target = static_cast<uint16_t>(
+          std::min<std::size_t>(mission_state.target_laps(),
+                                 std::numeric_limits<uint16_t>::max()));
+      adapter_telemetry.mission_selected = true;
+      adapter_telemetry.mission_running =
+          mission_state.run_status() == fsai::sim::MissionRunStatus::kRunning;
+      adapter_telemetry.mission_finished =
+          mission_state.run_status() == fsai::sim::MissionRunStatus::kCompleted ||
+          mission_state.stop_commanded();
       const auto total_cones = world.getLeftCones().size() +
                                world.getRightCones().size() +
                                world.getStartCones().size();
