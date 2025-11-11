@@ -359,46 +359,98 @@ const char* EbsStatusToString(fsai::sim::svcu::dbc::EbsStatus status) {
   return "Unknown";
 }
 
-const char* MissionRunStatusToString(fsai::sim::MissionRunStatus status) {
-  switch (status) {
-    case fsai::sim::MissionRunStatus::kRunning:
-      return "Running";
-    case fsai::sim::MissionRunStatus::kCompleted:
-      return "Completed";
+ImVec4 Rgba255(int r, int g, int b, int a = 255) {
+  const float scale = 1.0f / 255.0f;
+  return ImVec4(static_cast<float>(r) * scale, static_cast<float>(g) * scale,
+                static_cast<float>(b) * scale, static_cast<float>(a) * scale);
+}
+
+const char* MissionTypeLabel(fsai::sim::MissionType type) {
+  switch (type) {
+    case fsai::sim::MissionType::kAcceleration:
+      return "Acceleration";
+    case fsai::sim::MissionType::kSkidpad:
+      return "Skidpad";
+    case fsai::sim::MissionType::kAutocross:
+      return "Autocross";
+    case fsai::sim::MissionType::kTrackdrive:
+      return "Trackdrive";
   }
   return "Unknown";
 }
 
-const char* MissionSegmentTypeToString(fsai::sim::MissionSegmentType type) {
+const char* MissionSegmentTypeLabel(fsai::sim::MissionSegmentType type) {
   switch (type) {
     case fsai::sim::MissionSegmentType::kWarmup:
-      return "Warmup";
+      return "Warmup Laps";
     case fsai::sim::MissionSegmentType::kTimed:
-      return "Timed";
+      return "Timed Laps";
     case fsai::sim::MissionSegmentType::kExit:
-      return "Exit";
+      return "Exit / Cooldown";
   }
   return "Unknown";
+}
+
+std::string MissionRunStatusLabel(fsai::sim::MissionRunStatus status, bool stop_commanded) {
+  switch (status) {
+    case fsai::sim::MissionRunStatus::kRunning:
+      if (stop_commanded) {
+        return "Stop Commanded";
+      }
+      return "Running";
+    case fsai::sim::MissionRunStatus::kCompleted:
+      return stop_commanded ? "Completed (Stop Commanded)" : "Completed";
+  }
+  return "Unknown";
+}
+
+ImVec4 MissionTypeColor(fsai::sim::MissionType type) {
+  switch (type) {
+    case fsai::sim::MissionType::kAcceleration:
+      return Rgba255(255, 171, 64);
+    case fsai::sim::MissionType::kSkidpad:
+      return Rgba255(25, 188, 157);
+    case fsai::sim::MissionType::kAutocross:
+      return Rgba255(66, 165, 245);
+    case fsai::sim::MissionType::kTrackdrive:
+      return Rgba255(171, 71, 188);
+  }
+  return Rgba255(158, 158, 158);
 }
 
 ImVec4 MissionStatusColor(fsai::sim::MissionRunStatus status, bool stop_commanded) {
-  if (status == fsai::sim::MissionRunStatus::kCompleted) {
-    return ImVec4(0.2f, 0.75f, 0.2f, 1.0f);
+  switch (status) {
+    case fsai::sim::MissionRunStatus::kRunning:
+      if (stop_commanded) {
+        return Rgba255(239, 108, 0);
+      }
+      return Rgba255(255, 213, 79);
+    case fsai::sim::MissionRunStatus::kCompleted:
+      return stop_commanded ? Rgba255(102, 187, 106) : Rgba255(76, 175, 80);
   }
-  if (stop_commanded) {
-    return ImVec4(0.9f, 0.45f, 0.25f, 1.0f);
-  }
-  return ImVec4(0.95f, 0.85f, 0.25f, 1.0f);
+  return Rgba255(229, 57, 53);
 }
 
-ImVec4 MissionSegmentStateColor(bool active, bool complete) {
+ImVec4 MissionSegmentTypeColor(fsai::sim::MissionSegmentType type) {
+  switch (type) {
+    case fsai::sim::MissionSegmentType::kWarmup:
+      return Rgba255(129, 212, 250);
+    case fsai::sim::MissionSegmentType::kTimed:
+      return Rgba255(129, 199, 132);
+    case fsai::sim::MissionSegmentType::kExit:
+      return Rgba255(206, 147, 216);
+  }
+  return Rgba255(158, 158, 158);
+}
+
+ImVec4 MissionSegmentStateColor(fsai::sim::MissionSegmentType type, bool active, bool complete) {
   if (complete) {
-    return ImVec4(0.2f, 0.75f, 0.2f, 1.0f);
+    return Rgba255(67, 160, 71);
   }
   if (active) {
-    return ImVec4(0.3f, 0.6f, 0.95f, 1.0f);
+    return MissionSegmentTypeColor(type);
   }
-  return ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+  return Rgba255(189, 189, 189);
 }
 
 ImVec4 ColorForFreshness(double age_s, bool valid) {
@@ -441,14 +493,13 @@ void DrawMissionPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
     ImGui::TextUnformatted("Mission");
   }
 
+  const char* mission_type_label = MissionTypeLabel(mission.mission_type);
+  ImGui::TextColored(MissionTypeColor(mission.mission_type), "%s Mission",
+                     mission_type_label);
+
+  const std::string status_label = MissionRunStatusLabel(mission.status, mission.stop_commanded);
   const ImVec4 status_color = MissionStatusColor(mission.status, mission.stop_commanded);
-  ImGui::PushStyleColor(ImGuiCol_Text, status_color);
-  ImGui::Text("%s", MissionRunStatusToString(mission.status));
-  ImGui::PopStyleColor();
-  if (mission.stop_commanded) {
-    ImGui::SameLine();
-    ImGui::TextColored(ImVec4(0.9f, 0.45f, 0.25f, 1.0f), "(Stop commanded)");
-  }
+  ImGui::TextColored(status_color, "%s", status_label.c_str());
 
   ImGui::Spacing();
   ImGui::Text("Mission time: %.1f s", mission.mission_time_s);
@@ -483,7 +534,8 @@ void DrawMissionPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
                               segment.completed_laps >= segment.target_laps;
         const bool active = mission.active_segment_index.has_value() &&
                             mission.active_segment_index == i;
-        const ImVec4 segment_color = MissionSegmentStateColor(active, complete);
+        const ImVec4 segment_color =
+            MissionSegmentStateColor(segment.type, active, complete);
 
         ImGui::TableNextRow();
         if (active) {
@@ -492,7 +544,9 @@ void DrawMissionPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
         }
 
         ImGui::TableSetColumnIndex(0);
-        ImGui::Text("%s", MissionSegmentTypeToString(segment.type));
+        ImGui::PushStyleColor(ImGuiCol_Text, MissionSegmentTypeColor(segment.type));
+        ImGui::Text("%s", MissionSegmentTypeLabel(segment.type));
+        ImGui::PopStyleColor();
 
         ImGui::TableSetColumnIndex(1);
         const char* state_label = complete ? "Complete" : (active ? "In progress" : "Queued");
@@ -522,9 +576,52 @@ void DrawMissionPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
     }
   } else {
     ImGui::Spacing();
-    ImGui::Text("Segment: %s (%zu / %zu laps)",
-                MissionSegmentTypeToString(mission.segment),
-                mission.segment_completed_laps, mission.segment_target_laps);
+    const bool has_target = mission.segment_target_laps > 0;
+    float segment_ratio = 0.0f;
+    if (has_target) {
+      segment_ratio = static_cast<float>(std::clamp(
+          static_cast<double>(mission.segment_completed_laps) /
+              static_cast<double>(mission.segment_target_laps),
+          0.0, 1.0));
+    } else if (mission.status == fsai::sim::MissionRunStatus::kCompleted) {
+      segment_ratio = 1.0f;
+    }
+    char segment_label[64];
+    if (has_target) {
+      std::snprintf(segment_label, sizeof(segment_label), "%s: %zu / %zu",
+                    MissionSegmentTypeLabel(mission.segment), mission.segment_completed_laps,
+                    mission.segment_target_laps);
+    } else {
+      std::snprintf(segment_label, sizeof(segment_label), "%s", MissionSegmentTypeLabel(mission.segment));
+    }
+    ImGui::ProgressBar(segment_ratio, ImVec2(-FLT_MIN, 0.0f), segment_label);
+  }
+
+  if (mission.active_segment_index.has_value()) {
+    const std::size_t index = *mission.active_segment_index;
+    if (index < mission.segments.size()) {
+      const auto& active = mission.segments[index];
+      ImGui::Spacing();
+      ImGui::TextColored(MissionSegmentTypeColor(active.type), "Active segment progress");
+      float active_ratio = 0.0f;
+      const bool active_has_target = active.target_laps > 0;
+      if (active_has_target) {
+        active_ratio = static_cast<float>(std::clamp(
+            static_cast<double>(active.completed_laps) /
+                static_cast<double>(active.target_laps),
+            0.0, 1.0));
+      } else if (mission.status == fsai::sim::MissionRunStatus::kCompleted) {
+        active_ratio = 1.0f;
+      }
+      char active_label[48];
+      if (active_has_target) {
+        std::snprintf(active_label, sizeof(active_label), "%zu / %zu laps",
+                      active.completed_laps, active.target_laps);
+      } else {
+        std::snprintf(active_label, sizeof(active_label), "%s", MissionSegmentTypeLabel(active.type));
+      }
+      ImGui::ProgressBar(active_ratio, ImVec2(-FLT_MIN, 0.0f), active_label);
+    }
   }
 
   if (mission.straight_progress_m > 0.0) {
