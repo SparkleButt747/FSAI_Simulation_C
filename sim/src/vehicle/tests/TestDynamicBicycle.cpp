@@ -91,7 +91,8 @@ int main() {
                 const double vy = state.velocity.y();
                 const double speed = std::sqrt(vx * vx + vy * vy);
                 if (i > 50 && speed > 1.0) {
-                    const double slip = std::atan2(vy, vx) - state.yaw;
+                    double slip = std::atan2(vy, vx) - state.yaw;
+                    slip = std::atan2(std::sin(slip), std::cos(slip));
                     slip_sum += std::abs(slip);
                     slip_max = std::max(slip_max, std::abs(slip));
                     ++slip_samples;

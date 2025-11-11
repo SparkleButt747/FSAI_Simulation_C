@@ -12,31 +12,13 @@ using std::tan;
 namespace {
 inline double sgn(double v){ return (v>0)-(v<0); }
 
-constexpr double kLowSpeedTransition = 1.0; // [m/s] blend threshold between static and dynamic regimes
-constexpr double kHalfPi             = 1.5707963267948966;
-constexpr double kMinRelaxationSpeed = 0.5; // [m/s] ensures slip relaxation responds when rolling slowly
-constexpr double kRelaxationLength   = 5.0; // [m] pneumatic trail approximation
-
-inline double regularizedLongitudinal(double vx, double blend) {
-    const double min_mag = 0.2 + 0.6 * (1.0 - blend); // keep slip bounded when almost stopped
-    const double sign = (vx >= 0.0) ? 1.0 : -1.0;
-    return (std::abs(vx) < min_mag) ? sign * min_mag : vx;
-}
-
-inline double relaxationLerp(double speed, double dt) {
-    const double v_eff = std::max(kMinRelaxationSpeed, speed);
-    const double rate  = v_eff / std::max(1e-3, kRelaxationLength);
-    const double lerp  = 1.0 - std::exp(-rate * dt);
-    return std::clamp(lerp, 0.0, 1.0);
-}
-
-inline void staticSlipLeak(double& alpha_front, double& alpha_rear, double speed, double dt) {
-    if (speed >= 0.6) return;
-    const double deficit = (0.6 - speed) / 0.6;
-    const double leak = 1.0 - std::exp(-deficit * 6.0 * dt);
-    alpha_front *= (1.0 - leak);
-    alpha_rear  *= (1.0 - leak);
-}
+constexpr double kBlendStart          = 0.6;   // [m/s] begin reducing slip forces
+constexpr double kBlendEnd            = 1.8;   // [m/s] full dynamic behaviour restored
+constexpr double kHalfPi              = 1.5707963267948966;
+constexpr double kMinLongitudinalMag  = 0.35;  // [m/s] prevents singular slip angles
+constexpr double kRelaxationLength    = 5.0;   // [m] pneumatic trail approximation
+constexpr double kMinRelaxationRate   = 5.0;   // [1/s] ensures slip states bleed off when nearly stopped
+constexpr double kLowSpeedLeakRate    = 6.0;   // [1/s] extra decay for slip states at standstill
 
 inline double smoothBlend01(double t) {
     t = std::clamp(t, 0.0, 1.0);
@@ -44,8 +26,33 @@ inline double smoothBlend01(double t) {
 }
 
 inline double lowSpeedBlend(double speed) {
-    const double denom = std::max(1e-3, kLowSpeedTransition);
-    return smoothBlend01(speed / denom);
+    if (speed <= kBlendStart) return 0.0;
+    if (speed >= kBlendEnd)   return 1.0;
+    const double span = std::max(1e-6, kBlendEnd - kBlendStart);
+    return smoothBlend01((speed - kBlendStart) / span);
+}
+
+inline double regularizedLongitudinal(double vx, double blend) {
+    const double min_mag = kMinLongitudinalMag * (0.5 + 0.5 * blend);
+    const double sign    = (vx >= 0.0) ? 1.0 : -1.0;
+    const double mag     = std::max(std::abs(vx), min_mag);
+    return sign * mag;
+}
+
+inline double relaxationLerp(double speed, double blend, double dt) {
+    const double v_eff = std::max(0.3, speed);
+    const double natural_rate = v_eff / std::max(1e-3, kRelaxationLength);
+    const double forced_rate  = kMinRelaxationRate * (1.0 - blend);
+    const double rate         = std::max(natural_rate, forced_rate);
+    const double lerp         = 1.0 - std::exp(-rate * dt);
+    return std::clamp(lerp, 0.0, 1.0);
+}
+
+inline double lowSpeedSlipLeak(double blend, double brake, double dt) {
+    const double leak_rate = (1.0 - blend) * (kLowSpeedLeakRate + 4.0 * std::clamp(brake, 0.0, 1.0));
+    if (leak_rate <= 0.0) return 0.0;
+    const double leak = 1.0 - std::exp(-leak_rate * dt);
+    return std::clamp(leak, 0.0, 1.0);
 }
 
 struct WheelLoads { double Fz_fl, Fz_fr, Fz_rl, Fz_rr; };
@@ -123,19 +130,15 @@ double VehicleModel::getSlipAngle(const VehicleState& x, const VehicleInput& u, 
     const double lf     = param_.kinematic.l_F;
     const double lr     = param_.kinematic.l_R;
 
-    const double speed      = std::sqrt(vx_raw * vx_raw + vy * vy);
-    const double slip_blend = lowSpeedBlend(speed);
+    const double speed  = std::sqrt(vx_raw * vx_raw + vy * vy);
+    const double blend  = lowSpeedBlend(speed);
+    const double vx_eff = regularizedLongitudinal(vx_raw, blend);
 
-    const double vx_eff  = regularizedLongitudinal(vx_raw, slip_blend);
-
-    double slip = 0.0;
+    double slip;
     if (isFront) {
         slip = atan2(vy + lf * r, vx_eff) - u.delta;
     } else {
         slip = atan2(vy - lr * r, vx_eff);
-    }
-    if (slip_blend < 1.0) {
-        slip *= slip_blend;
     }
     return std::clamp(slip, -kHalfPi, kHalfPi);
 }
@@ -193,10 +196,32 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     const double alpha_f_target = getSlipAngle(x, u_in, true);
     const double alpha_r_target = getSlipAngle(x, u_in, false);
 
-    const double relax_lerp = relaxationLerp(speed, dt);
+    const double relax_lerp = relaxationLerp(speed, slip_blend, dt);
     alpha_front_rel_ += (alpha_f_target - alpha_front_rel_) * relax_lerp;
     alpha_rear_rel_  += (alpha_r_target - alpha_rear_rel_) * relax_lerp;
-    staticSlipLeak(alpha_front_rel_, alpha_rear_rel_, speed, dt);
+
+    const double leak = lowSpeedSlipLeak(slip_blend, brk_eff_, dt);
+    if (leak > 0.0) {
+        alpha_front_rel_ *= (1.0 - leak);
+        alpha_rear_rel_  *= (1.0 - leak);
+    }
+    if (speed < 0.25) {
+        double decay_rate = 4.0 + 8.0 * std::max(0.0, brk_eff_);
+        if (speed < 0.1) {
+            decay_rate += 6.0;
+        }
+        const double decay = std::exp(-decay_rate * dt);
+        alpha_front_rel_ *= decay;
+        alpha_rear_rel_  *= decay;
+        if (speed < 0.05) {
+            alpha_front_rel_ = 0.0;
+            alpha_rear_rel_  = 0.0;
+        }
+        if (speed < 0.15 && brk_eff_ > 0.05) {
+            alpha_front_rel_ = 0.0;
+            alpha_rear_rel_  = 0.0;
+        }
+    }
 
     const double alpha_f = std::clamp(alpha_front_rel_, -kHalfPi, kHalfPi);
     const double alpha_r = std::clamp(alpha_rear_rel_,  -kHalfPi, kHalfPi);
@@ -215,8 +240,8 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     double Fx_drive = double(ps.wheel_force);
     double Fx_mech_brake = double(bst.total_mechanical_force);
     if (brk_eff_ > 1e-3) {
-        Fx_drive *= slip_blend;
-        Fx_mech_brake *= slip_blend;
+        Fx_drive      *= slip_blend * slip_blend;
+        Fx_mech_brake *= slip_blend * slip_blend;
     }
     double Fx_raw = Fx_drive - Fdrag - Frr - Fx_mech_brake;
 
@@ -245,7 +270,7 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     // Longitudinal split: drive/regen by PT (front/rear) + mechanical brakes by bias
     double Fx_fl=0, Fx_fr=0, Fx_rl=0, Fx_rr=0;
 
-    const double torque_scale = (brk_eff_ > 1e-3) ? slip_blend : 1.0;
+    const double torque_scale = (brk_eff_ > 1e-3) ? (slip_blend * slip_blend) : 1.0;
     double Fd_front_each = 0.5 * ps.front_drive_force * torque_scale;
     double Fd_rear_each  = 0.5 * ps.rear_drive_force  * torque_scale;
     double Fr_front_each = 0.5 * ps.front_regen_force * torque_scale;
@@ -306,15 +331,18 @@ static VehicleState fDynamics(const DynamicBicycle& db, const VehicleState& x, c
     // Yaw dynamics
     xDot.rotation.z() = (std::cos(u.delta) * FyFtot * lf - FyRtot * lr) / Iz;
 
+    // baseline aero / carcass damping
+    xDot.velocity.y() -= 0.25 * x.velocity.y();
+    xDot.rotation.z() -= 0.18 * x.rotation.z();
+
     if (low_weight > 1e-6) {
         const double clamp_brake = std::clamp(brake_level, 0.0, 1.0);
-        const double lat_tau = 0.15 + 0.85 * (1.0 - low_weight);
-        const double yaw_tau = 0.25 + 1.25 * (1.0 - low_weight);
-        const double brake_gain = 1.0 + 2.5 * clamp_brake;
-        const double lat_decay = -x.velocity.y() / std::max(1e-3, lat_tau) * low_weight * brake_gain;
-        const double yaw_decay = -x.rotation.z() / std::max(1e-3, yaw_tau) * low_weight * brake_gain;
-        xDot.velocity.y() += lat_decay;
-        xDot.rotation.z() += yaw_decay;
+        const double lat_damp = (6.0 + 8.0 * clamp_brake) * low_weight;
+        const double yaw_damp = (3.0 + 5.0 * clamp_brake) * low_weight;
+        const double vx_damp  = (1.5 + 3.0 * clamp_brake) * low_weight;
+        xDot.velocity.x() -= vx_damp * x.velocity.x();
+        xDot.velocity.y() -= lat_damp * x.velocity.y();
+        xDot.rotation.z() -= yaw_damp * x.rotation.z();
     }
 
     return xDot;
@@ -335,18 +363,23 @@ void DynamicBicycle::updateState(VehicleState& state, const VehicleInput& inputR
     VehicleState xDot  = fDynamics(*this, state, u, F.Fx, F.FyF, F.FyR, low_weight, brk_eff_);
     VehicleState xNext = state + xDot * dt;
 
-    const double v = calculateMagnitude(xNext.velocity.x(), xNext.velocity.y());
-    const double blend_next = lowSpeedBlend(v);
-    if (blend_next < 1.0) {
-        const double low_weight_next = 1.0 - blend_next;
-        const double base_rate = 1.5;
-        double damping = std::exp(-base_rate * low_weight_next * dt);
-        if (brk_eff_ > 1e-3) {
-            const double brake_rate = 4.0;
-            damping *= std::exp(-brake_rate * low_weight_next * dt);
+    const double speed_next = calculateMagnitude(xNext.velocity.x(), xNext.velocity.y());
+    if (speed_next < 0.3) {
+        double settle_brake = std::clamp(brk_eff_, 0.0, 1.0);
+        double lat_tau = 0.12 + 0.25 * (1.0 - settle_brake);
+        double yaw_tau = 0.15 + 0.35 * (1.0 - settle_brake);
+        double vx_tau  = 0.20 + 0.30 * (1.0 - settle_brake);
+        const double lat_decay = std::exp(-dt / lat_tau);
+        const double yaw_decay = std::exp(-dt / yaw_tau);
+        const double vx_decay  = std::exp(-dt / vx_tau);
+        xNext.velocity.y() *= lat_decay;
+        xNext.rotation.z() *= yaw_decay;
+        xNext.velocity.x() *= vx_decay;
+        if (speed_next < 0.05 && settle_brake > 0.2) {
+            xNext.velocity.x() = 0.0;
+            xNext.velocity.y() = 0.0;
+            xNext.rotation.z() = 0.0;
         }
-        xNext.velocity.y() *= damping;
-        xNext.rotation.z() *= damping;
     }
 
     state = xNext;
