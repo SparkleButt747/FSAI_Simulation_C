@@ -53,8 +53,10 @@ enum class EbsStatus : uint8_t { kUnavailable = 1, kArmed = 2, kTriggered = 3 };
 struct Ai2VcuStatus {
   bool handshake{false};
   bool estop_request{false};
+  bool mission_complete{false};
   MissionStatus mission_status{MissionStatus::kNotSelected};
   DirectionRequest direction_request{DirectionRequest::kNeutral};
+  uint8_t mission_id{0};
   uint8_t lap_counter{0};
   uint8_t cones_count_actual{0};
   uint16_t cones_count_all{0};
