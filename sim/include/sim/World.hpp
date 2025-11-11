@@ -13,6 +13,7 @@
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
 #include "sim/mission/MissionDefinition.hpp"
+#include "sim/MissionRuntimeState.hpp"
 
 enum class ConeType {
     Start,
@@ -89,6 +90,10 @@ public:
     double totalDistanceMeters() const { return totalDistance; }
     double timeStepSeconds() const { return deltaTime; }
     int completedLaps() const { return lapCount; }
+    double missionElapsedSeconds() const { return missionState_.mission_time_seconds(); }
+    double straightLineProgressMeters() const { return missionState_.straight_line_progress_m(); }
+    fsai::sim::MissionRunStatus missionRunStatus() const { return missionState_.run_status(); }
+    const fsai::sim::MissionRuntimeState& missionRuntime() const { return missionState_; }
 
     bool computeRacingControl(double dt, float& throttle_out, float& steering_out);
     void setSvcuCommand(float throttle, float brake, float steer);
@@ -137,5 +142,16 @@ private:
     double totalDistance{0.0};
     int lapCount{0};
     fsai::sim::MissionDefinition mission_{};
+    fsai::sim::MissionRuntimeState missionState_{};
+    bool insideLastCheckpoint_{false};
+    struct StraightLineTracker {
+        bool valid{false};
+        Eigen::Vector2d origin{Eigen::Vector2d::Zero()};
+        Eigen::Vector2d direction{Eigen::Vector2d::UnitX()};
+        double length{0.0};
+    } straightTracker_{};
+    void configureMissionRuntime();
+    void updateStraightLineProgress();
+    void handleMissionCompletion();
 };
 

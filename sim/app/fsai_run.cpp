@@ -1784,6 +1784,27 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.lap.current_lap_time_s = world.lapTimeSeconds();
     runtime_telemetry.lap.total_distance_m = world.totalDistanceMeters();
     runtime_telemetry.lap.completed_laps = world.completedLaps();
+    const auto& mission_state = world.missionRuntime();
+    runtime_telemetry.mission.mission_time_s = mission_state.mission_time_seconds();
+    runtime_telemetry.mission.straight_progress_m = mission_state.straight_line_progress_m();
+    runtime_telemetry.mission.target_laps = mission_state.target_laps();
+    runtime_telemetry.mission.completed_laps = static_cast<int>(mission_state.completed_laps());
+    runtime_telemetry.mission.status = mission_state.run_status();
+    runtime_telemetry.mission.stop_commanded = mission_state.stop_commanded();
+    if (const auto* segment = mission_state.current_segment()) {
+      runtime_telemetry.mission.segment = segment->spec.type;
+      runtime_telemetry.mission.segment_completed_laps = segment->completed_laps;
+      runtime_telemetry.mission.segment_target_laps = segment->spec.laps;
+    } else if (!mission_state.segments().empty()) {
+      const auto& last_segment = mission_state.segments().back();
+      runtime_telemetry.mission.segment = last_segment.spec.type;
+      runtime_telemetry.mission.segment_completed_laps = last_segment.spec.laps;
+      runtime_telemetry.mission.segment_target_laps = last_segment.spec.laps;
+    } else {
+      runtime_telemetry.mission.segment = fsai::sim::MissionSegmentType::kTimed;
+      runtime_telemetry.mission.segment_completed_laps = 0;
+      runtime_telemetry.mission.segment_target_laps = 0;
+    }
     runtime_telemetry.can.mode = can_interface.mode();
     runtime_telemetry.can.endpoint = can_interface.endpoint();
 
