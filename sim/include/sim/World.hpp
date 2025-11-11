@@ -39,7 +39,7 @@ public:
     void update(double dt);
 
     // Detect collisions with checkpoints and cones. Returns false if a reset occurred.
-    bool detectCollisions();
+    bool detectCollisions(bool crossedGate);
 
     // Output telemetry information.
     void telemetry() const;
@@ -103,6 +103,7 @@ public:
     const fsai::sim::MissionDefinition& mission() const { return mission_; }
 
 private:
+    friend class WorldTestHelper;
     void moveNextCheckpointToLast();
     void reset();
     void configureTrackState(const fsai::sim::TrackData& track);
@@ -115,6 +116,7 @@ private:
                           Eigen::Vector3d::Zero()};
     VehicleInput carInput{0.0, 0.0, 0.0};
     Transform carTransform{};
+    Vector2 prevCarPos_{0.0f, 0.0f};
 
     std::vector<Vector3> checkpointPositions{};
     std::vector<Cone> startCones{};
@@ -153,5 +155,6 @@ private:
     void configureMissionRuntime();
     void updateStraightLineProgress();
     void handleMissionCompletion();
+    bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
 };
 
