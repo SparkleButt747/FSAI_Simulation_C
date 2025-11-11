@@ -1,5 +1,4 @@
 #include "DynamicBicycle.hpp"
-#include <yaml.h>
 #include <stdexcept>
 #include <cmath>
 #include <algorithm>
@@ -115,7 +114,7 @@ static inline std::pair<double,double> ellipse_clip(double Fx, double Fy, double
 void VehicleModel::updateState(VehicleState&, const VehicleInput&, double) {
     // Base class does nothing
 }
-void VehicleModel::validateState(VehicleState& state) const { state.velocity.x() = std::max(0.0, state.velocity.x()); }
+void VehicleModel::validateState(VehicleState& state) const { (void)state; }
 
 void VehicleModel::validateInput(VehicleInput& input) const {
     input.acc   = std::clamp(input.acc,   param_.input_ranges.acc.min,   param_.input_ranges.acc.max);
@@ -191,8 +190,6 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     const double Wtot = param_.inertia.m * param_.inertia.g + Fdown;
     const double Wf   = Wtot * param_.kinematic.w_front;
     const double Wr   = Wtot - Wf;
-    double perWheelF = 0.5 * Wf, perWheelR = 0.5 * Wr;
-
     const double alpha_f_target = getSlipAngle(x, u_in, true);
     const double alpha_r_target = getSlipAngle(x, u_in, false);
 
@@ -232,8 +229,8 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     const double alpha_f = std::clamp(alpha_front_rel_, -kHalfPi, kHalfPi);
     const double alpha_r = std::clamp(alpha_rear_rel_,  -kHalfPi, kHalfPi);
 
-    const double FyF_0 = (perWheelF*2.0) * mf_lat(alpha_f, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
-    const double FyR_0 = (perWheelR*2.0) * mf_lat(alpha_r, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
+    const double FyF_0 = Wf * mf_lat(alpha_f, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
+    const double FyR_0 = Wr * mf_lat(alpha_r, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
 
     // Longitudinal from EV + brakes
     const BrakeRequest breq = br_.prepare(static_cast<float>(brk_eff_), static_cast<float>(vx));
@@ -253,25 +250,26 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
 
     // Estimate ax, ay (body) using first-pass Fy for dynamic load transfer
     const double m = param_.inertia.m;
-    const double FyFtot0 = 2.0 * FyF_0, FyRtot0 = 2.0 * FyR_0;
+    const double FyFtot0 = FyF_0;
+    const double FyRtot0 = FyR_0;
     const double ax_est = (r * vy + (Fx_raw - std::sin(u_in.delta) * FyFtot0)) / m;
     const double ay_est = ((std::cos(u_in.delta) * FyFtot0) + FyRtot0) / m - (r * vx);
 
     // Dynamic loads
     WheelLoads WL = computeWheelLoads(param_, Fdown, ax_est, ay_est);
-    perWheelF = 0.5*(WL.Fz_fl + WL.Fz_fr);
-    perWheelR = 0.5*(WL.Fz_rl + WL.Fz_rr);
-
     // Recompute lateral with dynamic Fz
-    const double FyF = (perWheelF*2.0) * mf_lat(alpha_f, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
-    const double FyR = (perWheelR*2.0) * mf_lat(alpha_r, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
+    const double Fy_fl_stat = WL.Fz_fl * mf_lat(alpha_f, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
+    const double Fy_fr_stat = WL.Fz_fr * mf_lat(alpha_f, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
+    const double Fy_rl_stat = WL.Fz_rl * mf_lat(alpha_r, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
+    const double Fy_rr_stat = WL.Fz_rr * mf_lat(alpha_r, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
+
+    double Fy_fl = Fy_fl_stat;
+    double Fy_fr = Fy_fr_stat;
+    double Fy_rl = Fy_rl_stat;
+    double Fy_rr = Fy_rr_stat;
 
     // Per-wheel split & ellipse
     const double mu = (param_.tire.tire_coefficient>0.0)? param_.tire.tire_coefficient : std::abs(param_.tire.D);
-
-    // Lateral split equally on each axle
-    double Fy_fl = 0.5 * FyF, Fy_fr = 0.5 * FyF;
-    double Fy_rl = 0.5 * FyR, Fy_rr = 0.5 * FyR;
 
     // Longitudinal split: drive/regen by PT (front/rear) + mechanical brakes by bias
     double Fx_fl=0, Fx_fr=0, Fx_rl=0, Fx_rr=0;
@@ -303,9 +301,9 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     Fx_rl = clipped_rl.first; Fy_rl = clipped_rl.second;
     Fx_rr = clipped_rr.first; Fy_rr = clipped_rr.second;
 
-    // Sum totals (drag & rolling already accounted in Fx_raw path)
+    // Sum totals and apply body resistive forces directly in longitudinal channel
     Forces out{};
-    out.Fx  = Fx_fl + Fx_fr + Fx_rl + Fx_rr - 0.0;
+    out.Fx  = Fx_fl + Fx_fr + Fx_rl + Fx_rr - (Fdrag + Frr);
     out.FyF = Fy_fl + Fy_fr;
     out.FyR = Fy_rl + Fy_rr;
     return out;
@@ -322,8 +320,8 @@ static VehicleState fDynamics(const DynamicBicycle& db, const VehicleState& x, c
 
     const double s   = std::sin(x.yaw);
     const double c   = std::cos(x.yaw);
-    const double FyFtot = 2.0 * FyF;
-    const double FyRtot = 2.0 * FyR;
+    const double FyFtot = FyF;
+    const double FyRtot = FyR;
 
     // World position kinematics
     xDot.position.x() = c * x.velocity.x() - s * x.velocity.y();
