@@ -15,6 +15,57 @@ using fsai::sim::kLargeConeRadiusMeters;
 using fsai::sim::kSmallConeMassKg;
 using fsai::sim::kSmallConeRadiusMeters;
 
+struct Vec2d {
+    double x{0.0};
+    double y{0.0};
+};
+
+constexpr double kEpsilon = 1e-6;
+
+double cross(const Vec2d& a, const Vec2d& b) {
+    return a.x * b.y - a.y * b.x;
+}
+
+double orientation(const Vec2d& a, const Vec2d& b, const Vec2d& c) {
+    return cross({b.x - a.x, b.y - a.y}, {c.x - a.x, c.y - a.y});
+}
+
+bool onSegment(const Vec2d& a, const Vec2d& b, const Vec2d& p) {
+    const double minX = std::min(a.x, b.x) - kEpsilon;
+    const double maxX = std::max(a.x, b.x) + kEpsilon;
+    const double minY = std::min(a.y, b.y) - kEpsilon;
+    const double maxY = std::max(a.y, b.y) + kEpsilon;
+    return p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+}
+
+bool segmentsIntersect(const Vec2d& p1, const Vec2d& p2, const Vec2d& q1, const Vec2d& q2) {
+    const double o1 = orientation(p1, p2, q1);
+    const double o2 = orientation(p1, p2, q2);
+    const double o3 = orientation(q1, q2, p1);
+    const double o4 = orientation(q1, q2, p2);
+
+    const bool generalCase = ((o1 > kEpsilon && o2 < -kEpsilon) || (o1 < -kEpsilon && o2 > kEpsilon)) &&
+                             ((o3 > kEpsilon && o4 < -kEpsilon) || (o3 < -kEpsilon && o4 > kEpsilon));
+    if (generalCase) {
+        return true;
+    }
+
+    if (std::abs(o1) <= kEpsilon && onSegment(p1, p2, q1)) {
+        return true;
+    }
+    if (std::abs(o2) <= kEpsilon && onSegment(p1, p2, q2)) {
+        return true;
+    }
+    if (std::abs(o3) <= kEpsilon && onSegment(q1, q2, p1)) {
+        return true;
+    }
+    if (std::abs(o4) <= kEpsilon && onSegment(q1, q2, p2)) {
+        return true;
+    }
+
+    return false;
+}
+
 Vector3 transformToVector3(const Transform& t) {
     return {t.position.x, t.position.y, t.position.z};
 }
@@ -144,6 +195,9 @@ void World::update(double dt) {
     carTransform.position.z = static_cast<float>(carState.position.y());
     carTransform.yaw = static_cast<float>(carState.yaw);
 
+    const Vector2 currentPos{carTransform.position.x, carTransform.position.z};
+    const bool crossedGate = crossesCurrentGate(prevCarPos_, currentPos);
+
     const Eigen::Vector2d velocity2d(carState.velocity.x(), carState.velocity.y());
     if (!missionState_.mission_complete()) {
         totalDistance += velocity2d.norm() * dt;
@@ -151,9 +205,11 @@ void World::update(double dt) {
 
     wheelsInfo_ = carModel.getWheelSpeeds(carState, carInput);
 
-    if (!detectCollisions()) {
+    if (!detectCollisions(crossedGate)) {
         return;
     }
+
+    prevCarPos_ = currentPos;
 
     updateStraightLineProgress();
     handleMissionCompletion();
@@ -161,16 +217,13 @@ void World::update(double dt) {
     telemetry();
 }
 
-bool World::detectCollisions() {
-    float dx = carTransform.position.x - checkpointPositions[0].x;
-    float dz = carTransform.position.z - checkpointPositions[0].z;
-    float distToNext = std::sqrt(dx * dx + dz * dz);
-    if (distToNext < config.collisionThreshold) {
+bool World::detectCollisions(bool crossedGate) {
+    if (crossedGate && !checkpointPositions.empty()) {
         moveNextCheckpointToLast();
     }
 
-    dx = carTransform.position.x - lastCheckpoint.x;
-    dz = carTransform.position.z - lastCheckpoint.z;
+    float dx = carTransform.position.x - lastCheckpoint.x;
+    float dz = carTransform.position.z - lastCheckpoint.z;
     float distToLast = std::sqrt(dx * dx + dz * dz);
     const bool insideNow = distToLast < config.lapCompletionThreshold;
     if (insideNow && !insideLastCheckpoint_ && !missionState_.mission_complete()) {
@@ -286,6 +339,7 @@ void World::initializeVehiclePose() {
         carTransform.position.y = 0.5f;
         carTransform.position.z = 0.0f;
         carTransform.yaw = 0.0f;
+        prevCarPos_ = {carTransform.position.x, carTransform.position.z};
         return;
     }
 
@@ -310,6 +364,7 @@ void World::initializeVehiclePose() {
     carTransform.position.y = 0.5f;
     carTransform.position.z = static_cast<float>(carState.position.y());
     carTransform.yaw = static_cast<float>(carState.yaw);
+    prevCarPos_ = {carTransform.position.x, carTransform.position.z};
 }
 
 void World::updateStraightLineProgress() {
@@ -334,6 +389,76 @@ void World::handleMissionCompletion() {
         missionState_.MarkStopCommanded();
         std::printf("Mission complete. Commanding stop.\n");
     }
+}
+
+bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) const {
+    const Vec2d prev{static_cast<double>(previous.x), static_cast<double>(previous.y)};
+    const Vec2d curr{static_cast<double>(current.x), static_cast<double>(current.y)};
+
+    if (leftCones.empty() || rightCones.empty()) {
+        if (checkpointPositions.empty()) {
+            return false;
+        }
+        const Vector3& checkpoint = checkpointPositions.front();
+        const Vec2d cp{static_cast<double>(checkpoint.x), static_cast<double>(checkpoint.z)};
+        const double prevDist = std::hypot(prev.x - cp.x, prev.y - cp.y);
+        const double currDist = std::hypot(curr.x - cp.x, curr.y - cp.y);
+        return currDist < static_cast<double>(config.collisionThreshold) &&
+               prevDist >= static_cast<double>(config.collisionThreshold);
+    }
+
+    const Vec2d left{static_cast<double>(leftCones.front().position.x),
+                     static_cast<double>(leftCones.front().position.z)};
+    const Vec2d right{static_cast<double>(rightCones.front().position.x),
+                      static_cast<double>(rightCones.front().position.z)};
+
+    const double radius = static_cast<double>(config.vehicleCollisionRadius);
+    const double minX = std::min(left.x, right.x) - radius;
+    const double maxX = std::max(left.x, right.x) + radius;
+    const double minY = std::min(left.y, right.y) - radius;
+    const double maxY = std::max(left.y, right.y) + radius;
+
+    if ((prev.x < minX && curr.x < minX) || (prev.x > maxX && curr.x > maxX) ||
+        (prev.y < minY && curr.y < minY) || (prev.y > maxY && curr.y > maxY)) {
+        return false;
+    }
+
+    const Vec2d gateVector{right.x - left.x, right.y - left.y};
+    const double gateLenSq = gateVector.x * gateVector.x + gateVector.y * gateVector.y;
+    if (gateLenSq <= kEpsilon) {
+        return false;
+    }
+
+    const double gateLength = std::sqrt(gateLenSq);
+    const double margin = gateLength > kEpsilon ? radius / gateLength : 0.0;
+    const double prevProj = ((prev.x - left.x) * gateVector.x + (prev.y - left.y) * gateVector.y) / gateLenSq;
+    const double currProj = ((curr.x - left.x) * gateVector.x + (curr.y - left.y) * gateVector.y) / gateLenSq;
+    const double minProj = -margin;
+    const double maxProj = 1.0 + margin;
+    if ((prevProj < minProj && currProj < minProj) || (prevProj > maxProj && currProj > maxProj)) {
+        return false;
+    }
+
+    const double oriPrev = orientation(left, right, prev);
+    const double oriCurr = orientation(left, right, curr);
+    const bool signChange = (oriPrev > kEpsilon && oriCurr < -kEpsilon) ||
+                            (oriPrev < -kEpsilon && oriCurr > kEpsilon);
+    if (signChange) {
+        return true;
+    }
+
+    if (segmentsIntersect(prev, curr, left, right)) {
+        return true;
+    }
+
+    if (std::abs(oriPrev) <= kEpsilon && onSegment(left, right, prev)) {
+        return true;
+    }
+    if (std::abs(oriCurr) <= kEpsilon && onSegment(left, right, curr)) {
+        return true;
+    }
+
+    return false;
 }
 
 fsai::sim::TrackData World::generateRandomTrack() const {
