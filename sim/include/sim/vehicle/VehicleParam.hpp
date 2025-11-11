@@ -122,8 +122,8 @@ struct PowertrainParam {
   double gear_efficiency{1.0};
   double drive_efficiency{1.0};
   double regen_efficiency{1.0};
-  double max_power_kw{0.0};
-  double max_regen_kw{0.0};
+  double max_power_kw{0.0};   // total system power cap (kW)
+  double max_regen_kw{0.0};   // total system regen power cap (kW)
   TorqueCurve drive_curve;
   TorqueCurve regen_curve;
   BatteryParam battery;

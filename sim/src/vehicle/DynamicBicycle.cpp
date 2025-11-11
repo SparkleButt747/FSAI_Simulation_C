@@ -9,8 +9,6 @@ using std::atan2;
 using std::tan;
 
 namespace {
-inline double sgn(double v){ return (v>0)-(v<0); }
-
 constexpr double kBlendStart          = 0.6;   // [m/s] begin reducing slip forces
 constexpr double kBlendEnd            = 1.8;   // [m/s] full dynamic behaviour restored
 constexpr double kHalfPi              = 1.5707963267948966;
@@ -108,8 +106,8 @@ static inline double mf_lat(double slip, double B, double C, double D, double E)
     return D * sin(C * atan(B*(1.0 - E)*slip + E * atan(B*slip)));
 }
 
-// Ellipse clipping helper, better than capping by μFz
-static inline std::pair<double,double> ellipse_clip(double Fx, double Fy, double muFz){
+// Combined-slip limit helper (actually a friction circle)
+static inline std::pair<double,double> frictionCircleClip(double Fx, double Fy, double muFz){
     muFz = std::max(1e-6, muFz);
     const double nx = Fx / muFz, ny = Fy / muFz;
     const double r = std::sqrt(nx*nx + ny*ny);
@@ -153,7 +151,7 @@ double VehicleModel::getSlipAngle(const VehicleState& x, const VehicleInput& u, 
 }
 WheelsInfo VehicleModel::getWheelSpeeds(const VehicleState& state, const VehicleInput& input) const {
     WheelsInfo wheelSpeeds = WheelsInfo_default();
-    double wheelCircumference = 2.0 * M_PI * param_.tire.radius;
+    double wheelCircumference = 2.0 * ::kPi * param_.tire.radius;
     double rpm = (state.velocity.x() / std::max(1e-12, wheelCircumference)) * 60.0;
     wheelSpeeds.lf_speed = wheelSpeeds.rf_speed = wheelSpeeds.lb_speed = wheelSpeeds.rb_speed = static_cast<float>(rpm);
     wheelSpeeds.steering = static_cast<float>(input.delta);
@@ -205,36 +203,30 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     const double alpha_f_target = getSlipAngle(x, u_in, true);
     const double alpha_r_target = getSlipAngle(x, u_in, false);
 
-    if (slip_blend > 0.999 || speed > 3.0) {
-        // At realistic speeds track the instantaneous slip so we retain the stock non-linear behaviour
-        alpha_front_rel_ = alpha_f_target;
-        alpha_rear_rel_  = alpha_r_target;
-    } else {
-        const double relax_lerp = relaxationLerp(speed, slip_blend, dt);
-        alpha_front_rel_ += (alpha_f_target - alpha_front_rel_) * relax_lerp;
-        alpha_rear_rel_  += (alpha_r_target - alpha_rear_rel_) * relax_lerp;
+    const double relax_lerp = relaxationLerp(speed, slip_blend, dt);
+    alpha_front_rel_ += (alpha_f_target - alpha_front_rel_) * relax_lerp;
+    alpha_rear_rel_  += (alpha_r_target - alpha_rear_rel_) * relax_lerp;
 
-        const double leak = lowSpeedSlipLeak(slip_blend, brk_eff_, dt);
-        if (leak > 0.0) {
-            alpha_front_rel_ *= (1.0 - leak);
-            alpha_rear_rel_  *= (1.0 - leak);
+    const double leak = lowSpeedSlipLeak(slip_blend, brk_eff_, dt);
+    if (leak > 0.0) {
+        alpha_front_rel_ *= (1.0 - leak);
+        alpha_rear_rel_  *= (1.0 - leak);
+    }
+    if (speed < 0.25) {
+        double decay_rate = 4.0 + 8.0 * std::max(0.0, brk_eff_);
+        if (speed < 0.1) {
+            decay_rate += 6.0;
         }
-        if (speed < 0.25) {
-            double decay_rate = 4.0 + 8.0 * std::max(0.0, brk_eff_);
-            if (speed < 0.1) {
-                decay_rate += 6.0;
-            }
-            const double decay = std::exp(-decay_rate * dt);
-            alpha_front_rel_ *= decay;
-            alpha_rear_rel_  *= decay;
-            if (speed < 0.05) {
-                alpha_front_rel_ = 0.0;
-                alpha_rear_rel_  = 0.0;
-            }
-            if (speed < 0.15 && brk_eff_ > 0.05) {
-                alpha_front_rel_ = 0.0;
-                alpha_rear_rel_  = 0.0;
-            }
+        const double decay = std::exp(-decay_rate * dt);
+        alpha_front_rel_ *= decay;
+        alpha_rear_rel_  *= decay;
+        if (speed < 0.05) {
+            alpha_front_rel_ = 0.0;
+            alpha_rear_rel_  = 0.0;
+        }
+        if (speed < 0.15 && brk_eff_ > 0.05) {
+            alpha_front_rel_ = 0.0;
+            alpha_rear_rel_  = 0.0;
         }
     }
 
@@ -302,11 +294,24 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     Fx_fl -= Fb_front_each; Fx_fr -= Fb_front_each;
     Fx_rl -= Fb_rear_each;  Fx_rr -= Fb_rear_each;
 
-    // Ellipse clipping with μFz caps (per wheel)
-    auto clipped_fl = ellipse_clip(Fx_fl, Fy_fl, mu * WL.Fz_fl);
-    auto clipped_fr = ellipse_clip(Fx_fr, Fy_fr, mu * WL.Fz_fr);
-    auto clipped_rl = ellipse_clip(Fx_rl, Fy_rl, mu * WL.Fz_rl);
-    auto clipped_rr = ellipse_clip(Fx_rr, Fy_rr, mu * WL.Fz_rr);
+    // distribute rolling resistance into the per-wheel longitudinal channels so it competes with available grip
+    const double total_Fz = WL.Fz_fl + WL.Fz_fr + WL.Fz_rl + WL.Fz_rr;
+    if (std::abs(Frr) > 1e-6 && total_Fz > 1e-6) {
+        const double rr_fl = Frr * (WL.Fz_fl / total_Fz);
+        const double rr_fr = Frr * (WL.Fz_fr / total_Fz);
+        const double rr_rl = Frr * (WL.Fz_rl / total_Fz);
+        const double rr_rr = Frr * (WL.Fz_rr / total_Fz);
+        Fx_fl -= rr_fl;
+        Fx_fr -= rr_fr;
+        Fx_rl -= rr_rl;
+        Fx_rr -= rr_rr;
+    }
+
+    // Combined-slip clipping with μFz caps (per wheel)
+    auto clipped_fl = frictionCircleClip(Fx_fl, Fy_fl, mu * WL.Fz_fl);
+    auto clipped_fr = frictionCircleClip(Fx_fr, Fy_fr, mu * WL.Fz_fr);
+    auto clipped_rl = frictionCircleClip(Fx_rl, Fy_rl, mu * WL.Fz_rl);
+    auto clipped_rr = frictionCircleClip(Fx_rr, Fy_rr, mu * WL.Fz_rr);
 
     Fx_fl = clipped_fl.first; Fy_fl = clipped_fl.second;
     Fx_fr = clipped_fr.first; Fy_fr = clipped_fr.second;
@@ -315,7 +320,7 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
 
     // Sum totals and apply body resistive forces directly in longitudinal channel
     Forces out{};
-    out.Fx  = Fx_fl + Fx_fr + Fx_rl + Fx_rr - (Fdrag + Frr);
+    out.Fx  = Fx_fl + Fx_fr + Fx_rl + Fx_rr - Fdrag;
     out.FyF = Fy_fl + Fy_fr;
     out.FyR = Fy_rl + Fy_rr;
     return out;

@@ -24,6 +24,26 @@ public:
     motor_count_ = tot;
     front_share_ = (tot>0)? double(fm)/double(tot) : 0.0;
     rear_share_  = 1.0 - front_share_;
+
+    if (P_.torque_split_front > 0.0 || P_.torque_split_rear > 0.0) {
+      const double raw_front = std::max(0.0, P_.torque_split_front);
+      const double raw_rear  = std::max(0.0, P_.torque_split_rear);
+      double sum = raw_front + raw_rear;
+      if (sum <= 1e-9) {
+        sum = 1.0;
+      }
+      double front_override = raw_front / sum;
+      double rear_override  = raw_rear / sum;
+      if (fm == 0) { front_override = 0.0; rear_override = 1.0; }
+      if (rm == 0) { front_override = 1.0; rear_override = 0.0; }
+      const double norm = front_override + rear_override;
+      if (norm > 1e-9) {
+        front_override /= norm;
+        rear_override  /= norm;
+      }
+      front_share_ = std::clamp(front_override, 0.0, 1.0);
+      rear_share_  = 1.0 - front_share_;
+    }
   }
 
   double soc() const { return soc_; }
@@ -82,8 +102,8 @@ private:
 
   static inline double safeEff(double e){ return (e>1e-6)? e : 1.0; }
 
-  double torqueFromPowerLimit(double motor_omega, double max_power_kw, int motors) const {
-    double P = std::max(0.0, max_power_kw) * 1000.0 * std::max(1, motors);
+  double torqueFromPowerLimit(double motor_omega, double max_power_kw, int /*motors*/) const {
+    double P = std::max(0.0, max_power_kw) * 1000.0;
     if (P<=0.0 || motor_omega<=1e-6) return std::numeric_limits<double>::infinity();
     return P / motor_omega;
   }
