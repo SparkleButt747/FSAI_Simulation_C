@@ -12,6 +12,18 @@ using std::tan;
 namespace {
 inline double sgn(double v){ return (v>0)-(v<0); }
 
+constexpr double kLowSpeedTransition = 1.0; // [m/s] blend threshold between static and dynamic regimes
+
+inline double smoothBlend01(double t) {
+    t = std::clamp(t, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+inline double lowSpeedBlend(double speed) {
+    const double denom = std::max(1e-3, kLowSpeedTransition);
+    return smoothBlend01(speed / denom);
+}
+
 struct WheelLoads { double Fz_fl, Fz_fr, Fz_rl, Fz_rr; };
 
 static WheelLoads computeWheelLoads(const VehicleParam& P, double Fdown,
@@ -81,13 +93,26 @@ void VehicleModel::validateInput(VehicleInput& input) const {
 }
 
 double VehicleModel::getSlipAngle(const VehicleState& x, const VehicleInput& u, bool isFront) const {
-    const double vx = std::max(0.1, x.velocity.x());
-    const double vy = x.velocity.y();
-    const double r  = x.rotation.z();
-    const double lf = param_.kinematic.l_F;
-    const double lr = param_.kinematic.l_R;
-    if (isFront) return atan2(vy + lf * r, vx) - u.delta;
-    return atan2(vy - lr * r, vx);
+    const double vx_raw = x.velocity.x();
+    const double vy     = x.velocity.y();
+    const double r      = x.rotation.z();
+    const double lf     = param_.kinematic.l_F;
+    const double lr     = param_.kinematic.l_R;
+
+    const double speed      = std::sqrt(vx_raw * vx_raw + vy * vy);
+    const double slip_blend = lowSpeedBlend(speed);
+
+    const double vx_sign = (vx_raw >= 0.0) ? 1.0 : -1.0;
+    const double vx_mag  = std::max(1e-3, std::abs(vx_raw));
+    const double vx_eff  = vx_sign * vx_mag;
+
+    double slip = 0.0;
+    if (isFront) {
+        slip = atan2(vy + lf * r, vx_eff) - u.delta;
+    } else {
+        slip = atan2(vy - lr * r, vx_eff);
+    }
+    return slip * slip_blend;
 }
 WheelsInfo VehicleModel::getWheelSpeeds(const VehicleState& state, const VehicleInput& input) const {
     WheelsInfo wheelSpeeds = WheelsInfo_default();
@@ -122,9 +147,12 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     thr_eff_ = a_th * thr_eff_ + (1.0 - a_th) * thr_cmd;
     brk_eff_ = a_br * brk_eff_ + (1.0 - a_br) * brk_cmd;
 
-    const double vx = std::max(0.0, x.velocity.x());
+    const double vx_body = x.velocity.x();
+    const double vx = std::max(0.0, vx_body);
     const double vy = x.velocity.y();
     const double r  = x.rotation.z();
+    const double speed = std::sqrt(vx_body * vx_body + vy * vy);
+    const double slip_blend = lowSpeedBlend(speed);
 
     // Aero + rolling resistance
     const double Fdrag = param_.aero.c_drag * vx * vx;
@@ -152,6 +180,10 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     // Raw Fx components (before ellipse), sign convention: forward positive
     double Fx_drive = double(ps.wheel_force);
     double Fx_mech_brake = double(bst.total_mechanical_force);
+    if (brk_eff_ > 1e-3) {
+        Fx_drive *= slip_blend;
+        Fx_mech_brake *= slip_blend;
+    }
     double Fx_raw = Fx_drive - Fdrag - Frr - Fx_mech_brake;
 
     // Estimate ax, ay (body) using first-pass Fy for dynamic load transfer
@@ -181,18 +213,19 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     // Longitudinal split: drive/regen by PT (front/rear) + mechanical brakes by bias
     double Fx_fl=0, Fx_fr=0, Fx_rl=0, Fx_rr=0;
 
-    double Fd_front_each = 0.5 * ps.front_drive_force;
-    double Fd_rear_each  = 0.5 * ps.rear_drive_force;
-    double Fr_front_each = 0.5 * ps.front_regen_force;
-    double Fr_rear_each  = 0.5 * ps.rear_regen_force;
+    const double torque_scale = (brk_eff_ > 1e-3) ? slip_blend : 1.0;
+    double Fd_front_each = 0.5 * ps.front_drive_force * torque_scale;
+    double Fd_rear_each  = 0.5 * ps.rear_drive_force  * torque_scale;
+    double Fr_front_each = 0.5 * ps.front_regen_force * torque_scale;
+    double Fr_rear_each  = 0.5 * ps.rear_regen_force  * torque_scale;
 
     Fx_fl += Fd_front_each - Fr_front_each;
     Fx_fr += Fd_front_each - Fr_front_each;
     Fx_rl += Fd_rear_each  - Fr_rear_each;
     Fx_rr += Fd_rear_each  - Fr_rear_each;
 
-    double Fb_front_each = 0.5 * bst.front_force;
-    double Fb_rear_each  = 0.5 * bst.rear_force;
+    double Fb_front_each = 0.5 * bst.front_force * torque_scale;
+    double Fb_rear_each  = 0.5 * bst.rear_force  * torque_scale;
     Fx_fl -= Fb_front_each; Fx_fr -= Fb_front_each;
     Fx_rl -= Fb_rear_each;  Fx_rr -= Fb_rear_each;
 
@@ -254,9 +287,19 @@ void DynamicBicycle::updateState(VehicleState& state, const VehicleInput& inputR
     VehicleState xDot  = fDynamics(*this, state, u, F.Fx, F.FyF, F.FyR);
     VehicleState xNext = state + xDot * dt;
 
-    // near-zero guard
     const double v = calculateMagnitude(xNext.velocity.x(), xNext.velocity.y());
-    if (v < 0.05) { xNext.velocity.y() = 0.0; xNext.rotation.z() = 0.0; }
+    const double blend = lowSpeedBlend(v);
+    if (blend < 1.0) {
+        const double low_weight = 1.0 - blend;
+        const double base_rate = 3.0;
+        double damping = std::exp(-base_rate * low_weight * dt);
+        if (brk_eff_ > 1e-3) {
+            const double brake_rate = 10.0;
+            damping *= std::exp(-brake_rate * low_weight * dt);
+        }
+        xNext.velocity.y() *= damping;
+        xNext.rotation.z() *= damping;
+    }
 
     state = xNext;
     state.acceleration.x() = xDot.velocity.x();
