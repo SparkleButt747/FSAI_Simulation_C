@@ -4,7 +4,6 @@
 #include "Transform.h"
 #include <vector>
 #include <complex>
-#include <utility>
 
 struct TrackResult {
     // Large orange cones marking the start line (two pairs).
@@ -12,12 +11,7 @@ struct TrackResult {
     std::vector<Transform> leftCones;
     std::vector<Transform> rightCones;
     std::vector<Transform> checkpoints;
-    std::vector<std::pair<Transform, Transform>> gates;
 };
-
-std::vector<std::pair<Transform, Transform>> MatchConeBoundaries(
-    const std::vector<Transform>& left,
-    const std::vector<Transform>& right);
 
 class TrackGenerator {
 public:

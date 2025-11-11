@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -94,29 +95,52 @@ ParsedRow ParseRow(const std::vector<std::string>& columns, std::size_t line_num
   return row;
 }
 
-struct BoundaryCheckpoints {
-  std::vector<std::pair<Transform, Transform>> gates;
+float DistanceSquared(const Transform& a, const Transform& b) {
+  const float dx = b.position.x - a.position.x;
+  const float dz = b.position.z - a.position.z;
+  return dx * dx + dz * dz;
+}
+
+std::vector<Transform> BuildCheckpointsFromBoundaries(const std::vector<Transform>& left,
+                                                      const std::vector<Transform>& right) {
   std::vector<Transform> checkpoints;
-};
-
-BoundaryCheckpoints BuildCheckpointsFromBoundaries(const std::vector<Transform>& left,
-                                                   const std::vector<Transform>& right) {
-  BoundaryCheckpoints result;
-  result.gates = MatchConeBoundaries(left, right);
-  result.checkpoints.reserve(result.gates.size());
-
-  for (const auto& gate : result.gates) {
-    Transform checkpoint{};
-    checkpoint.position.x = 0.5f * (gate.first.position.x + gate.second.position.x);
-    checkpoint.position.y = 0.0f;
-    checkpoint.position.z = 0.5f * (gate.first.position.z + gate.second.position.z);
-    const float dx = gate.second.position.x - gate.first.position.x;
-    const float dz = gate.second.position.z - gate.first.position.z;
-    checkpoint.yaw = std::atan2(dz, dx);
-    result.checkpoints.push_back(checkpoint);
+  if (left.empty() || right.empty()) {
+    return checkpoints;
   }
 
-  return result;
+  std::vector<bool> right_used(right.size(), false);
+  checkpoints.reserve(std::min(left.size(), right.size()));
+
+  for (const auto& left_cone : left) {
+    float best_distance = std::numeric_limits<float>::infinity();
+    std::size_t best_index = right.size();
+    for (std::size_t i = 0; i < right.size(); ++i) {
+      if (right_used[i]) {
+        continue;
+      }
+      const float distance = DistanceSquared(left_cone, right[i]);
+      if (distance < best_distance) {
+        best_distance = distance;
+        best_index = i;
+      }
+    }
+
+    if (best_index == right.size()) {
+      continue;
+    }
+
+    right_used[best_index] = true;
+    Transform checkpoint{};
+    checkpoint.position.x = 0.5f * (left_cone.position.x + right[best_index].position.x);
+    checkpoint.position.y = 0.0f;
+    checkpoint.position.z = 0.5f * (left_cone.position.z + right[best_index].position.z);
+    const float dx = right[best_index].position.x - left_cone.position.x;
+    const float dz = right[best_index].position.z - left_cone.position.z;
+    checkpoint.yaw = std::atan2(dz, dx);
+    checkpoints.push_back(checkpoint);
+  }
+
+  return checkpoints;
 }
 
 }  // namespace
@@ -181,12 +205,8 @@ TrackResult LoadTrackFromCsv(const std::filesystem::path& csv_path) {
   }
   checkpoints.insert(checkpoints.end(), collected_midpoints.begin(), collected_midpoints.end());
 
-  const BoundaryCheckpoints derived =
-      BuildCheckpointsFromBoundaries(left_primary, right_primary);
-  track.gates = derived.gates;
-
   if (checkpoints.empty()) {
-    checkpoints = derived.checkpoints;
+    checkpoints = BuildCheckpointsFromBoundaries(left_primary, right_primary);
   }
 
   if (checkpoints.empty()) {

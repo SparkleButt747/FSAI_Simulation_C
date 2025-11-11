@@ -122,6 +122,8 @@ private:
     std::vector<Cone> startCones{};
     std::vector<Cone> leftCones{};
     std::vector<Cone> rightCones{};
+    std::vector<Cone> gateLeftCones_{};
+    std::vector<Cone> gateRightCones_{};
     Vector3 lastCheckpoint{0.0f, 0.0f, 0.0f};
 
     WheelsInfo wheelsInfo_{WheelsInfo_default()};

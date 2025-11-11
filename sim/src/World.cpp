@@ -4,6 +4,7 @@
 #include <numbers>
 #include <stdexcept>
 #include <utility>
+#include "checkpoint_matching.hpp"
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
@@ -120,13 +121,18 @@ void World::setSvcuCommand(float throttle, float brake, float steer) {
 void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission) {
     mission_ = std::move(mission);
 
+    const bool has_boundaries = !mission_.track.leftCones.empty() &&
+                                !mission_.track.rightCones.empty();
+    const bool has_checkpoints = !mission_.track.checkpoints.empty();
+
     if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
-        mission_.track.checkpoints.empty()) {
+        !has_boundaries && !has_checkpoints) {
         mission_.track = generateRandomTrack();
     }
 
-    if (mission_.track.checkpoints.empty()) {
-        throw std::runtime_error("MissionDefinition did not provide any checkpoints");
+    if (!has_checkpoints &&
+        (mission_.track.leftCones.empty() || mission_.track.rightCones.empty())) {
+        throw std::runtime_error("MissionDefinition must provide track boundaries or checkpoints");
     }
 
     configureTrackState(mission_.track);
@@ -288,10 +294,9 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
     startCones.clear();
     leftCones.clear();
     rightCones.clear();
+    gateLeftCones_.clear();
+    gateRightCones_.clear();
 
-    for (const auto& cp : track.checkpoints) {
-        checkpointPositions.push_back(transformToVector3(cp));
-    }
     for (const auto& sc : track.startCones) {
         startCones.push_back(makeCone(sc, ConeType::Start));
     }
@@ -302,8 +307,26 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
         rightCones.push_back(makeCone(rc, ConeType::Right));
     }
 
-    if (!track.checkpoints.empty()) {
-        lastCheckpoint = transformToVector3(track.checkpoints.back());
+    const std::vector<fsai::control::MatchedGate> matched_gates =
+        fsai::control::MatchConesToGates(track.leftCones, track.rightCones);
+
+    if (!matched_gates.empty()) {
+        checkpointPositions.reserve(matched_gates.size());
+        gateLeftCones_.reserve(matched_gates.size());
+        gateRightCones_.reserve(matched_gates.size());
+        for (const auto& gate : matched_gates) {
+            gateLeftCones_.push_back(makeCone(gate.left, ConeType::Left));
+            gateRightCones_.push_back(makeCone(gate.right, ConeType::Right));
+            checkpointPositions.push_back(transformToVector3(gate.checkpoint));
+        }
+    } else {
+        for (const auto& cp : track.checkpoints) {
+            checkpointPositions.push_back(transformToVector3(cp));
+        }
+    }
+
+    if (!checkpointPositions.empty()) {
+        lastCheckpoint = checkpointPositions.back();
     } else {
         lastCheckpoint = {0.0f, 0.0f, 0.0f};
     }
@@ -395,7 +418,10 @@ bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) 
     const Vec2d prev{static_cast<double>(previous.x), static_cast<double>(previous.y)};
     const Vec2d curr{static_cast<double>(current.x), static_cast<double>(current.y)};
 
-    if (leftCones.empty() || rightCones.empty()) {
+    const std::vector<Cone>& gateLeft = gateLeftCones_.empty() ? leftCones : gateLeftCones_;
+    const std::vector<Cone>& gateRight = gateRightCones_.empty() ? rightCones : gateRightCones_;
+
+    if (gateLeft.empty() || gateRight.empty()) {
         if (checkpointPositions.empty()) {
             return false;
         }
@@ -407,10 +433,10 @@ bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) 
                prevDist >= static_cast<double>(config.collisionThreshold);
     }
 
-    const Vec2d left{static_cast<double>(leftCones.front().position.x),
-                     static_cast<double>(leftCones.front().position.z)};
-    const Vec2d right{static_cast<double>(rightCones.front().position.x),
-                      static_cast<double>(rightCones.front().position.z)};
+    const Vec2d left{static_cast<double>(gateLeft.front().position.x),
+                     static_cast<double>(gateLeft.front().position.z)};
+    const Vec2d right{static_cast<double>(gateRight.front().position.x),
+                      static_cast<double>(gateRight.front().position.z)};
 
     const double radius = static_cast<double>(config.vehicleCollisionRadius);
     const double minX = std::min(left.x, right.x) - radius;
@@ -475,11 +501,16 @@ void World::moveNextCheckpointToLast() {
     if (!checkpointPositions.empty()) {
         std::rotate(checkpointPositions.begin(), checkpointPositions.begin() + 1, checkpointPositions.end());
     }
-    if (!leftCones.empty()) {
-        std::rotate(leftCones.begin(), leftCones.begin() + 1, leftCones.end());
-    }
-    if (!rightCones.empty()) {
-        std::rotate(rightCones.begin(), rightCones.begin() + 1, rightCones.end());
+    if (!gateLeftCones_.empty() && !gateRightCones_.empty()) {
+        std::rotate(gateLeftCones_.begin(), gateLeftCones_.begin() + 1, gateLeftCones_.end());
+        std::rotate(gateRightCones_.begin(), gateRightCones_.begin() + 1, gateRightCones_.end());
+    } else {
+        if (!leftCones.empty()) {
+            std::rotate(leftCones.begin(), leftCones.begin() + 1, leftCones.end());
+        }
+        if (!rightCones.empty()) {
+            std::rotate(rightCones.begin(), rightCones.begin() + 1, rightCones.end());
+        }
     }
 }
 
