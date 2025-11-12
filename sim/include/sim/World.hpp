@@ -58,6 +58,8 @@ public:
     float brakeInput{0.0f};
     int useController{1};
     int regenTrack{1};
+    std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
+
 
     const VehicleState& vehicleState() const { return carState; }
     const Transform& vehicleTransform() const { return carTransform; }

@@ -34,7 +34,6 @@ using VertexHandle=Triangulation::Vertex_handle;
 // Build a PathNode graph from a visible triangulation
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
     Triangulation& T,
-    CGAL::Graphics_scene& scene,
     Point carFront,
     std::unordered_map<Point, FsaiConeSide> coneToSide
 );
@@ -78,7 +77,7 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
-  double sensorRange = 35.0,
+  double sensorRange = 20.0,
   double sensorFOV = 2 * M_PI / 3
 );
 
@@ -88,11 +87,11 @@ std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrac
   double carYaw,
   std::vector<Cone> leftConePositions,
   std::vector<Cone> rightConePositions,
-  double sensorRange = 35.0,
+  double sensorRange = 20.0,
   double sensorFOV = 2 * M_PI / 3
 );
 
-std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
+std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
   const std::vector<Cone>& rightConePositions
@@ -114,7 +113,7 @@ void drawEdges(
 
 // Returns a simple path (sequence of PathNode) with the lowest cost according to calculateCost.
 // Explores candidate paths up to maxLen nodes using a beam search whose width can be tuned.
-std::vector<PathNode> beamSearch(
+std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
     const std::vector<std::vector<int>>& adj,
     const std::vector<PathNode>& nodes,
     const Point& carFront,
@@ -123,9 +122,13 @@ std::vector<PathNode> beamSearch(
     std::size_t beamWidth
 );
 
+std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode>& path);
+
 // Draw a path (by connecting PathNode midpoints).
 void drawPathMidpoints(
   const std::vector<PathNode>& path,
   CGAL::Graphics_scene& scene,
   CGAL::Color color = CGAL::IO::Color(255, 100, 30)
 );
+
+Vector3* pathNodesToCheckpoints(std::vector<PathNode> path);

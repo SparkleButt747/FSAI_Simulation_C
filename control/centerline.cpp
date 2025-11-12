@@ -65,7 +65,7 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen)
     // Tunable weights
     const CostWeights weights = getCostWeights();
 
-    constexpr float SENSOR_RANGE  = 10.0f;    // meters
+    constexpr float SENSOR_RANGE  = 20.0f;    // meters
     constexpr float NOMINAL_TRACK_WIDTH = 3.5f;  // see FS Driverless rules / AMZ Driverless
 
 

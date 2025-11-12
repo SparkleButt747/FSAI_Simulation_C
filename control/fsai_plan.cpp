@@ -217,18 +217,18 @@ int main(int argc, char* argv[])
     auto coneToSide = getVisibleTrackTriangulation(visibleT, carFront, track);
 
     CGAL::Graphics_scene scene;
-    auto [nodes, adjacency] = generateGraph(visibleT, scene, carFront, coneToSide);
+    auto [nodes, adjacency] = generateGraph(visibleT, carFront, coneToSide);
 
     const Bounds baseBounds = computeTrackBounds(track, nodes, carFront);
 
     constexpr std::size_t kMaxPathLength = 30;
-    constexpr std::size_t kMinPathLength = 8;
+    constexpr std::size_t kMinPathLength = 2;
     int beamWidthSetting = 12;
 
     t1 = Clock::now();
     auto recomputePath = [&]() {
         const std::size_t beamWidth = static_cast<std::size_t>(std::max(1, beamWidthSetting));
-        std::vector<PathNode> best = beamSearch(adjacency, nodes, carFront, kMaxPathLength, kMinPathLength, beamWidth);
+        std::vector<PathNode> best = beamSearch(adjacency, nodes, carFront, kMaxPathLength, kMinPathLength, beamWidth).first;
         float cost = std::numeric_limits<float>::infinity();
         if (best.size() >= 2) {
             cost = calculateCost(best, kMinPathLength);

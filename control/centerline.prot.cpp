@@ -39,7 +39,7 @@ void printEdges(Triangulation& T) {
   }
 
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
-    Triangulation& T, CGAL::Graphics_scene& scene, Point carFront, std::unordered_map<Point, FsaiConeSide> coneToSide)
+    Triangulation& T, Point carFront, std::unordered_map<Point, FsaiConeSide> coneToSide)
 {
     std::vector<PathNode> nodes;
     // map each triangulation vertex to all node-ids that touch it
@@ -67,7 +67,7 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         auto it2 = coneToSide.find(p2);
         d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
 
-        if (d1.side == d2.side and d1.side != FSAI_CONE_UNKNOWN) continue;
+        if (d1.side == d2.side) continue;
 
         node.first  = d1;
         node.second = d2;
@@ -102,9 +102,9 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         if (d2 < best) { best = d2; start_id = n.id; }
     }
 
-    scene.add_segment(Point(nodes[start_id].first.x,  nodes[start_id].first.y),
-                      Point(nodes[start_id].second.x, nodes[start_id].second.y),
-                      CGAL::IO::Color(250,15,15));
+    // scene.add_segment(Point(nodes[start_id].first.x,  nodes[start_id].first.y),
+    //                   Point(nodes[start_id].second.x, nodes[start_id].second.y),
+    //                   CGAL::IO::Color(250,15,15));
 
     return {nodes, adj};
 }
@@ -282,7 +282,7 @@ void drawVisibleTriangulationEdges(
     CGAL::draw(triangulation);
 }
 
-std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
+std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
   const std::vector<Cone>& rightConePositions
@@ -322,10 +322,10 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
           );
     }
 
-    return edges;
+    return {triangulation, edges};
 }
 
-std::vector<PathNode> beamSearch(
+std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
     const std::vector<std::vector<int>>& adj,
     const std::vector<PathNode>& nodes,
     const Point& carFront,
@@ -513,9 +513,19 @@ std::vector<PathNode> beamSearch(
         return {};
     }
 
-    return buildPathFromIds(bestCandidate.indices);
+    return {buildPathFromIds(bestCandidate.indices), getPathEdges(buildPathFromIds(bestCandidate.indices))};
 }
 
+std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode>& path) {
+    std::vector<std::pair<Vector2, Vector2>> edges;
+    for (std::size_t i = 1; i < path.size(); i++) {
+        edges.emplace_back(
+            Vector2{path[i-1].midpoint.x, path[i-1].midpoint.y},
+            Vector2{path[i].midpoint.x, path[i].midpoint.y}
+        );
+    }
+    return edges;
+}
 
 
 // Draws segments between consecutive midpoints in a path.
@@ -537,4 +547,16 @@ void drawPathMidpoints(
             color
         );
     }
+}
+
+Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
+    Vector3* checkpoints = new Vector3[path.size()];
+    for (int i = 0; i < path.size(); i++) {
+        checkpoints[i] = Vector3{
+            path[i].midpoint.x,
+            0,
+            path[i].midpoint.y
+        };
+    }
+    return checkpoints;
 }

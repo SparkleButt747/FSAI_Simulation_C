@@ -8,6 +8,7 @@
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
+#include "centerline.prot.hpp"
 
 namespace {
 
@@ -142,6 +143,14 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
                         static_cast<float>(carState.velocity.y()),
                         static_cast<float>(carState.velocity.z())};
     const float carSpeed = Vector3_Magnitude(carVelocity);
+
+    auto triangulation = getVisibleTriangulationEdges(vehicleState(), getLeftCones(), getRightCones()).first;
+    auto coneToSide = getVisibleTrackTriangulation(getCarFront(vehicleState()), vehicleState().yaw, getLeftCones(), getRightCones()).second;
+    auto [nodes, adj] = generateGraph(triangulation, getCarFront(vehicleState()), coneToSide);
+    auto searchResult = beamSearch(adj, nodes, getCarFront(vehicleState()), 30, 2, 20);
+    auto pathNodes = searchResult.first;
+    bestPathEdges = searchResult.second;
+    auto checkpoints = pathNodesToCheckpoints(pathNodes);
     lookaheadIndices = Controller_GetLookaheadIndices(
         static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
     throttle_out = Controller_GetThrottleInput(
@@ -453,7 +462,7 @@ void World::initializeVehiclePose() {
 
     const Vector3& start = checkpointPositions.front();
     const std::size_t lookaheadIndex = checkpointPositions.size() > 1
-                                           ? std::min<std::size_t>(10, checkpointPositions.size() - 1)
+                                           ? std::min<std::size_t>(2, checkpointPositions.size() - 1)
                                            : 0;
     const Vector3& next = checkpointPositions[lookaheadIndex];
     Vector2 startVector{next.x - start.x, next.z - start.z};
