@@ -114,6 +114,11 @@ class CommandAggregator {
 
   bool handshake() const { return has_status_ && status_.handshake; }
   bool estop_active() const { return has_status_ && status_.estop_request; }
+  bool mission_finished() const {
+    return has_status_ &&
+           (status_.mission_complete ||
+            status_.mission_status == fsai::sim::svcu::dbc::MissionStatus::kFinished);
+  }
   fsai::sim::svcu::dbc::DirectionRequest direction() const {
     return has_status_ ? status_.direction_request
                        : fsai::sim::svcu::dbc::DirectionRequest::kNeutral;
@@ -141,15 +146,28 @@ class CommandAggregator {
 
     const bool handshake = has_status_ && status_.handshake;
     const bool estop = has_status_ && status_.estop_request;
+    const bool mission_complete = has_status_ &&
+                                  (status_.mission_complete ||
+                                   status_.mission_status ==
+                                       fsai::sim::svcu::dbc::MissionStatus::kFinished);
     const bool forward = !has_status_ ||
                          status_.direction_request ==
                              fsai::sim::svcu::dbc::DirectionRequest::kForward;
 
-    if (handshake && forward && !estop) {
+    if (mission_complete) {
+      out.brake = max_brake_;
+      out.front_brake_req_pct = fsai::sim::svcu::dbc::kMaxBrakePercent;
+      out.rear_brake_req_pct = fsai::sim::svcu::dbc::kMaxBrakePercent;
+      out.enabled = false;
+      out.throttle = 0.0f;
+      out.front_torque_request_nm = 0.0f;
+      out.rear_torque_request_nm = 0.0f;
+      out.steer_rad = 0.0f;
+    } else if (handshake && forward && !estop) {
       float steer_deg = has_steer_ ? std::clamp(steer_deg_,
                                                -fsai::sim::svcu::dbc::kMaxSteerDeg,
                                                fsai::sim::svcu::dbc::kMaxSteerDeg)
-                                   : 0.0f;
+                                  : 0.0f;
       float steer_rad = steer_deg * fsai::sim::svcu::dbc::kDegToRad;
       steer_rad = std::clamp(steer_rad, steer_min_, steer_max_);
       out.steer_rad = steer_rad;
@@ -311,6 +329,10 @@ RunStats RunSvcu(const RunConfig& config, const RunLimits& limits,
   std::optional<fsai::sim::svcu::dbc::Ai2VcuStatus> last_ai_status;
 
   auto compute_state = [&](bool ai_timeout) {
+    const bool mission_finished = aggregator.mission_finished();
+    if (mission_finished) {
+      finished_latched = true;
+    }
     const bool estop_request = aggregator.estop_active();
     const bool any_fault = ai_comms_lost_latched || ebs_fault_latched ||
                            hvil_open_fault_latched || hvil_short_fault_latched ||
@@ -369,7 +391,8 @@ RunStats RunSvcu(const RunConfig& config, const RunLimits& limits,
           if (fsai::sim::svcu::dbc::decode_ai2vcu_status(frame, status)) {
             aggregator.update(status);
             last_ai_status = status;
-            if (status.mission_status == fsai::sim::svcu::dbc::MissionStatus::kFinished) {
+            if (status.mission_complete ||
+                status.mission_status == fsai::sim::svcu::dbc::MissionStatus::kFinished) {
               finished_latched = true;
             }
           }
@@ -427,7 +450,8 @@ RunStats RunSvcu(const RunConfig& config, const RunLimits& limits,
     }
 
     if (last_ai_status.has_value() &&
-        last_ai_status->mission_status == fsai::sim::svcu::dbc::MissionStatus::kFinished) {
+        (last_ai_status->mission_complete ||
+         last_ai_status->mission_status == fsai::sim::svcu::dbc::MissionStatus::kFinished)) {
       finished_latched = true;
     }
 

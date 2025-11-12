@@ -12,6 +12,8 @@
 #include "PathConfig.hpp"
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
+#include "sim/mission/MissionDefinition.hpp"
+#include "sim/MissionRuntimeState.hpp"
 
 enum class ConeType {
     Start,
@@ -26,18 +28,26 @@ struct Cone {
     ConeType type{ConeType::Left};
 };
 
+struct CollisionSegment {
+    Vector2 start{0.0f, 0.0f};
+    Vector2 end{0.0f, 0.0f};
+    float radius{0.0f};
+    Vector2 boundsMin{0.0f, 0.0f};
+    Vector2 boundsMax{0.0f, 0.0f};
+};
+
 class World {
 public:
     World() = default;
 
     // Initialize the world with vehicle parameters and generate track.
-    void init(const char* yamlFilePath);
+    void init(const char* yamlFilePath, fsai::sim::MissionDefinition mission);
 
     // Update simulation by dt seconds.
     void update(double dt);
 
     // Detect collisions with checkpoints and cones. Returns false if a reset occurred.
-    bool detectCollisions();
+    bool detectCollisions(bool crossedGate);
 
     // Output telemetry information.
     void telemetry() const;
@@ -88,15 +98,25 @@ public:
     double totalDistanceMeters() const { return totalDistance; }
     double timeStepSeconds() const { return deltaTime; }
     int completedLaps() const { return lapCount; }
+    double missionElapsedSeconds() const { return missionState_.mission_time_seconds(); }
+    double straightLineProgressMeters() const { return missionState_.straight_line_progress_m(); }
+    fsai::sim::MissionRunStatus missionRunStatus() const { return missionState_.run_status(); }
+    const fsai::sim::MissionRuntimeState& missionRuntime() const { return missionState_; }
 
     bool computeRacingControl(double dt, float& throttle_out, float& steering_out);
     void setSvcuCommand(float throttle, float brake, float steer);
     bool hasSvcuCommand() const { return hasSvcuCommand_; }
     const DynamicBicycle& model() const { return carModel; }
 
+    const fsai::sim::MissionDefinition& mission() const { return mission_; }
+
 private:
+    friend class WorldTestHelper;
     void moveNextCheckpointToLast();
     void reset();
+    void configureTrackState(const fsai::sim::TrackData& track);
+    void initializeVehiclePose();
+    fsai::sim::TrackData generateRandomTrack() const;
 
     DynamicBicycle carModel{VehicleParam()};
     VehicleState carState{Eigen::Vector3d::Zero(), 0.0,
@@ -104,11 +124,14 @@ private:
                           Eigen::Vector3d::Zero()};
     VehicleInput carInput{0.0, 0.0, 0.0};
     Transform carTransform{};
+    Vector2 prevCarPos_{0.0f, 0.0f};
 
     std::vector<Vector3> checkpointPositions{};
     std::vector<Cone> startCones{};
     std::vector<Cone> leftCones{};
     std::vector<Cone> rightCones{};
+    std::vector<CollisionSegment> gateSegments_{};
+    std::vector<CollisionSegment> boundarySegments_{};
     Vector3 lastCheckpoint{0.0f, 0.0f, 0.0f};
 
     WheelsInfo wheelsInfo_{WheelsInfo_default()};
@@ -130,5 +153,18 @@ private:
     double deltaTime{0.0};
     double totalDistance{0.0};
     int lapCount{0};
+    fsai::sim::MissionDefinition mission_{};
+    fsai::sim::MissionRuntimeState missionState_{};
+    bool insideLastCheckpoint_{false};
+    struct StraightLineTracker {
+        bool valid{false};
+        Eigen::Vector2d origin{Eigen::Vector2d::Zero()};
+        Eigen::Vector2d direction{Eigen::Vector2d::UnitX()};
+        double length{0.0};
+    } straightTracker_{};
+    void configureMissionRuntime();
+    void updateStraightLineProgress();
+    void handleMissionCompletion();
+    bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
 };
 
