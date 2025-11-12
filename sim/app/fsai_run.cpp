@@ -60,6 +60,7 @@ constexpr double kBaseLongitudeDeg = -122.1697;
 constexpr double kMetersPerDegreeLat = 111111.0;
 constexpr const char* kDefaultSensorConfig = "../configs/sim/sensors.yaml";
 
+
 template <size_t Capacity>
 class RollingBuffer {
  public:
@@ -1001,6 +1002,12 @@ SensorNoiseConfig LoadSensorNoiseConfig(const std::string& path) {
   }
   return cfg;
 }
+
+struct ThreadSafeTelemetry {
+    std::mutex mutex;
+    Eigen::Vector2d position{0.0, 0.0};
+    double yaw_rad = 0.0;
+};
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -1250,8 +1257,14 @@ int main(int argc, char* argv[]) {
 
 
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Starting VisionNode...");
+  ThreadSafeTelemetry shared_telemetry;
   try {
     vision_node = std::make_shared<fsai::vision::VisionNode>();
+    vision_node->setPoseProvider([&shared_telemetry]() {
+    std::lock_guard<std::mutex> lock(shared_telemetry.mutex);
+    // Return current shared state
+    return std::make_pair(shared_telemetry.position, shared_telemetry.yaw_rad);
+    }); 
     vision_node->start();
     fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "VisionNode started successfully.");
   } catch (const std::exception& e) {
@@ -1650,6 +1663,16 @@ int main(int argc, char* argv[]) {
 
     runtime_telemetry.mode.use_controller = world.useController != 0;
     runtime_telemetry.mode.runtime_mode = mode;
+    {
+    std::lock_guard<std::mutex> lock(shared_telemetry.mutex);
+    // Use the telemetry values as requested by your colleague
+    shared_telemetry.position.x() = runtime_telemetry.pose.position_x_m;
+    shared_telemetry.position.y() = runtime_telemetry.pose.position_y_m;
+
+    // CRITICAL: Convert Telemetry degrees back to radians for Eigen rotation
+    constexpr double kDegToRad = std::numbers::pi / 180.0;
+    shared_telemetry.yaw_rad = runtime_telemetry.pose.yaw_deg * kDegToRad;
+    }
 
     DrawSimulationPanel(runtime_telemetry);
     DrawControlPanel(runtime_telemetry);
