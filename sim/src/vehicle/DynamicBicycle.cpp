@@ -125,15 +125,27 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x,
   const double Frr     = rollingResistanceForce(base_rr, vx_body);
 
   // Slip (with relaxation)
-  const double alpha_f_target = getSlipAngle(x, u_in, true);
-  const double alpha_r_target = getSlipAngle(x, u_in, false);
+  // Speed, friction
+  const double speed_for_check_fric = std::hypot(x.velocity.x(), x.velocity.y());
+  const double mu    = (param_.tire.tire_coefficient > 0.0)
+                    ? param_.tire.tire_coefficient
+                    : std::abs(param_.tire.D);
+  const double r_max = rMaxFromFriction(speed_for_check_fric, mu, param_.inertia.g);
+
+  // Steer soft-limit near yaw limit
+  VehicleInput u_eff = u_in;
+  u_eff.delta = steerSoftLimit(u_in.delta, x.rotation.z(), r_max);
+
+  // Slip targets with limited steer
+  const double alpha_f_target = getSlipAngle(x, u_eff, true);
+  const double alpha_r_target = getSlipAngle(x, u_eff, false);
+
 
   // Gate slip sanity at low speed; slip isn't meaningful near standstill
-  const double speed_for_check = std::sqrt(x.velocity.x()*x.velocity.x() + x.velocity.y()*x.velocity.y());
-  if (speed_for_check > 0.6) {
-    fsai::sim::sanity::checkSlipPair(alpha_f_target, alpha_r_target, "DynamicBicycle::slip_target");
-  }
-
+  const double speed_for_check = std::hypot(x.velocity.x(), x.velocity.y());
+  fsai::sim::sanity::checkSlipPair(alpha_f_target, alpha_r_target,
+                                  "DynamicBicycle::slip_target",
+                                  speed_for_check);
 
   const double relax = relaxationLerp(speed, blend, dt);
   alpha_front_rel_ += (alpha_f_target - alpha_front_rel_) * relax;
@@ -171,8 +183,13 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x,
   fsai::sim::sanity::checkBrakes(last_brake_status_,  "DynamicBicycle::brakes");
 
 
-  double Fx_drive = ps.wheel_force;
-  double Fx_mech_brake = bst.total_mechanical_force;
+  // Spin-aware longitudinal scaling: ease off drive/mech brake near yaw limit
+  const double spin_scale = longForceSpinScale(x.rotation.z(), r_max);
+
+  // Raw longitudinal (already included ps + brakes + drags)
+  double Fx_drive      = ps.wheel_force * spin_scale;
+  double Fx_mech_brake = bst.total_mechanical_force * spin_scale;
+
   if (brk_eff_ > 1e-3) {
     const double s = blend * blend;
     Fx_drive      *= s;
@@ -193,7 +210,6 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x,
   double Fy_rr = WL.Fz_rr * mf_lat(alpha_r, param_.tire.B, param_.tire.C, param_.tire.D, param_.tire.E);
 
   // Per-wheel longitudinal build
-  const double mu = (param_.tire.tire_coefficient > 0.0) ? param_.tire.tire_coefficient : std::abs(param_.tire.D);
   const double torque_scale = (brk_eff_ > 1e-3) ? (blend * blend) : 1.0;
 
   const double Fd_front_each = 0.5 * ps.front_drive_force * torque_scale;
@@ -276,7 +292,20 @@ static VehicleState fDynamics(const DynamicBicycle& db,
 
   xDot.velocity.x() = (x.rotation.z()*x.velocity.y() + (Fx - std::sin(u.delta)*FyF)) / m;
   xDot.velocity.y() = ((std::cos(u.delta)*FyF) + FyR) / m - (x.rotation.z()*x.velocity.x());
-  xDot.rotation.z() = (std::cos(u.delta)*FyF*lf - FyR*lr) / Iz;
+
+  // Yaw from tire moments
+double rDot = (std::cos(u.delta) * FyF * lf - FyR * lr) / Iz;
+
+// Add yaw governor to keep |r| <= r_max
+const double g = db.param().inertia.g;
+const double mu = std::max(0.4, db.param().tire.tire_coefficient); // floor
+const double speed = std::hypot(x.velocity.x(), x.velocity.y());
+const double r_max = db.rMaxFromFriction(speed, mu, g);
+rDot += db.yawGovernor(x.rotation.z(), r_max, speed);
+
+// Existing damping terms (they still help)
+xDot.rotation.z() = rDot;
+
 
   // Damping
   xDot.velocity.y() -= 0.25 * x.velocity.y();

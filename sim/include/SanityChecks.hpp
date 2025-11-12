@@ -18,6 +18,17 @@
 
 namespace fsai { namespace sim { namespace sanity {
 
+    inline double smoothBlend01(double t) { t = std::clamp(t, 0.0, 1.0); return t*t*(3.0 - 2.0*t); }
+inline double lowSpeedBlend(double v) {
+  const double a=0.6, b=1.8, span=std::max(1e-6, b-a);
+  if (v<=a) return 0.0; if (v>=b) return 1.0; return smoothBlend01((v-a)/span);
+}
+inline double regularizedLongitudinal(double vx, double blend) {
+  const double min_mag = 0.35 * (0.5 + 0.5 * blend);
+  const double s = (vx>=0.0)?1.0:-1.0;
+  return s * std::max(std::abs(vx), min_mag);
+}
+
 struct Limits {
   // generic numeric tolerance
   double eps               {1e-9};
@@ -212,11 +223,20 @@ inline void checkSlip(double alpha,
   if (std::abs(alpha) > L.slip_abs_max) fail(where, "slip angle |alpha| too large", alpha);
 }
 
-inline void checkSlipPair(double aF, double aR, const char* where, const Limits& L = Limits{})
-{
-  checkSlip(aF, where, L);
-  checkSlip(aR, where, L);
+inline void checkSlipPair(double aF, double aR, const char* where,
+                          const double speed) {
+  // Match the getSlipAngle() bound logic
+  const double alpha_max_hi = 1.2217304763960306; // 70°
+  const double alpha_max_lo = 0.5235987755982989; // 30°
+  // Reuse your lowSpeedBlend(speed)
+  const double b = lowSpeedBlend(speed);
+  const double amax = alpha_max_hi * b + alpha_max_lo * (1.0 - b) + 1e-5;
+
+  if (std::abs(aF) > amax) fail(where, "front slip |alpha| too large", aF);
+  if (std::abs(aR) > amax) fail(where, "rear  slip |alpha| too large", aR);
+
 }
+
 
 
 // ------- force checks -------

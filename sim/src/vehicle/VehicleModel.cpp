@@ -48,38 +48,53 @@ void VehicleModel::validateState(VehicleState& state) const {
 double VehicleModel::getSlipAngle(const VehicleState& x,
                                   const VehicleInput& u,
                                   bool isFront) const {
-  const double vx_raw = x.velocity.x();
-  const double vy     = x.velocity.y();
-  const double r      = x.rotation.z();
-  const double lf     = param_.kinematic.l_F;
-  const double lr     = param_.kinematic.l_R;
+  const double vx = x.velocity.x();
+  const double vy = x.velocity.y();
+  const double r  = x.rotation.z();
 
-  const double speed  = std::sqrt(vx_raw * vx_raw + vy * vy);
-  const double blend  = lowSpeedBlend(speed);
+  const double lf = param_.kinematic.l_F;
+  const double lr = param_.kinematic.l_R;
 
-  // Regularize longitudinal component (already speed-aware)
-  double vx_eff = regularizedLongitudinal(vx_raw, blend);
+  // Speed & blend in [0,1] for low-speed handling
+  const double speed = std::hypot(vx, vy);
+  const double blend = lowSpeedBlend(speed);          // 0..1 (you already have this)
 
-  // Extra denominator padding tied to lateral content and low-speed weight
-  const double lat_mag   = std::abs(vy) + (isFront ? std::abs(lf * r) : std::abs(lr * r));
-  const double denom_pad = (1.0 - blend) * (0.2 + 0.6 * std::min(1.0, lat_mag)); // meters/sec
-  const double denom     = std::abs(vx_eff) + denom_pad; // never ~0
+  // Numerator: lateral content at axle
+  const double num = isFront ? (vy + lf * r) : (vy - lr * r);
 
-  // Numerator
-  double num = isFront ? (vy + lf * r) : (vy - lr * r);
+  // --- Key idea: denominator as max of three stabilizers ---
+  // 1) True longitudinal magnitude
+  const double D_vx = std::abs(vx);
 
-  // Raw slip and steering subtraction for front
-  double alpha = std::atan2(num, denom);
-  if (isFront) alpha -= u.delta;
+  // 2) A speed-aware floor (larger when nearly stopped)
+  //    at standstill ~ v_floor_hi, at speed ~ v_floor_lo
+  const double v_floor_hi = 1.20;   // m/s  (aggressive floor at standstill)
+  const double v_floor_lo = 0.05;   // m/s  (just avoids 0/0 at speed)
+  const double D_floor = v_floor_lo * blend + v_floor_hi * (1.0 - blend);
 
-  // Soften toward zero at low speed (noisy/undefined slip when nearly stopped)
-  const double soften = 0.35 + 0.65 * blend; // at standstill ~0.35, at speed ~1.0
-  alpha *= soften;
+  // 3) A proportional term to |num| to give a *hard analytic* bound on |alpha|
+  //    If D >= lambda * |num| then |alpha| = atan(|num|/D) <= atan(1/lambda).
+  //    We allow a speed-varying bound: lo at very low speed, hi at speed.
+  const double alpha_max_hi = 1.2217304763960306; // 70 deg in rad at speed
+  const double alpha_max_lo = 0.5235987755982989; // 30 deg in rad near stop
+  const double alpha_max    = alpha_max_hi * blend + alpha_max_lo * (1.0 - blend);
+  const double lambda       = 1.0 / std::tan(alpha_max); // ensures |alpha|<=alpha_max
+  const double D_prop       = lambda * std::abs(num);
 
-  // Avoid ever hitting exactly ±π/2 so sanity check doesn’t trip on rounding
-  const double lim = kHalfPi - 1e-4;
-  return std::clamp(alpha, -lim, lim);
+  // Final denominator
+  const double D = std::max({D_vx, D_floor, D_prop});
+
+  double alpha = std::atan2(num, D);
+  if (isFront) alpha -= u.delta;    // front axle steer subtraction
+
+  // Small numeric cushion under the target bound
+  const double lim = alpha_max - 1e-4;
+  if (alpha >  lim) alpha =  lim;
+  if (alpha < -lim) alpha = -lim;
+
+  return alpha;
 }
+
 
 
 WheelsInfo VehicleModel::getWheelSpeeds(const VehicleState& state,
