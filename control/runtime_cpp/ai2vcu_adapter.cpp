@@ -18,6 +18,8 @@ uint8_t MissionTypeToId(fsai::sim::MissionType type) {
       return 3u;
     case fsai::sim::MissionType::kTrackdrive:
       return 4u;
+    case fsai::sim::MissionType::kSandbox:
+      return 5u;
     default:
       return 0u;
   }

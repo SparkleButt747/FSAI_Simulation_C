@@ -1,6 +1,7 @@
 #include "sim/MissionRuntimeState.hpp"
 
 #include <algorithm>
+#include <limits>
 
 namespace fsai::sim {
 
@@ -120,6 +121,13 @@ void MissionRuntimeState::ConfigureSegments() {
     case MissionType::kAutocross:
     case MissionType::kTrackdrive: {
       segments_.push_back(MakeSegment(MissionSegmentType::kTimed, mission_.targetLaps));
+      break;
+    }
+    case MissionType::kSandbox: {
+      const std::size_t laps = mission_.targetLaps > 0
+                                   ? mission_.targetLaps
+                                   : std::numeric_limits<std::size_t>::max();
+      segments_.push_back(MakeSegment(MissionSegmentType::kTimed, laps));
       break;
     }
   }

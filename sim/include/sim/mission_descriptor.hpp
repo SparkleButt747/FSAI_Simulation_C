@@ -9,6 +9,7 @@ enum class MissionType {
   kSkidpad,
   kAutocross,
   kTrackdrive,
+  kSandbox,
 };
 
 struct MissionDescriptor {

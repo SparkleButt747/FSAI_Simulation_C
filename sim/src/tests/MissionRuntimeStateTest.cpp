@@ -1,5 +1,6 @@
 #include <cmath>
 #include <iostream>
+#include <limits>
 
 #include "sim/MissionRuntimeState.hpp"
 
@@ -143,6 +144,28 @@ bool TestTrackdriveMission() {
   return true;
 }
 
+bool TestSandboxMission() {
+  fsai::sim::MissionDefinition def;
+  def.descriptor.type = fsai::sim::MissionType::kSandbox;
+  def.targetLaps = std::numeric_limits<std::size_t>::max();
+
+  fsai::sim::MissionRuntimeState state(def);
+  if (state.segments().size() != 1 ||
+      state.segments()[0].spec.type != fsai::sim::MissionSegmentType::kTimed) {
+    std::cerr << "Sandbox mission should expose a single timed segment" << std::endl;
+    return false;
+  }
+
+  for (int lap = 0; lap < 5; ++lap) {
+    state.RegisterLap(60.0 + lap, 1200.0);
+    if (state.run_status() != fsai::sim::MissionRunStatus::kRunning) {
+      std::cerr << "Sandbox mission should continue running indefinitely" << std::endl;
+      return false;
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
 int main() {
@@ -151,6 +174,7 @@ int main() {
   ok &= TestSkidpadMission();
   ok &= TestAutocrossMission();
   ok &= TestTrackdriveMission();
+  ok &= TestSandboxMission();
   return ok ? 0 : 1;
 }
 

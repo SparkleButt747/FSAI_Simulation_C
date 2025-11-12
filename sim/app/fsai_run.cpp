@@ -64,7 +64,7 @@ struct MissionOption {
   std::array<const char*, 4> tokens{};
 };
 
-const std::array<MissionOption, 4> kMissionOptions = {
+const std::array<MissionOption, 5> kMissionOptions = {
     MissionOption{fsai::sim::MissionDescriptor{fsai::sim::MissionType::kAcceleration,
                                               "Acceleration", "acceleration"},
                   {"acceleration", "accel", "drag", "straight"}},
@@ -77,6 +77,9 @@ const std::array<MissionOption, 4> kMissionOptions = {
     MissionOption{fsai::sim::MissionDescriptor{fsai::sim::MissionType::kTrackdrive,
                                               "Trackdrive", "trackdrive"},
                   {"trackdrive", "track", "endurance", "td"}},
+    MissionOption{fsai::sim::MissionDescriptor{fsai::sim::MissionType::kSandbox,
+                                              "Sandbox", "sandbox"},
+                  {"sandbox", "manual", "keyboard", "sim"}},
 };
 
 std::string ToLower(std::string text) {
@@ -222,6 +225,15 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
       definition.targetLaps = 10;
       definition.allowRegeneration = true;
       definition.trackSource = fsai::sim::TrackSource::kRandom;
+      break;
+    }
+    case fsai::sim::MissionType::kSandbox: {
+      const std::filesystem::path csv_path{"../configs/tracks/small_track.csv"};
+      definition.track =
+          fsai::sim::TrackData::FromTrackResult(fsai::sim::LoadTrackFromCsv(csv_path));
+      definition.targetLaps = std::numeric_limits<std::size_t>::max();
+      definition.allowRegeneration = false;
+      definition.trackSource = fsai::sim::TrackSource::kCsv;
       break;
     }
   }
@@ -375,6 +387,8 @@ const char* MissionTypeLabel(fsai::sim::MissionType type) {
       return "Autocross";
     case fsai::sim::MissionType::kTrackdrive:
       return "Trackdrive";
+    case fsai::sim::MissionType::kSandbox:
+      return "Sandbox";
   }
   return "Unknown";
 }
@@ -414,6 +428,8 @@ ImVec4 MissionTypeColor(fsai::sim::MissionType type) {
       return Rgba255(66, 165, 245);
     case fsai::sim::MissionType::kTrackdrive:
       return Rgba255(171, 71, 188);
+    case fsai::sim::MissionType::kSandbox:
+      return Rgba255(120, 144, 156);
   }
   return Rgba255(158, 158, 158);
 }
@@ -1701,6 +1717,8 @@ int main(int argc, char* argv[]) {
 
   const fsai::sim::MissionDefinition mission_definition =
       BuildMissionDefinition(mission);
+  const bool sandbox_mode =
+      mission_definition.descriptor.type == fsai::sim::MissionType::kSandbox;
   const char* track_source =
       mission_definition.trackSource == fsai::sim::TrackSource::kCsv ? "CSV" : "Random";
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
@@ -1791,9 +1809,14 @@ int main(int argc, char* argv[]) {
 
   World world;
   world.init("../configs/vehicle/configDry.yaml", mission_definition);
+  if (sandbox_mode) {
+    world.useController = 0;
+    world.regenTrack = 0;
+  }
 
   Graphics graphics{};
-  if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,
+  const char* window_title = sandbox_mode ? "FS-AI Sandbox" : "Car Simulation 2D";
+  if (Graphics_Init(&graphics, window_title, kWindowWidth,
                     kWindowHeight) != 0) {
     std::fprintf(stderr, "Graphics_Init failed\n");
     return EXIT_FAILURE;
@@ -1997,6 +2020,17 @@ int main(int argc, char* argv[]) {
   const uint64_t stale_threshold_ns =
       fsai_clock_from_seconds(kCommandStaleSeconds);
 
+  float sandboxThrottle = 0.0f;
+  float sandboxBrake = 0.0f;
+  float sandboxSteer = 0.0f;
+  const float sandboxSteerLimit = sandbox_mode
+                                      ? static_cast<float>(
+                                            world.model().param().input_ranges.delta.max)
+                                      : 0.0f;
+  const float sandboxSteerRate = sandboxSteerLimit > 0.0f
+                                     ? sandboxSteerLimit * 4.0f
+                                     : 1.0f;
+
 
   while (running) {
     SDL_Event event;
@@ -2035,6 +2069,48 @@ int main(int argc, char* argv[]) {
       }
     }
 
+    if (sandbox_mode) {
+      const Uint8* keys = SDL_GetKeyboardState(nullptr);
+      auto ramp = [&](float current, float target, float rate_per_sec) {
+        const float max_step = static_cast<float>(rate_per_sec * step_seconds);
+        const float delta = target - current;
+        if (delta > max_step) {
+          return current + max_step;
+        }
+        if (delta < -max_step) {
+          return current - max_step;
+        }
+        return target;
+      };
+
+      const bool throttle_pressed =
+          keys[SDL_SCANCODE_W] != 0 || keys[SDL_SCANCODE_UP] != 0;
+      const bool brake_pressed =
+          keys[SDL_SCANCODE_S] != 0 || keys[SDL_SCANCODE_DOWN] != 0;
+      const bool steer_left =
+          keys[SDL_SCANCODE_A] != 0 || keys[SDL_SCANCODE_LEFT] != 0;
+      const bool steer_right =
+          keys[SDL_SCANCODE_D] != 0 || keys[SDL_SCANCODE_RIGHT] != 0;
+
+      const float throttle_target = throttle_pressed ? 1.0f : 0.0f;
+      const float brake_target = brake_pressed ? 1.0f : 0.0f;
+      float steer_target = 0.0f;
+      if (steer_left && !steer_right) {
+        steer_target = -sandboxSteerLimit;
+      } else if (steer_right && !steer_left) {
+        steer_target = sandboxSteerLimit;
+      }
+
+      sandboxThrottle = std::clamp(ramp(sandboxThrottle, throttle_target, 3.0f), 0.0f, 1.0f);
+      sandboxBrake = std::clamp(ramp(sandboxBrake, brake_target, 6.0f), 0.0f, 1.0f);
+      sandboxSteer = ramp(sandboxSteer, steer_target, sandboxSteerRate);
+      sandboxSteer = std::clamp(sandboxSteer, -sandboxSteerLimit, sandboxSteerLimit);
+
+      autopThrottle = sandboxThrottle;
+      autopBrake = sandboxBrake;
+      autopSteer = sandboxSteer;
+    }
+
     const VehicleState& veh_state = world.vehicleState();
     const double vx = veh_state.velocity.x();
     const double vy = veh_state.velocity.y();
@@ -2050,6 +2126,9 @@ int main(int argc, char* argv[]) {
       if (*bytes == sizeof(command_packet)) {
         latest_command = command_packet;
       }
+    }
+    if (sandbox_mode) {
+      latest_command.reset();
     }
 
     const uint64_t now_ns = fsai_clock_advance(step_ns);
@@ -2342,17 +2421,18 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.mode.use_controller = world.useController != 0;
     runtime_telemetry.mode.runtime_mode = mode;
 
-    DrawMissionPanel(runtime_telemetry);
-    DrawSimulationPanel(runtime_telemetry);
-    DrawControlPanel(runtime_telemetry);
-    DrawCanPanel(runtime_telemetry);
-    DrawLogConsole();
-    if (edge_preview_enabled && edge_preview.running()) {
-      DrawEdgePreviewPanel(edge_preview, now_ns);
-    }
-    if (detection_preview_enabled && detection_preview.running()) {
-      DrawDetectionPreviewPanel(detection_preview, now_ns);
-
+    if (!sandbox_mode) {
+      DrawMissionPanel(runtime_telemetry);
+      DrawSimulationPanel(runtime_telemetry);
+      DrawControlPanel(runtime_telemetry);
+      DrawCanPanel(runtime_telemetry);
+      DrawLogConsole();
+      if (edge_preview_enabled && edge_preview.running()) {
+        DrawEdgePreviewPanel(edge_preview, now_ns);
+      }
+      if (detection_preview_enabled && detection_preview.running()) {
+        DrawDetectionPreviewPanel(detection_preview, now_ns);
+      }
     }
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
