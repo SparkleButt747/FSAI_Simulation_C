@@ -203,7 +203,7 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x,
 
   const double blend = low_ctx.blend;
 
-  double alpha_front_target = std::atan2(vy + param_.kinematic.l_F * r, low_ctx.vx_effective) - u.delta;
+  double alpha_front_target = u.delta - std::atan2(vy + param_.kinematic.l_F * r, low_ctx.vx_effective);
   double alpha_rear_target = std::atan2(vy - param_.kinematic.l_R * r, low_ctx.vx_effective);
 
   alpha_front_target *= blend;
