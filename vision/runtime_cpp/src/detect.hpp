@@ -1,5 +1,5 @@
 #pragma once
-#include "common/include/common/types.h"
+#include "../../../common/include/common/types.h"
 #include <vector>
 #include <string>
 #include <onnxruntime_cxx_api.h>
