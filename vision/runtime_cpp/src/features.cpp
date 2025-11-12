@@ -10,7 +10,7 @@
 // high level overview 
 // we need function to take left and right frames and bounding box and return xy coordinates of matched features for each bounding box
 
-cv::Mat extract_boundimg(cv::Mat left_frame, BoxBound box_bound){
+cv::Mat cv::Mat left_frame, BoxBound box_bound){
     // extracts the bounding box image for a single bounding box object 
     cv::Rect roi(box_bound.x, box_bound.y, box_bound.w, box_bound.h);   // define region of interest for extraction 
 
