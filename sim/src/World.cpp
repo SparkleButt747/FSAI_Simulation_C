@@ -152,12 +152,12 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     bestPathEdges = searchResult.second;
     auto checkpoints = pathNodesToCheckpoints(pathNodes);
     lookaheadIndices = Controller_GetLookaheadIndices(
-        static_cast<int>(pathNodes.size()), carSpeed, &racingConfig);
+        static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
     throttle_out = Controller_GetThrottleInput(
-        checkpoints, static_cast<int>(pathNodes.size()),
+        checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
         carSpeed, &carTransform, &racingConfig, dt);
     steering_out = Controller_GetSteeringInput(
-        checkpoints, static_cast<int>(pathNodes.size()),
+        checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
         carSpeed, &carTransform, &racingConfig, dt);
     return true;
 }
