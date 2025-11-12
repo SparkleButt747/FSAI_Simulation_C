@@ -7,14 +7,8 @@
 static const int kPatchSize = 5; 
 static const int kHalfPatch = kPatchSize / 2;
 
-<<<<<<< HEAD
-cv::Mat cv::Mat left_frame, BoxBound box_bound){
-    // extracts the bounding box image for a single bounding box object 
-    cv::Rect roi(box_bound.x, box_bound.y, box_bound.w, box_bound.h);   // define region of interest for extraction 
-=======
 // TUNING: How many pixels to skip when sampling the grid (1 = every pixel, 2 = every other)
 static const int kGridStride = 3; 
->>>>>>> dev-connect-vis-ctrl
 
 // TUNING: Epipolar search margin (pixels up/down to look in right image)
 static const int kEpipolarMargin = 2;
@@ -99,4 +93,8 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     }
 
     return all_cone_matches;
+}
+
+std::vector<PseudoFeature> extract_features(const cv::Mat& frame, cv::Ptr<cv::SIFT> sift) {
+    
 }
