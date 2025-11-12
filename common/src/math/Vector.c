@@ -35,11 +35,11 @@ float Vector2_SignedAngle(const Vector2 from, const Vector2 to) {
     float angleFrom = atan2f(from.y, from.x);
     float angleTo   = atan2f(to.y, to.x);
     float angle = angleTo - angleFrom;
-    // Convert radians to degrees.
-    angle = angle * (180.0f / (float)M_PI);
-    // Normalize to [-180, 180].
-    while (angle > 180.0f) angle -= 360.0f;
-    while (angle <= -180.0f) angle += 360.0f;
+    // Normalize to [-pi, pi].
+    const float kPi = (float)M_PI;
+    const float kTwoPi = 2.0f * kPi;
+    while (angle > kPi) angle -= kTwoPi;
+    while (angle <= -kPi) angle += kTwoPi;
     return angle;
 }
 

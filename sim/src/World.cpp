@@ -1,12 +1,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <numbers>
 #include <stdexcept>
 #include <utility>
 #include <limits>
 #include "fsai_clock.h"
 #include "World.hpp"
+#include "sim/CoordinateFrames.hpp"
 #include "sim/cone_constants.hpp"
 
 namespace {
@@ -189,7 +189,7 @@ void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission)
 
     racingConfig.speedLookAheadSensitivity = 0.5f;
     racingConfig.steeringLookAheadSensitivity = 0;
-    racingConfig.accelerationFactor = 0.0019f;
+    racingConfig.accelerationFactor = 0.108861983f;  // tuned for radian angles
 
     VehicleParam vp = VehicleParam::loadFromFile(yamlFilePath);
     carModel = DynamicBicycle(vp);
@@ -239,9 +239,9 @@ void World::update(double dt) {
 
     carModel.updateState(carState, carInput, dt);
 
-    carTransform.position.x = static_cast<float>(carState.position.x());
-    carTransform.position.z = static_cast<float>(carState.position.y());
-    carTransform.yaw = static_cast<float>(carState.yaw);
+    carTransform = fsai::sim::worldStateToTransform(carState.position,
+                                                    static_cast<float>(carState.yaw),
+                                                    0.5f);
 
     const Vector2 currentPos{carTransform.position.x, carTransform.position.z};
     const bool crossedGate = crossesCurrentGate(prevCarPos_, currentPos);
@@ -430,8 +430,8 @@ void World::configureMissionRuntime() {
     if (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration && checkpointPositions.size() >= 2) {
         const Vector3& start = checkpointPositions.front();
         const Vector3& finish = checkpointPositions.back();
-        const Eigen::Vector2d start2(static_cast<double>(start.x), static_cast<double>(start.z));
-        const Eigen::Vector2d finish2(static_cast<double>(finish.x), static_cast<double>(finish.z));
+        const Eigen::Vector2d start2 = fsai::sim::trackXZToWorldXY(Vector2{start.x, start.z});
+        const Eigen::Vector2d finish2 = fsai::sim::trackXZToWorldXY(Vector2{finish.x, finish.z});
         const Eigen::Vector2d delta = finish2 - start2;
         const double length = delta.norm();
         if (length > 1e-3) {
@@ -461,22 +461,21 @@ void World::initializeVehiclePose() {
                                            ? std::min<std::size_t>(10, checkpointPositions.size() - 1)
                                            : 0;
     const Vector3& next = checkpointPositions[lookaheadIndex];
-    Vector2 startVector{next.x - start.x, next.z - start.z};
+    Vector2 startVector = fsai::sim::trackDifference(next, start);
 
     float startYaw = 0.0f;
     if (checkpointPositions.size() > 1) {
-        Vector2 zeroVector{0.0f, 0.0f};
-        startYaw = Vector2_SignedAngle(zeroVector, startVector) *
-                   (std::numbers::pi_v<float> / 180.0f);
+        const Vector2 forward{1.0f, 0.0f};
+        startYaw = Vector2_SignedAngle(forward, startVector);
     }
 
-    carState = VehicleState(
-        Eigen::Vector3d(static_cast<double>(start.x), static_cast<double>(start.z), 0.0),
-        startYaw, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
-    carTransform.position.x = static_cast<float>(carState.position.x());
-    carTransform.position.y = 0.5f;
-    carTransform.position.z = static_cast<float>(carState.position.y());
-    carTransform.yaw = static_cast<float>(carState.yaw);
+    const Eigen::Vector3d startWorld = fsai::sim::trackPointToWorldPosition(start);
+    carState = VehicleState(startWorld, startYaw,
+                            Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+                            Eigen::Vector3d::Zero());
+    carTransform = fsai::sim::worldStateToTransform(carState.position,
+                                                    static_cast<float>(carState.yaw),
+                                                    0.5f);
     prevCarPos_ = {carTransform.position.x, carTransform.position.z};
 }
 
@@ -484,8 +483,8 @@ void World::updateStraightLineProgress() {
     if (!straightTracker_.valid) {
         return;
     }
-    const Eigen::Vector2d position(static_cast<double>(carTransform.position.x),
-                                   static_cast<double>(carTransform.position.z));
+    const Eigen::Vector2d position =
+        fsai::sim::trackXZToWorldXY(Vector2{carTransform.position.x, carTransform.position.z});
     const Eigen::Vector2d offset = position - straightTracker_.origin;
     const double projection = offset.dot(straightTracker_.direction);
     const double clamped = std::clamp(projection, 0.0, straightTracker_.length);

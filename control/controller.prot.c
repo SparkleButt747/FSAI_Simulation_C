@@ -19,7 +19,7 @@ static float clamp_float(float value, float min, float max) {
     return value;
 }
 
-// Helper function: Calculate the expected speed based on the angle (in degrees) and acceleration factor.
+// Helper function: Calculate the expected speed based on the angle (in radians) and acceleration factor.
 // If the angle is near zero, we assume full speed (MAX_SPEED). Otherwise, we use the expression:
 // expectedSpeed = abs(1/(accelerationFactor * angle)), clamped to MAX_SPEED.
 static float CalculateExpectedSpeed(float angle, float accelerationFactor) {
@@ -106,7 +106,7 @@ float Controller_GetThrottleInput(const Vector3* checkpointPositions, int nCheck
 
     Vector2 carForward = GetCarForwardDirection(carTransform);
 
-    // Compute signed angle (in degrees) from car forward to checkpoint direction.
+    // Compute signed angle (in radians) from car forward to checkpoint direction.
     float angle = Vector2_SignedAngle(carForward, checkpointDir);
 
     // Compute expected speed based on the angle.

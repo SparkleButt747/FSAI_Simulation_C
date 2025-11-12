@@ -25,7 +25,7 @@ int main(void) {
     int nCheckpoints = 12;
     double carVelocity = 0;
     Transform transform = {{0, 0, 0}, 0};
-    ControllerConfig config = {0.7, 0.1, 0.002};
+    ControllerConfig config = {0.7f, 0.1f, 0.108861983f};
     double dt = 0.1;
 
     float throttle1 = Controller_GetSteeringInput(

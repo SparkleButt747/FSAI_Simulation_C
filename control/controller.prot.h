@@ -11,7 +11,7 @@ extern "C"
 
 #define MAX_SPEED   30.1964649875f
 #define MAX_ACC     3.4323432343f
-#define MAX_ANGLE   21.0f
+#define MAX_ANGLE   0.3665191429f  // 21 degrees in radians
 #define EPSILON     0.001f
 
     // Configuration parameters for the racing algorithm.
