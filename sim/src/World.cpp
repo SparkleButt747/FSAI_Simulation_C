@@ -1,6 +1,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <numbers>
+#include <stdexcept>
+#include <utility>
+#include <limits>
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
@@ -11,6 +15,57 @@ using fsai::sim::kLargeConeMassKg;
 using fsai::sim::kLargeConeRadiusMeters;
 using fsai::sim::kSmallConeMassKg;
 using fsai::sim::kSmallConeRadiusMeters;
+
+struct Vec2d {
+    double x{0.0};
+    double y{0.0};
+};
+
+constexpr double kEpsilon = 1e-6;
+
+double cross(const Vec2d& a, const Vec2d& b) {
+    return a.x * b.y - a.y * b.x;
+}
+
+double orientation(const Vec2d& a, const Vec2d& b, const Vec2d& c) {
+    return cross({b.x - a.x, b.y - a.y}, {c.x - a.x, c.y - a.y});
+}
+
+bool onSegment(const Vec2d& a, const Vec2d& b, const Vec2d& p) {
+    const double minX = std::min(a.x, b.x) - kEpsilon;
+    const double maxX = std::max(a.x, b.x) + kEpsilon;
+    const double minY = std::min(a.y, b.y) - kEpsilon;
+    const double maxY = std::max(a.y, b.y) + kEpsilon;
+    return p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+}
+
+bool segmentsIntersect(const Vec2d& p1, const Vec2d& p2, const Vec2d& q1, const Vec2d& q2) {
+    const double o1 = orientation(p1, p2, q1);
+    const double o2 = orientation(p1, p2, q2);
+    const double o3 = orientation(q1, q2, p1);
+    const double o4 = orientation(q1, q2, p2);
+
+    const bool generalCase = ((o1 > kEpsilon && o2 < -kEpsilon) || (o1 < -kEpsilon && o2 > kEpsilon)) &&
+                             ((o3 > kEpsilon && o4 < -kEpsilon) || (o3 < -kEpsilon && o4 > kEpsilon));
+    if (generalCase) {
+        return true;
+    }
+
+    if (std::abs(o1) <= kEpsilon && onSegment(p1, p2, q1)) {
+        return true;
+    }
+    if (std::abs(o2) <= kEpsilon && onSegment(p1, p2, q2)) {
+        return true;
+    }
+    if (std::abs(o3) <= kEpsilon && onSegment(q1, q2, p1)) {
+        return true;
+    }
+    if (std::abs(o4) <= kEpsilon && onSegment(q1, q2, p2)) {
+        return true;
+    }
+
+    return false;
+}
 
 Vector3 transformToVector3(const Transform& t) {
     return {t.position.x, t.position.y, t.position.z};
@@ -32,6 +87,48 @@ Cone makeCone(const Transform& t, ConeType type) {
             break;
     }
     return cone;
+}
+
+CollisionSegment makeSegment(const Vector2& start, const Vector2& end, float radius) {
+    CollisionSegment segment{};
+    segment.start = start;
+    segment.end = end;
+    segment.radius = radius;
+    const float minX = std::min(start.x, end.x) - radius;
+    const float maxX = std::max(start.x, end.x) + radius;
+    const float minY = std::min(start.y, end.y) - radius;
+    const float maxY = std::max(start.y, end.y) + radius;
+    segment.boundsMin = Vector2{minX, minY};
+    segment.boundsMax = Vector2{maxX, maxY};
+    return segment;
+}
+
+float distanceSquaredToSegment(const Vector2& point, const CollisionSegment& segment) {
+    const float ax = segment.start.x;
+    const float ay = segment.start.y;
+    const float bx = segment.end.x;
+    const float by = segment.end.y;
+    const float abx = bx - ax;
+    const float aby = by - ay;
+    const float lengthSq = abx * abx + aby * aby;
+    if (lengthSq <= std::numeric_limits<float>::epsilon()) {
+        const float dx = point.x - ax;
+        const float dy = point.y - ay;
+        return dx * dx + dy * dy;
+    }
+
+    const float t = ((point.x - ax) * abx + (point.y - ay) * aby) / lengthSq;
+    const float clamped = std::clamp(t, 0.0f, 1.0f);
+    const float closestX = ax + clamped * abx;
+    const float closestY = ay + clamped * aby;
+    const float dx = point.x - closestX;
+    const float dy = point.y - closestY;
+    return dx * dx + dy * dy;
+}
+
+bool pointWithinBounds(const Vector2& point, const CollisionSegment& segment) {
+    return point.x >= segment.boundsMin.x && point.x <= segment.boundsMax.x &&
+           point.y >= segment.boundsMin.y && point.y <= segment.boundsMax.y;
 }
 
 }  // namespace
@@ -63,80 +160,42 @@ void World::setSvcuCommand(float throttle, float brake, float steer) {
     hasSvcuCommand_ = true;
 }
 
-void World::init(const char* yamlFilePath) {
-    // Generate track data
-    PathConfig pathConfig;
-    int nPoints = pathConfig.resolution;
-    PathGenerator pathGen(pathConfig);
-    PathResult path = pathGen.generatePath(nPoints);
-    TrackGenerator trackGen;
-    TrackResult track = trackGen.generateTrack(pathConfig, path);
+void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission) {
+    mission_ = std::move(mission);
 
-    // Store checkpoint and cone data
-    checkpointPositions.clear();
-    startCones.clear();
-    leftCones.clear();
-    rightCones.clear();
-    for (const auto& cp : track.checkpoints) {
-        checkpointPositions.push_back(transformToVector3(cp));
-    }
-    for (const auto& sc : track.startCones) {
-        startCones.push_back(makeCone(sc, ConeType::Start));
-    }
-    for (const auto& lc : track.leftCones) {
-        leftCones.push_back(makeCone(lc, ConeType::Left));
-    }
-    for (const auto& rc : track.rightCones) {
-        rightCones.push_back(makeCone(rc, ConeType::Right));
-    }
-    if (!track.checkpoints.empty()) {
-        lastCheckpoint = transformToVector3(track.checkpoints.back());
-    } else {
-        lastCheckpoint = {0, 0, 0};
+    if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
+        mission_.track.checkpoints.empty()) {
+        mission_.track = generateRandomTrack();
     }
 
-    // Initialize simulation variables
+    if (mission_.track.checkpoints.empty()) {
+        throw std::runtime_error("MissionDefinition did not provide any checkpoints");
+    }
+
+    config.collisionThreshold = 1.75f;
+    config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
+    config.lapCompletionThreshold = 0.2f;
+
+    configureTrackState(mission_.track);
+    configureMissionRuntime();
+
     totalTime = 0.0;
     totalDistance = 0.0;
     lapCount = 0;
     deltaTime = 0.0;
 
-    // Controller configuration
-    config.collisionThreshold = 1.75f;
-    config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
-    config.lapCompletionThreshold = 0.2f;
-
-    // Use racing algorithm by default
     useController = 1;
+    regenTrack = mission_.allowRegeneration ? 1 : 0;
 
-    // Regenerate track after cone collision
-    regenTrack = 1;
-
-    // Racing algorithm configuration
     racingConfig.speedLookAheadSensitivity = 0.5f;
     racingConfig.steeringLookAheadSensitivity = 0;
     racingConfig.accelerationFactor = 0.0019f;
 
-    // Make sure car starts on the track
-    float startX = checkpointPositions[0].x;
-    float startZ = checkpointPositions[0].z;
-    float nextX = checkpointPositions[10].x;
-    float nextZ = checkpointPositions[10].z;
-    Vector2 zeroVector{0,0};
-    Vector2 startVector{nextX - startX, nextZ - startZ};
-    float startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180.0f;
-
-    // Initialize car model, state, and transform
     VehicleParam vp = VehicleParam::loadFromFile(yamlFilePath);
     carModel = DynamicBicycle(vp);
     carInput = VehicleInput(0.0, 0.0, 0.0);
-    carState = VehicleState(Eigen::Vector3d(startX, startZ, 0.0), startYaw,
-                            Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                            Eigen::Vector3d::Zero());
-    carTransform.position.x = static_cast<float>(carState.position.x());
-    carTransform.position.y = 0.5f;
-    carTransform.position.z = static_cast<float>(carState.position.y());
-    carTransform.yaw = static_cast<float>(carState.yaw);
+
+    initializeVehiclePose();
 
     wheelsInfo_ = WheelsInfo_default();
     hasSvcuCommand_ = false;
@@ -147,7 +206,11 @@ void World::init(const char* yamlFilePath) {
 
 void World::update(double dt) {
     deltaTime = dt;
-    totalTime += dt;
+
+    if (!missionState_.mission_complete()) {
+        missionState_.Update(dt);
+        totalTime += dt;
+    }
 
     if (checkpointPositions.empty()) {
         std::printf("No checkpoints available. Resetting simulation.\n");
@@ -155,11 +218,15 @@ void World::update(double dt) {
         return;
     }
 
-    if (hasSvcuCommand_) {
+    if (hasSvcuCommand_ && missionState_.run_status() == fsai::sim::MissionRunStatus::kRunning) {
         throttleInput = lastSvcuThrottle_;
         brakeInput = lastSvcuBrake_;
         steeringAngle = lastSvcuSteer_;
     }
+
+    hasSvcuCommand_ = false;
+
+    handleMissionCompletion();
 
     const double netAcc = static_cast<double>(throttleInput - brakeInput);
     carInput.acc = netAcc;
@@ -171,39 +238,50 @@ void World::update(double dt) {
     carTransform.position.z = static_cast<float>(carState.position.y());
     carTransform.yaw = static_cast<float>(carState.yaw);
 
-    totalDistance += carState.velocity.x() * dt;
+    const Vector2 currentPos{carTransform.position.x, carTransform.position.z};
+    const bool crossedGate = crossesCurrentGate(prevCarPos_, currentPos);
+
+    const Eigen::Vector2d velocity2d(carState.velocity.x(), carState.velocity.y());
+    if (!missionState_.mission_complete()) {
+        totalDistance += velocity2d.norm() * dt;
+    }
 
     wheelsInfo_ = carModel.getWheelSpeeds(carState, carInput);
 
-    hasSvcuCommand_ = false;
-
-    if (!detectCollisions()) {
+    if (!detectCollisions(crossedGate)) {
         return;
     }
+
+    prevCarPos_ = currentPos;
+
+    updateStraightLineProgress();
+    handleMissionCompletion();
 
     telemetry();
 }
 
-bool World::detectCollisions() {
-    float dx = carTransform.position.x - checkpointPositions[0].x;
-    float dz = carTransform.position.z - checkpointPositions[0].z;
-    float distToNext = std::sqrt(dx * dx + dz * dz);
-    if (distToNext < config.collisionThreshold) {
+bool World::detectCollisions(bool crossedGate) {
+    if (crossedGate && !checkpointPositions.empty()) {
         moveNextCheckpointToLast();
     }
 
-    dx = carTransform.position.x - lastCheckpoint.x;
-    dz = carTransform.position.z - lastCheckpoint.z;
+    float dx = carTransform.position.x - lastCheckpoint.x;
+    float dz = carTransform.position.z - lastCheckpoint.z;
     float distToLast = std::sqrt(dx * dx + dz * dz);
-    if (distToLast < config.lapCompletionThreshold) {
+    const bool insideNow = distToLast < config.lapCompletionThreshold;
+    if (insideNow && !insideLastCheckpoint_ && !missionState_.mission_complete()) {
+        missionState_.RegisterLap(totalTime, totalDistance);
+        lapCount = static_cast<int>(missionState_.completed_laps());
         if (lapCount > 0) {
             std::printf("Lap Completed. Time: %.2f s, Distance: %.2f, Lap: %d\n",
                        totalTime, totalDistance, lapCount);
         }
-        lapCount++;
-        totalTime = 0.0;
-        totalDistance = 0.0;
+        if (!missionState_.mission_complete()) {
+            totalTime = 0.0;
+            totalDistance = 0.0;
+        }
     }
+    insideLastCheckpoint_ = insideNow;
 
     for (const auto& cone : startCones) {
         float cdx = carTransform.position.x - cone.position.x;
@@ -239,12 +317,266 @@ bool World::detectCollisions() {
         }
     }
 
+    const Vector2 carCenter{carTransform.position.x, carTransform.position.z};
+    const float collisionRadius = config.vehicleCollisionRadius;
+    const float collisionRadiusSq = collisionRadius * collisionRadius;
+
+    auto segmentHit = [&](const CollisionSegment& segment) {
+        if (!pointWithinBounds(carCenter, segment)) {
+            return false;
+        }
+        return distanceSquaredToSegment(carCenter, segment) < collisionRadiusSq;
+    };
+
+    for (const auto& segment : gateSegments_) {
+        if (segmentHit(segment)) {
+            break;
+        }
+    }
+
+    for (const auto& segment : boundarySegments_) {
+        if (segmentHit(segment)) {
+            std::printf("Collision with a boundary detected.\n");
+            reset();
+            return false;
+        }
+    }
+
     return true;
 }
 
 void World::telemetry() const {
     Telemetry_Update(carState, carTransform,
-                     fsai_clock_now(), totalTime, totalDistance, lapCount);
+                     fsai_clock_now(), totalTime, totalDistance, lapCount,
+                     missionState_);
+}
+
+void World::configureTrackState(const fsai::sim::TrackData& track) {
+    checkpointPositions.clear();
+    startCones.clear();
+    leftCones.clear();
+    rightCones.clear();
+    gateSegments_.clear();
+    boundarySegments_.clear();
+
+    for (const auto& cp : track.checkpoints) {
+        checkpointPositions.push_back(transformToVector3(cp));
+    }
+    for (const auto& sc : track.startCones) {
+        startCones.push_back(makeCone(sc, ConeType::Start));
+    }
+    for (const auto& lc : track.leftCones) {
+        leftCones.push_back(makeCone(lc, ConeType::Left));
+    }
+    for (const auto& rc : track.rightCones) {
+        rightCones.push_back(makeCone(rc, ConeType::Right));
+    }
+
+    if (!leftCones.empty() && !rightCones.empty()) {
+        const std::size_t gateCount = std::min(leftCones.size(), rightCones.size());
+        gateSegments_.reserve(gateCount);
+        for (std::size_t i = 0; i < gateCount; ++i) {
+            const Vector2 left{leftCones[i].position.x, leftCones[i].position.z};
+            const Vector2 right{rightCones[i].position.x, rightCones[i].position.z};
+            gateSegments_.push_back(makeSegment(left, right, config.vehicleCollisionRadius));
+        }
+    }
+
+    auto appendBoundarySegments = [&](const std::vector<Cone>& cones) {
+        const std::size_t count = cones.size();
+        if (count < 2) {
+            return;
+        }
+
+        boundarySegments_.reserve(boundarySegments_.size() + count);
+        for (std::size_t i = 0; i + 1 < count; ++i) {
+            const Vector2 start{cones[i].position.x, cones[i].position.z};
+            const Vector2 end{cones[i + 1].position.x, cones[i + 1].position.z};
+            boundarySegments_.push_back(makeSegment(start, end, config.vehicleCollisionRadius));
+        }
+
+        const Vector2 first{cones.front().position.x, cones.front().position.z};
+        const Vector2 last{cones.back().position.x, cones.back().position.z};
+        const float dx = last.x - first.x;
+        const float dy = last.y - first.y;
+        constexpr float kLoopThreshold = 1e-3f;
+        const bool geometryClosed = (dx * dx + dy * dy) <= (kLoopThreshold * kLoopThreshold);
+        const bool missionClosed = mission_.descriptor.type != fsai::sim::MissionType::kAcceleration;
+        if ((geometryClosed || missionClosed) && count >= 2) {
+            boundarySegments_.push_back(makeSegment(last, first, config.vehicleCollisionRadius));
+        }
+    };
+
+    appendBoundarySegments(leftCones);
+    appendBoundarySegments(rightCones);
+
+    if (!track.checkpoints.empty()) {
+        lastCheckpoint = transformToVector3(track.checkpoints.back());
+    } else {
+        lastCheckpoint = {0.0f, 0.0f, 0.0f};
+    }
+}
+
+void World::configureMissionRuntime() {
+    missionState_.Reset(mission_);
+    straightTracker_ = {};
+    straightTracker_.valid = false;
+
+    if (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration && checkpointPositions.size() >= 2) {
+        const Vector3& start = checkpointPositions.front();
+        const Vector3& finish = checkpointPositions.back();
+        const Eigen::Vector2d start2(static_cast<double>(start.x), static_cast<double>(start.z));
+        const Eigen::Vector2d finish2(static_cast<double>(finish.x), static_cast<double>(finish.z));
+        const Eigen::Vector2d delta = finish2 - start2;
+        const double length = delta.norm();
+        if (length > 1e-3) {
+            straightTracker_.valid = true;
+            straightTracker_.origin = start2;
+            straightTracker_.direction = delta / length;
+            straightTracker_.length = length;
+        }
+    }
+}
+
+void World::initializeVehiclePose() {
+    if (checkpointPositions.empty()) {
+        carState = VehicleState(Eigen::Vector3d::Zero(), 0.0,
+                                Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+                                Eigen::Vector3d::Zero());
+        carTransform.position.x = 0.0f;
+        carTransform.position.y = 0.5f;
+        carTransform.position.z = 0.0f;
+        carTransform.yaw = 0.0f;
+        prevCarPos_ = {carTransform.position.x, carTransform.position.z};
+        return;
+    }
+
+    const Vector3& start = checkpointPositions.front();
+    const std::size_t lookaheadIndex = checkpointPositions.size() > 1
+                                           ? std::min<std::size_t>(10, checkpointPositions.size() - 1)
+                                           : 0;
+    const Vector3& next = checkpointPositions[lookaheadIndex];
+    Vector2 startVector{next.x - start.x, next.z - start.z};
+
+    float startYaw = 0.0f;
+    if (checkpointPositions.size() > 1) {
+        Vector2 zeroVector{0.0f, 0.0f};
+        startYaw = Vector2_SignedAngle(zeroVector, startVector) *
+                   (std::numbers::pi_v<float> / 180.0f);
+    }
+
+    carState = VehicleState(
+        Eigen::Vector3d(static_cast<double>(start.x), static_cast<double>(start.z), 0.0),
+        startYaw, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+    carTransform.position.x = static_cast<float>(carState.position.x());
+    carTransform.position.y = 0.5f;
+    carTransform.position.z = static_cast<float>(carState.position.y());
+    carTransform.yaw = static_cast<float>(carState.yaw);
+    prevCarPos_ = {carTransform.position.x, carTransform.position.z};
+}
+
+void World::updateStraightLineProgress() {
+    if (!straightTracker_.valid) {
+        return;
+    }
+    const Eigen::Vector2d position(static_cast<double>(carTransform.position.x),
+                                   static_cast<double>(carTransform.position.z));
+    const Eigen::Vector2d offset = position - straightTracker_.origin;
+    const double projection = offset.dot(straightTracker_.direction);
+    const double clamped = std::clamp(projection, 0.0, straightTracker_.length);
+    missionState_.SetStraightLineProgress(clamped);
+}
+
+void World::handleMissionCompletion() {
+    if (!missionState_.mission_complete()) {
+        return;
+    }
+    throttleInput = 0.0f;
+    brakeInput = 1.0f;
+    if (!missionState_.stop_commanded()) {
+        missionState_.MarkStopCommanded();
+        std::printf("Mission complete. Commanding stop.\n");
+    }
+}
+
+bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) const {
+    const Vec2d prev{static_cast<double>(previous.x), static_cast<double>(previous.y)};
+    const Vec2d curr{static_cast<double>(current.x), static_cast<double>(current.y)};
+
+    if (leftCones.empty() || rightCones.empty()) {
+        if (checkpointPositions.empty()) {
+            return false;
+        }
+        const Vector3& checkpoint = checkpointPositions.front();
+        const Vec2d cp{static_cast<double>(checkpoint.x), static_cast<double>(checkpoint.z)};
+        const double prevDist = std::hypot(prev.x - cp.x, prev.y - cp.y);
+        const double currDist = std::hypot(curr.x - cp.x, curr.y - cp.y);
+        return currDist < static_cast<double>(config.collisionThreshold) &&
+               prevDist >= static_cast<double>(config.collisionThreshold);
+    }
+
+    const Vec2d left{static_cast<double>(leftCones.front().position.x),
+                     static_cast<double>(leftCones.front().position.z)};
+    const Vec2d right{static_cast<double>(rightCones.front().position.x),
+                      static_cast<double>(rightCones.front().position.z)};
+
+    const double radius = static_cast<double>(config.vehicleCollisionRadius);
+    const double minX = std::min(left.x, right.x) - radius;
+    const double maxX = std::max(left.x, right.x) + radius;
+    const double minY = std::min(left.y, right.y) - radius;
+    const double maxY = std::max(left.y, right.y) + radius;
+
+    if ((prev.x < minX && curr.x < minX) || (prev.x > maxX && curr.x > maxX) ||
+        (prev.y < minY && curr.y < minY) || (prev.y > maxY && curr.y > maxY)) {
+        return false;
+    }
+
+    const Vec2d gateVector{right.x - left.x, right.y - left.y};
+    const double gateLenSq = gateVector.x * gateVector.x + gateVector.y * gateVector.y;
+    if (gateLenSq <= kEpsilon) {
+        return false;
+    }
+
+    const double gateLength = std::sqrt(gateLenSq);
+    const double margin = gateLength > kEpsilon ? radius / gateLength : 0.0;
+    const double prevProj = ((prev.x - left.x) * gateVector.x + (prev.y - left.y) * gateVector.y) / gateLenSq;
+    const double currProj = ((curr.x - left.x) * gateVector.x + (curr.y - left.y) * gateVector.y) / gateLenSq;
+    const double minProj = -margin;
+    const double maxProj = 1.0 + margin;
+    if ((prevProj < minProj && currProj < minProj) || (prevProj > maxProj && currProj > maxProj)) {
+        return false;
+    }
+
+    const double oriPrev = orientation(left, right, prev);
+    const double oriCurr = orientation(left, right, curr);
+    const bool signChange = (oriPrev > kEpsilon && oriCurr < -kEpsilon) ||
+                            (oriPrev < -kEpsilon && oriCurr > kEpsilon);
+    if (signChange) {
+        return true;
+    }
+
+    if (segmentsIntersect(prev, curr, left, right)) {
+        return true;
+    }
+
+    if (std::abs(oriPrev) <= kEpsilon && onSegment(left, right, prev)) {
+        return true;
+    }
+    if (std::abs(oriCurr) <= kEpsilon && onSegment(left, right, curr)) {
+        return true;
+    }
+
+    return false;
+}
+
+fsai::sim::TrackData World::generateRandomTrack() const {
+    PathConfig pathConfig;
+    int nPoints = pathConfig.resolution;
+    PathGenerator pathGen(pathConfig);
+    PathResult path = pathGen.generatePath(nPoints);
+    TrackGenerator trackGen;
+    TrackResult track = trackGen.generateTrack(pathConfig, path);
+    return fsai::sim::TrackData::FromTrackResult(track);
 }
 
 void World::moveNextCheckpointToLast() {
@@ -257,83 +589,35 @@ void World::moveNextCheckpointToLast() {
     if (!rightCones.empty()) {
         std::rotate(rightCones.begin(), rightCones.begin() + 1, rightCones.end());
     }
+    if (!gateSegments_.empty()) {
+        std::rotate(gateSegments_.begin(), gateSegments_.begin() + 1, gateSegments_.end());
+    }
 }
 
 void World::reset() {
-    if (regenTrack) {
-        totalTime = 0.0;
-        totalDistance = 0.0;
+    carInput = VehicleInput(0.0, 0.0, 0.0);
+    totalTime = 0.0;
+    totalDistance = 0.0;
+    lapCount = 0;
+    insideLastCheckpoint_ = false;
 
+    if (mission_.allowRegeneration && regenTrack) {
         std::printf("Regenerating track due to cone collision.\n");
-
-        PathConfig pathConfig;
-        int nPoints = pathConfig.resolution;
-        PathGenerator pathGen(pathConfig);
-        PathResult path = pathGen.generatePath(nPoints);
-        TrackGenerator trackGen;
-        TrackResult track = trackGen.generateTrack(pathConfig, path);
-
-        checkpointPositions.clear();
-        startCones.clear();
-        leftCones.clear();
-        rightCones.clear();
-        for (const auto& cp : track.checkpoints) {
-            checkpointPositions.push_back(transformToVector3(cp));
+        if (mission_.trackSource == fsai::sim::TrackSource::kRandom) {
+            mission_.track = generateRandomTrack();
         }
-        for (const auto& sc : track.startCones) {
-            startCones.push_back(makeCone(sc, ConeType::Start));
-        }
-        for (const auto& lc : track.leftCones) {
-            leftCones.push_back(makeCone(lc, ConeType::Left));
-        }
-        for (const auto& rc : track.rightCones) {
-            rightCones.push_back(makeCone(rc, ConeType::Right));
-        }
-        if (!track.checkpoints.empty()) {
-            lastCheckpoint = transformToVector3(track.checkpoints.back());
-        } else {
-            lastCheckpoint = {0,0,0};
-        }
-
-        carInput = VehicleInput(0.0, 0.0, 0.0);
-
-        float startX = checkpointPositions[0].x;
-        float startZ = checkpointPositions[0].z;
-        float nextX = checkpointPositions[10].x;
-        float nextZ = checkpointPositions[10].z;
-        Vector2 zeroVector{0,0};
-        Vector2 startVector{nextX - startX, nextZ - startZ};
-        float startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180.0f;
-
-        carState = VehicleState(Eigen::Vector3d(startX, startZ, 0.0), startYaw,
-                                Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                                Eigen::Vector3d::Zero());
-        carTransform.position.x = static_cast<float>(carState.position.x());
-        carTransform.position.y = 0.5f;
-        carTransform.position.z = static_cast<float>(carState.position.y());
-        carTransform.yaw = static_cast<float>(carState.yaw);
+        configureTrackState(mission_.track);
     } else {
-        carInput = VehicleInput(0.0, 0.0, 0.0);
-        totalTime = 0.0;
-        totalDistance = 0.0;
-
         std::printf("Resetting simulation without regenerating track.\n");
-
-        float startX = checkpointPositions[0].x;
-        float startZ = checkpointPositions[0].z;
-        float nextX = checkpointPositions[10].x;
-        float nextZ = checkpointPositions[10].z;
-        Vector2 zeroVector{0,0};
-        Vector2 startVector{nextX - startX, nextZ - startZ};
-        float startYaw = Vector2_SignedAngle(zeroVector, startVector) * M_PI/180.0f;
-
-        carState = VehicleState(Eigen::Vector3d(startX, startZ, 0.0), startYaw,
-                                Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                                Eigen::Vector3d::Zero());
-        carTransform.position.x = static_cast<float>(carState.position.x());
-        carTransform.position.y = 0.5f;
-        carTransform.position.z = static_cast<float>(carState.position.y());
-        carTransform.yaw = static_cast<float>(carState.yaw);
     }
+
+    configureMissionRuntime();
+
+    initializeVehiclePose();
+
+    const float initDx = carTransform.position.x - lastCheckpoint.x;
+    const float initDz = carTransform.position.z - lastCheckpoint.z;
+    const float initDist = std::sqrt(initDx * initDx + initDz * initDz);
+    insideLastCheckpoint_ = initDist < config.lapCompletionThreshold;
 }
 
