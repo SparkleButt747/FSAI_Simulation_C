@@ -1,90 +1,102 @@
-#include <iostream>
 #include "features.hpp"
-#include "vector"
-#include <detect.hpp>
-#include <opencv2/opencv.hpp>
-#include <opencv2/features2d.hpp>
-#include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#include <iostream>
 
-// high level overview 
-// we need function to take left and right frames and bounding box and return xy coordinates of matched features for each bounding box
+// TUNING: Patch size for matching individual points. 
+// 5x5 or 7x7 is good for small 11x13 cones.
+static const int kPatchSize = 5; 
+static const int kHalfPatch = kPatchSize / 2;
 
+<<<<<<< HEAD
 cv::Mat cv::Mat left_frame, BoxBound box_bound){
     // extracts the bounding box image for a single bounding box object 
     cv::Rect roi(box_bound.x, box_bound.y, box_bound.w, box_bound.h);   // define region of interest for extraction 
+=======
+// TUNING: How many pixels to skip when sampling the grid (1 = every pixel, 2 = every other)
+static const int kGridStride = 3; 
+>>>>>>> dev-connect-vis-ctrl
 
-    //Clip the roi to be in frame dimensions
-    roi &= cv::Rect(0,0, left_frame.cols, left_frame.rows);
+// TUNING: Epipolar search margin (pixels up/down to look in right image)
+static const int kEpipolarMargin = 2;
 
-    if (roi.width <= 0 || roi.height <= 0) {
-        std::cerr << "Warning: Out of bands ROI requested." << std::endl;
-        return cv::Mat();
+bool is_safe_roi(const cv::Mat& frame, cv::Rect roi) {
+    return (roi.x >= 0 && roi.y >= 0 && 
+            roi.x + roi.width <= frame.cols && 
+            roi.y + roi.height <= frame.rows &&
+            roi.width > 0 && roi.height > 0);
+}
+
+std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, 
+                                                 const cv::Mat& right_frame, 
+                                                 const std::vector<fsai::vision::BoxBound>& box_bounds) {
+    std::vector<ConeMatches> all_cone_matches;
+    all_cone_matches.reserve(box_bounds.size());
+
+    // Pre-allocate standardized patch matrices to avoid re-allocation in loop
+    cv::Mat left_patch, right_strip, res_map;
+
+    for (size_t i = 0; i < box_bounds.size(); ++i) {
+        const auto& box = box_bounds[i];
+        std::vector<Feature> cone_features;
+
+        // 1. Define safe boundaries for sampling points inside the box
+        // We must ensure a kPatchSize window can fit around the point.
+        int start_x = box.x + kHalfPatch;
+        int end_x = box.x + box.w - kHalfPatch;
+        int start_y = box.y + kHalfPatch;
+        int end_y = box.y + box.h - kHalfPatch;
+
+        if (start_x >= end_x || start_y >= end_y) continue; // Box too small for patches
+
+        // 2. Grid Sample inside the Left Cone Box
+        for (int ly = start_y; ly < end_y; ly += kGridStride) {
+            for (int lx = start_x; lx < end_x; lx += kGridStride) {
+                
+                // Extract small patch around grid point (lx, ly)
+                cv::Rect patch_roi(lx - kHalfPatch, ly - kHalfPatch, kPatchSize, kPatchSize);
+                if (!is_safe_roi(left_frame, patch_roi)) continue;
+                left_patch = left_frame(patch_roi);
+
+                // Define search strip in Right image
+                // Constrain Y to epipolar line +/- margin
+                int strip_y = std::max(0, ly - kHalfPatch - kEpipolarMargin);
+                int strip_h = kPatchSize + (kEpipolarMargin * 2);
+                // Constrain X: matched point must be to the left of lx (or same pos for infinity)
+                int strip_width = std::min(right_frame.cols, lx + kHalfPatch + 5); // +5 for slight tolerance
+                
+                cv::Rect strip_roi(0, strip_y, strip_width, strip_h);
+                if (!is_safe_roi(right_frame, strip_roi)) continue;
+                right_strip = right_frame(strip_roi);
+
+                // Match the small patch
+                // TM_SQDIFF is faster than NORMED for tiny patches, but less robust to lighting changes.
+                // Sim lighting is usually even, so SQDIFF might be okay. Using NORMED for safety.
+                cv::matchTemplate(right_strip, left_patch, res_map, cv::TM_SQDIFF_NORMED);
+                
+                double min_val; cv::Point min_loc;
+                cv::minMaxLoc(res_map, &min_val, nullptr, &min_loc, nullptr);
+
+                // Threshold: Only accept good patch matches (e.g., < 0.1 difference)
+                if (min_val < 0.1) {
+                    Feature feat;
+                    feat.x_1 = static_cast<double>(lx);
+                    feat.y_1 = static_cast<double>(ly);
+                    // Convert strip-local coordinate back to global right-image coordinate
+                    feat.x_2 = static_cast<double>(strip_roi.x + min_loc.x + kHalfPatch);
+                    feat.y_2 = static_cast<double>(strip_roi.y + min_loc.y + kHalfPatch);
+
+                    // Final check: ensure positive disparity (closer objects shift left)
+                    if (feat.x_2 <= feat.x_1 + 1.0) { // +1.0 tolerance for noise
+                         cone_features.push_back(feat);
+                    }
+                }
+            }
+        }
+
+        if (!cone_features.empty()) {
+            all_cone_matches.push_back({(int)i, box, cone_features});
+        }
     }
-    cv::Mat box_boundimg = left_frame(roi);                               // extracts the region we want as a reference (we never modify it anyways, no need to clone)
-    return box_boundimg;                                                // returns a reference to the part of the frame we want 
 
-}
-
-std::vector<pseudofeature> extract_features(cv::Mat frame, cv::Ptr<cv::ORB> orb){
-    // extract all features from a frame. If using for left frame, pass in results from extract_boundimg 
-    // each pseudofeature has xy coordinates in coordinate system of right frame, and a descriptor matrix used for ORB or SIFT 
-
-    //Empty frame check
-    if (frame.empty()) {
-        std: cerr << "Warning: Empty frame recieved" << std::endl;
-        return {};
-    }
-
-    // declare keypoints and descriptors matrix
-    std::vector<KeyPoint> keypoints; 
-    cv::Mat descriptors; 
-
-    // detect and compute
-    orb->detect(frame, keypoints); 
-    orb->compute(frame, keypoints, descriptors);
-
-    std::vector<pseudofeature> results; 
-
-    for (int i = 0; i < keypoints.size(); i++){
-        keypoint_i = keypoints[i]
-        descriptor_i = descriptors[i]
-
-        //keypoint has attribute pt, which is (x,y)
-        x = keypoint_i.pt[0] 
-        y = keypoint_i.pt[1]
-
-        // initialise new pseudofeature and append
-        pseudofeature pseudofeature_i{x,y,descriptor_i}
-        results.push_back(pseudofeature_i)
-    }
-
-    return results // should be a vector of pseudofeatures, e.g. [(x,y,descriptor), (x,y,descriptor), ...]
-}
-
-std::vector<std::tuple<pseudofeature>> pair_features(std::vector<feature> left_features, std::vector<feature> right_feature){
-    // use epipolar constraint to search along epipolar line for each left feature to find matching right feature 
-    // return an "array" of (left_feature, right_feature) to pass for coordinate calculation 
-}
-
-std::vector<feature> extract_coordinates(std::vector<std::tuple<feature>> pairs){
-    // we format the pseudofeatures into actual features which look like (x1,y1,x2,y2)
-    // x1y1 are coordinates in left frame and x2y2 are coordinates in right frame
-}
-
-
-std::vector<feature> match_features(cv::Mat left_frame, cv::Mat right_frame,std::vector<BoxBound> box_bounds){
-    // loop over each bounding box
-    // extract the bounding box image in left frame 
-    // apply PnP to estimate bounding box in right frame 
-    // take the two bounding box images and apply feature matching algorithm (TBD)
-    // append features to vector 
-    // return vector 
-
-    cv::Ptr<cv::ORB> orb = cv::ORB::create();                                                  // create orb object to pass into extraction functions
-}
-
-int test_feature_matching(cv::Mat left_frame, cv::Mat right_frame){
-    // test the feature matching based on left frame and right frame 
-
+    return all_cone_matches;
 }

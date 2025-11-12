@@ -2,18 +2,30 @@
 #include "Vector.h"
 #include <vector>
 #include <tuple>
+#include "types.h"
 
 /** This represents a node on the path with the code detections that correspond
  * to the two points of the edges being included for computing the cost of a
  * path. There is also a special case where the PathNode is the starting node
  * which is the car's position. In this case, left and right are null.
  */
-typedef struct {
+class PathNode {
+  public:
     Vector2 midpoint;
-    FsaiConeDet left;
-    FsaiConeDet right;
-    std::vector<PathNode> children;
-} PathNode;
+    FsaiConeDet first;
+    FsaiConeDet second;
+    std::vector<PathNode*> children;
+
+    bool operator==(const PathNode& other) const
+    {
+        return midpoint.x == other.midpoint.x && midpoint.y == other.midpoint.y && first.x == other.first.x && first.y == other.first.y;
+    }
+
+    bool operator<(const PathNode& other) const
+    {
+        return midpoint.x < other.midpoint.x;
+    }
+};
 
 /**
  * Takes an unordered list of cone detections and returns a centerline

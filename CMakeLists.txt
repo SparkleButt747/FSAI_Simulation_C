@@ -22,27 +22,85 @@ if(APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
   endif()
 endif()
 
+# ------------------------------------------------------------------------------
+# ONNX Runtime Detection Strategy (Fixed for both platforms)
+# ------------------------------------------------------------------------------
 if(APPLE)
-  find_program(BREW brew PATHS /opt/homebrew/bin /usr/local/bin NO_DEFAULT_PATH)
-  if(BREW)
-    execute_process(COMMAND "${BREW}" --prefix
-                    OUTPUT_VARIABLE HOMEBREW_PREFIX
-                    OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(EXISTS "${HOMEBREW_PREFIX}")
-      list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}")
-      set(ENV{PKG_CONFIG_PATH}
-          "${HOMEBREW_PREFIX}/lib/pkgconfig:${HOMEBREW_PREFIX}/share/pkgconfig:$ENV{PKG_CONFIG_PATH}")
-    endif()
+  # 1. Try standard find_package first (best practice on Mac)
+  find_package(ONNXRuntime QUIET)
+
+  if(TARGET onnxruntime::onnxruntime)
+     message(STATUS "Found ONNX Runtime via find_package on macOS")
+     set(ORT_LIB onnxruntime::onnxruntime)
+     # Note: The include dirs are handled automatically by the target
+  else()
+     # 2. Fallback: Manual Homebrew lookup if find_package failed
+     message(STATUS "find_package(ONNXRuntime) failed. Trying manual Homebrew search...")
+     find_program(BREW brew PATHS /opt/homebrew/bin /usr/local/bin NO_DEFAULT_PATH)
+     if(BREW)
+       execute_process(COMMAND "${BREW}" --prefix
+                       OUTPUT_VARIABLE HOMEBREW_PREFIX
+                       OUTPUT_STRIP_TRAILING_WHITESPACE)
+       
+       if(EXISTS "${HOMEBREW_PREFIX}")
+         message(STATUS "Found Homebrew at: ${HOMEBREW_PREFIX}")
+         
+         # --- CRITICAL FIX START ---
+         # Add the include directories manually
+         include_directories("${HOMEBREW_PREFIX}/include")
+         include_directories("${HOMEBREW_PREFIX}/include/onnxruntime") # Just in case
+
+         # Find the library manually
+         find_library(ORT_LIB_MANUAL NAMES onnxruntime PATHS "${HOMEBREW_PREFIX}/lib" NO_DEFAULT_PATH)
+         if(ORT_LIB_MANUAL)
+            set(ORT_LIB ${ORT_LIB_MANUAL})
+            message(STATUS "Manually found ONNX Runtime lib at: ${ORT_LIB}")
+         else()
+            message(FATAL_ERROR "Found Homebrew but could NOT find onnxruntime lib in ${HOMEBREW_PREFIX}/lib")
+         endif()
+         # --- CRITICAL FIX END ---
+         
+       else()
+         message(FATAL_ERROR "Homebrew prefix '${HOMEBREW_PREFIX}' does not exist.")
+       endif()
+     else()
+       message(FATAL_ERROR "Homebrew executable not found. Cannot find ONNX Runtime.")
+     endif()
   endif()
+
+else()
+  # --- Linux Strategy: Custom GPU build path ---
+  set(ORT_ROOT "/home/v-admin/Documents/onnxTest/onnxruntime-linux-x64-gpu-1.23.2") # personal path lol
+  include_directories(${ORT_ROOT}/include)
+  find_library(ORT_LIB_RAW NAMES onnxruntime PATHS ${ORT_ROOT}/lib NO_DEFAULT_PATH)
+  
+  if(ORT_LIB_RAW)
+    set(ORT_LIB ${ORT_LIB_RAW})
+    message(STATUS "Found ONNX Runtime custom Linux build: ${ORT_LIB}")
+  else()
+    message(FATAL_ERROR "Could NOT find custom ONNX Runtime on Linux at ${ORT_ROOT}")
+  endif()
+endif()
+
+# Final check
+if(NOT ORT_LIB)
+  message(FATAL_ERROR "ONNX Runtime library variable (ORT_LIB) was not set!")
 endif()
 
 # ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
-find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+include_directories(${ORT_ROOT}/include)
+find_library(ORT_LIB
+    NAMES onnxruntime
+    PATHS ${ORT_ROOT}/lib
+    NO_DEFAULT_PATH
+)
+find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(PkgConfig REQUIRED)
 find_package(SDL2 QUIET CONFIG)
 find_package(Threads REQUIRED)
+# onnx required by vision
 set(SDL2_IMPORTED_TARGET "")
 set(SDL2_INCLUDE_DIRS "")
 if(TARGET SDL2::SDL2)
@@ -105,8 +163,57 @@ endforeach()
 list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
-add_subdirectory(vision_test/runtime_cpp/src)
 
+# ------------------------------------------------------------------------------
+# Vision-test libraries
+# ------------------------------------------------------------------------------
+# This line MUST be active
+add_subdirectory(vision_test/runtime_cpp/src)
+target_include_directories(fsai_vision_runtime PUBLIC
+    
+    # This path lets fsai_run find "vision/edge_preview.hpp"
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include" 
+    
+    # This path lets fsai_run find "common/include/common/types.h"
+    "${CMAKE_SOURCE_DIR}"
+
+    # This path lets vision use the logger
+    "${CMAKE_SOURCE_DIR}/sim/include/"
+)
+
+# Find the source files for your main vision node
+file(GLOB VISION_NODE_SOURCES
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src/*.cpp"
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/providers/*.cpp"
+)
+
+# Add your new source files to the library
+target_sources(fsai_vision_runtime PRIVATE
+    ${VISION_NODE_SOURCES}
+)
+
+# Add all include paths the library needs
+target_include_directories(fsai_vision_runtime PUBLIC
+    # Path for "vision/vision_node.hpp", "vision/frame_ring_buffer.hpp", etc.
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+
+    # Path for "sim_camera.hpp" (if it's private)
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src"
+
+    # Path for "vision/edge_preview.hpp"
+    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src" 
+
+    # Path for "common/include/common/types.h"
+    "${CMAKE_SOURCE_DIR}"
+)
+
+# Add all dependencies for the library
+target_link_libraries(fsai_vision_runtime PUBLIC
+    Eigen3::Eigen
+    ${ORT_LIB}
+    ${OpenCV_LIBRARIES}
+    Threads::Threads
+)
 # ------------------------------------------------------------------------------
 # Simulation libraries
 # ------------------------------------------------------------------------------
@@ -119,9 +226,6 @@ list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/third_party/imgui/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/third_party/imgui/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(c)$")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(cpp)$")
-list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/centerline.prot.cpp$")
-list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/control/.*")
-list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/sim/svcu/svcu_main.cpp$")
@@ -130,16 +234,18 @@ list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/.git/.*")
 
 
 # Drop everything under vision/
+# Re-introduce vision 
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision_test/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
 
 
+
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
 
 # control prototype source
-file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/centerline.prot.cpp")
+file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/fsai_plan.cpp")
 
 add_library(fsai_sim STATIC
   ${SIM_C_SOURCES}
@@ -158,7 +264,10 @@ target_link_libraries(fsai_sim
     yaml-cpp::yaml-cpp
     OpenGL::GL
     Threads::Threads
+    CGAL::CGAL
     m
+    ${ORT_LIB}
+    ${OpenCV_LIBRARIES}
 )
 
 
@@ -179,6 +288,7 @@ target_link_libraries(fsai_ctrl
     CGAL::CGAL
     CGAL::CGAL_Basic_viewer
     m
+    yaml-cpp::yaml-cpp
 )
 
 if(SDL2_IMPORTED_TARGET)
@@ -223,6 +333,12 @@ file(GLOB_RECURSE SIM_APP_SOURCES CONFIGURE_DEPENDS
 )
 
 add_executable(fsai_run ${SIM_APP_SOURCES})
+target_include_directories(fsai_run PRIVATE
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
+    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+)
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
 
 if(TARGET fsai_vision_runtime)
@@ -274,6 +390,7 @@ if(BUILD_TESTS)
     "${CMAKE_SOURCE_DIR}/*Test*.c"
     "${CMAKE_SOURCE_DIR}/*Test*.cpp"
   )
+  list(FILTER TEST_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
     foreach(TEST_FILE ${TEST_SOURCES})
       if(TEST_FILE MATCHES "/sim/svcu/tests/")
         continue()
