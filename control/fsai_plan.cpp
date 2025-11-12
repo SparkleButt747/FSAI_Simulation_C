@@ -202,14 +202,14 @@ int main(int argc, char* argv[])
 
     Point carFront = generateVehicleTriangulation(CarT, track);
 
-    const auto t1 = Clock::now();
+    auto t1 = Clock::now();
     for (const auto& cone : track.leftCones) {
         T.insert(Point(cone.position.x, cone.position.z));
     }
     for (const auto& cone : track.rightCones) {
         T.insert(Point(cone.position.x, cone.position.z));
     }
-    const auto t2 = Clock::now();
+    auto t2 = Clock::now();
     const std::chrono::duration<double, std::milli> insertTime = t2 - t1;
     std::cout << "Triangulation insert: " << insertTime.count() << "ms\n";
 
@@ -222,17 +222,22 @@ int main(int argc, char* argv[])
     const Bounds baseBounds = computeTrackBounds(track, nodes, carFront);
 
     constexpr std::size_t kMaxPathLength = 30;
+    constexpr std::size_t kMinPathLength = 8;
     int beamWidthSetting = 12;
 
+    t1 = Clock::now();
     auto recomputePath = [&]() {
         const std::size_t beamWidth = static_cast<std::size_t>(std::max(1, beamWidthSetting));
-        std::vector<PathNode> best = bfsLowestCost(adjacency, nodes, carFront, kMaxPathLength, beamWidth);
+        std::vector<PathNode> best = beamSearch(adjacency, nodes, carFront, kMaxPathLength, kMinPathLength, beamWidth);
         float cost = std::numeric_limits<float>::infinity();
         if (best.size() >= 2) {
-            cost = calculateCost(best);
+            cost = calculateCost(best, kMinPathLength);
         }
         return std::make_pair(std::move(best), cost);
     };
+    t2 = Clock::now();
+    const std::chrono::duration<double, std::milli> computeTime = t2 - t1;
+    std::cout << "Path computed: " << computeTime.count() << "ms\n";
 
     auto [bestPath, bestCost] = recomputePath();
 

@@ -325,11 +325,12 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
     return edges;
 }
 
-std::vector<PathNode> bfsLowestCost(
+std::vector<PathNode> beamSearch(
     const std::vector<std::vector<int>>& adj,
     const std::vector<PathNode>& nodes,
     const Point& carFront,
     std::size_t maxLen,
+    std::size_t minLen,
     std::size_t beamWidth
 )
 {
@@ -358,7 +359,7 @@ std::vector<PathNode> bfsLowestCost(
             return 0.0f;
         }
         const auto path = buildPathFromIds(ids);
-        return calculateCost(path);
+        return calculateCost(path, minLen);
     };
 
     // pick start = node closest to carFront (simple, deterministic)
@@ -380,10 +381,13 @@ std::vector<PathNode> bfsLowestCost(
     {
         std::vector<int> indices;
         float cost;
+
+        Candidate() = default;
+        Candidate(std::vector<int> idx, float c) : indices(std::move(idx)), cost(c) {}
     };
 
     std::vector<Candidate> beam;
-    beam.push_back(Candidate{{start}, 0.0f});
+    beam.emplace_back(std::vector<int>{start}, 0.0f);
 
     Candidate bestCandidate = beam.front();
     float bestCost = std::numeric_limits<float>::infinity();
@@ -410,12 +414,12 @@ std::vector<PathNode> bfsLowestCost(
         std::vector<Candidate> next;
         bool extendedAny = false;
 
-        for (const Candidate& candidate : beam)
+        for (Candidate& candidate : beam)
         {
             if (candidate.indices.size() >= maxLen)
             {
                 updateBest(candidate);
-                next.push_back(candidate);
+                next.push_back(std::move(candidate));
                 continue;
             }
 
@@ -440,6 +444,7 @@ std::vector<PathNode> bfsLowestCost(
                     std::vector<int> indices = candidate.indices;
                     indices.push_back(nb);
                     const float score = evaluate(indices);
+
                     Candidate expanded{std::move(indices), score};
                     updateBest(expanded);
                     next.push_back(std::move(expanded));
@@ -451,7 +456,7 @@ std::vector<PathNode> bfsLowestCost(
             if (!extendedCurrent)
             {
                 updateBest(candidate);
-                next.push_back(candidate);
+                next.push_back(std::move(candidate));
             }
         }
 

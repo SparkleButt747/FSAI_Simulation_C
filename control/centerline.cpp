@@ -55,9 +55,9 @@ float clampAngle(float angle)
 
 }  // namespace
 
-float calculateCost(const std::vector<PathNode>& path)
+float calculateCost(const std::vector<PathNode>& path, std::size_t minLen)
 {
-    if (path.size() < 2) {
+    if (path.size() < minLen) {
         return std::numeric_limits<float>::infinity();
     }
 
