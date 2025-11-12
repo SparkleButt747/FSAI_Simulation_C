@@ -110,41 +110,41 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
 }
 
 
-void drawEdges(
-    const std::vector<std::vector<int>>& adjacency,
-    const std::vector<PathNode>& nodes,
-    CGAL::Graphics_scene& scene,
-    CGAL::Color color)
-{
-    // Avoid double-drawing: only draw i->j when i < j
-    for (std::size_t i = 0; i < adjacency.size(); ++i) {
-        for (int j : adjacency[i]) {
-            if (static_cast<std::size_t>(j) <= i) continue;
-            const auto& a = nodes[i].midpoint;
-            const auto& b = nodes[j].midpoint;
-            scene.add_segment(Point(a.x, a.y), Point(b.x, b.y), color);
-        }
-    }
-}
+// void drawEdges(
+//     const std::vector<std::vector<int>>& adjacency,
+//     const std::vector<PathNode>& nodes,
+//     CGAL::Graphics_scene& scene,
+//     CGAL::Color color)
+// {
+//     // Avoid double-drawing: only draw i->j when i < j
+//     for (std::size_t i = 0; i < adjacency.size(); ++i) {
+//         for (int j : adjacency[i]) {
+//             if (static_cast<std::size_t>(j) <= i) continue;
+//             const auto& a = nodes[i].midpoint;
+//             const auto& b = nodes[j].midpoint;
+//             scene.add_segment(Point(a.x, a.y), Point(b.x, b.y), color);
+//         }
+//     }
+// }
 
-void drawEdges(std::map<PathNode, std::set<PathNode>>& adjacency, CGAL::Graphics_scene& scene, CGAL::Color color) {
-  for (auto & [node, adj_nodes]: adjacency) {
-    for (auto adj_node: adj_nodes) {
-      scene.add_segment(
-        Point(node.midpoint.x,    node.midpoint.y),
-        Point(adj_node.midpoint.x, adj_node.midpoint.y),
-        color
-      );
-    }
-  }
-}
+// void drawEdges(std::map<PathNode, std::set<PathNode>>& adjacency, CGAL::Graphics_scene& scene, CGAL::Color color) {
+//   for (auto & [node, adj_nodes]: adjacency) {
+//     for (auto adj_node: adj_nodes) {
+//       scene.add_segment(
+//         Point(node.midpoint.x,    node.midpoint.y),
+//         Point(adj_node.midpoint.x, adj_node.midpoint.y),
+//         color
+//       );
+//     }
+//   }
+// }
 
-void drawEdges(Triangulation& T, CGAL::Graphics_scene& scene, CGAL::Color color) {
-  for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
-    auto segment = T.segment(*it);
-    scene.add_segment(segment.source(), segment.target(), color);
-  }
-}
+// void drawEdges(Triangulation& T, CGAL::Graphics_scene& scene, CGAL::Color color) {
+//   for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
+//     auto segment = T.segment(*it);
+//     scene.add_segment(segment.source(), segment.target(), color);
+//   }
+// }
 
 double getInitialTrackYaw(TrackResult track) {
   return std::atan2(
@@ -271,16 +271,16 @@ std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrac
 }
 
 
-void drawVisibleTriangulationEdges(
-  VehicleState carState,
-  const std::vector<Cone>& leftConePositions,
-  const std::vector<Cone>& rightConePositions
-) {
-    CGAL::Graphics_scene scene;
-    Point carFront = Point(carState.position.x(), carState.position.y());
-    auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw, leftConePositions, rightConePositions).first;
-    CGAL::draw(triangulation);
-}
+// void drawVisibleTriangulationEdges(
+//   VehicleState carState,
+//   const std::vector<Cone>& leftConePositions,
+//   const std::vector<Cone>& rightConePositions
+// ) {
+//     CGAL::Graphics_scene scene;
+//     Point carFront = Point(carState.position.x(), carState.position.y());
+//     auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw, leftConePositions, rightConePositions).first;
+//     CGAL::draw(triangulation);
+// }
 
 std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
   VehicleState carState,
@@ -529,25 +529,25 @@ std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode
 
 
 // Draws segments between consecutive midpoints in a path.
-void drawPathMidpoints(
-    const std::vector<PathNode>& path,
-    CGAL::Graphics_scene& scene,
-    CGAL::Color color)
-{
-    if(path.size() < 2)
-    {
-      return;
-    }
+// void drawPathMidpoints(
+//     const std::vector<PathNode>& path,
+//     CGAL::Graphics_scene& scene,
+//     CGAL::Color color)
+// {
+//     if(path.size() < 2)
+//     {
+//       return;
+//     }
 
-    for(std::size_t i = 1; i < path.size(); i++)
-    {
-        scene.add_segment(
-            Point(path[i-1].midpoint.x, path[i-1].midpoint.y),
-            Point(path[i].midpoint.x,   path[i].midpoint.y),
-            color
-        );
-    }
-}
+//     for(std::size_t i = 1; i < path.size(); i++)
+//     {
+//         scene.add_segment(
+//             Point(path[i-1].midpoint.x, path[i-1].midpoint.y),
+//             Point(path[i].midpoint.x,   path[i].midpoint.y),
+//             color
+//         );
+//     }
+// }
 
 Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
     Vector3* checkpoints = new Vector3[path.size()];

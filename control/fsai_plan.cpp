@@ -216,7 +216,6 @@ int main(int argc, char* argv[])
     Triangulation visibleT;
     auto coneToSide = getVisibleTrackTriangulation(visibleT, carFront, track);
 
-    CGAL::Graphics_scene scene;
     auto [nodes, adjacency] = generateGraph(visibleT, carFront, coneToSide);
 
     const Bounds baseBounds = computeTrackBounds(track, nodes, carFront);

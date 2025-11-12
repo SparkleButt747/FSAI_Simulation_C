@@ -150,7 +150,7 @@ find_package(OpenCV REQUIRED)
 
 # CGAL and its components
 find_package(CGAL QUIET COMPONENTS)
-find_package(CGAL REQUIRED OPTIONAL_COMPONENTS Qt6)
+find_package(CGAL REQUIRED OPTIONAL_COMPONENTS)
 if ( NOT CGAL_FOUND )
   message(STATUS "This project requires the CGAL library, and will not be compiled.")
   return()
@@ -269,7 +269,6 @@ target_include_directories(fsai_ctrl PUBLIC ${HEADER_DIRS})
 target_link_libraries(fsai_ctrl PUBLIC
   Eigen3::Eigen
   CGAL::CGAL
-  CGAL::CGAL_Basic_viewer
   m
   yaml-cpp::yaml-cpp
 )
