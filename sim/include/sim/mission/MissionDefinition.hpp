@@ -12,6 +12,7 @@ namespace fsai::sim {
 enum class TrackSource {
   kRandom,
   kCsv,
+  kNone,
 };
 
 struct TrackData {

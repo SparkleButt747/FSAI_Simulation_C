@@ -147,21 +147,25 @@ bool TestTrackdriveMission() {
 bool TestSandboxMission() {
   fsai::sim::MissionDefinition def;
   def.descriptor.type = fsai::sim::MissionType::kSandbox;
-  def.targetLaps = std::numeric_limits<std::size_t>::max();
+  def.targetLaps = 0;
+  def.trackSource = fsai::sim::TrackSource::kNone;
 
   fsai::sim::MissionRuntimeState state(def);
-  if (state.segments().size() != 1 ||
-      state.segments()[0].spec.type != fsai::sim::MissionSegmentType::kTimed) {
-    std::cerr << "Sandbox mission should expose a single timed segment" << std::endl;
+  if (!state.segments().empty()) {
+    std::cerr << "Sandbox mission without a track should not expose segments" << std::endl;
     return false;
   }
 
-  for (int lap = 0; lap < 5; ++lap) {
-    state.RegisterLap(60.0 + lap, 1200.0);
-    if (state.run_status() != fsai::sim::MissionRunStatus::kRunning) {
-      std::cerr << "Sandbox mission should continue running indefinitely" << std::endl;
-      return false;
-    }
+  state.Update(1.0);
+  if (state.run_status() != fsai::sim::MissionRunStatus::kRunning) {
+    std::cerr << "Sandbox mission should remain running" << std::endl;
+    return false;
+  }
+
+  const double time_after_update = state.mission_time_seconds();
+  if (!AlmostEqual(time_after_update, 1.0)) {
+    std::cerr << "Sandbox mission should accumulate mission time" << std::endl;
+    return false;
   }
   return true;
 }

@@ -163,20 +163,37 @@ void World::setSvcuCommand(float throttle, float brake, float steer) {
 void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission) {
     mission_ = std::move(mission);
 
-    if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
-        mission_.track.checkpoints.empty()) {
-        mission_.track = generateRandomTrack();
+    const bool sandbox_mode = mission_.descriptor.type == fsai::sim::MissionType::kSandbox;
+
+    if (!sandbox_mode) {
+        if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
+            mission_.track.checkpoints.empty()) {
+            mission_.track = generateRandomTrack();
+        }
+
+        if (mission_.track.checkpoints.empty()) {
+            throw std::runtime_error("MissionDefinition did not provide any checkpoints");
+        }
     }
 
-    if (mission_.track.checkpoints.empty()) {
-        throw std::runtime_error("MissionDefinition did not provide any checkpoints");
+    if (sandbox_mode) {
+        config.collisionThreshold = 0.0f;
+        config.vehicleCollisionRadius = 0.0f;
+        config.lapCompletionThreshold = 0.0f;
+        checkpointPositions.clear();
+        startCones.clear();
+        leftCones.clear();
+        rightCones.clear();
+        gateSegments_.clear();
+        boundarySegments_.clear();
+        lastCheckpoint = {0.0f, 0.0f, 0.0f};
+    } else {
+        config.collisionThreshold = 1.75f;
+        config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
+        config.lapCompletionThreshold = 0.2f;
+        configureTrackState(mission_.track);
     }
 
-    config.collisionThreshold = 1.75f;
-    config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
-    config.lapCompletionThreshold = 0.2f;
-
-    configureTrackState(mission_.track);
     configureMissionRuntime();
 
     totalTime = 0.0;
@@ -207,12 +224,14 @@ void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission)
 void World::update(double dt) {
     deltaTime = dt;
 
+    const bool sandbox_mode = mission_.descriptor.type == fsai::sim::MissionType::kSandbox;
+
     if (!missionState_.mission_complete()) {
         missionState_.Update(dt);
         totalTime += dt;
     }
 
-    if (checkpointPositions.empty()) {
+    if (checkpointPositions.empty() && !sandbox_mode) {
         std::printf("No checkpoints available. Resetting simulation.\n");
         reset();
         return;
@@ -244,7 +263,10 @@ void World::update(double dt) {
                                                     0.5f);
 
     const Vector2 currentPos{carTransform.position.x, carTransform.position.z};
-    const bool crossedGate = crossesCurrentGate(prevCarPos_, currentPos);
+    bool crossedGate = false;
+    if (!sandbox_mode && !checkpointPositions.empty()) {
+        crossedGate = crossesCurrentGate(prevCarPos_, currentPos);
+    }
 
     const Eigen::Vector2d velocity2d(carState.velocity.x(), carState.velocity.y());
     if (!missionState_.mission_complete()) {
@@ -253,14 +275,18 @@ void World::update(double dt) {
 
     wheelsInfo_ = carModel.getWheelSpeeds(carState, carInput);
 
-    if (!detectCollisions(crossedGate)) {
-        return;
+    if (!sandbox_mode) {
+        if (!detectCollisions(crossedGate)) {
+            return;
+        }
+
+        prevCarPos_ = currentPos;
+
+        updateStraightLineProgress();
+        handleMissionCompletion();
+    } else {
+        prevCarPos_ = currentPos;
     }
-
-    prevCarPos_ = currentPos;
-
-    updateStraightLineProgress();
-    handleMissionCompletion();
 
     telemetry();
 }

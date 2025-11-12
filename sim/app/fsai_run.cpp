@@ -228,12 +228,10 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
       break;
     }
     case fsai::sim::MissionType::kSandbox: {
-      const std::filesystem::path csv_path{"../configs/tracks/small_track.csv"};
-      definition.track =
-          fsai::sim::TrackData::FromTrackResult(fsai::sim::LoadTrackFromCsv(csv_path));
-      definition.targetLaps = std::numeric_limits<std::size_t>::max();
+      definition.track = {};
+      definition.targetLaps = 0;
       definition.allowRegeneration = false;
-      definition.trackSource = fsai::sim::TrackSource::kCsv;
+      definition.trackSource = fsai::sim::TrackSource::kNone;
       break;
     }
   }
@@ -1719,11 +1717,22 @@ int main(int argc, char* argv[]) {
       BuildMissionDefinition(mission);
   const bool sandbox_mode =
       mission_definition.descriptor.type == fsai::sim::MissionType::kSandbox;
-  const char* track_source =
-      mission_definition.trackSource == fsai::sim::TrackSource::kCsv ? "CSV" : "Random";
+  std::string track_source_label;
+  switch (mission_definition.trackSource) {
+    case fsai::sim::TrackSource::kCsv:
+      track_source_label = "CSV";
+      break;
+    case fsai::sim::TrackSource::kRandom:
+      track_source_label = "Random";
+      break;
+    case fsai::sim::TrackSource::kNone:
+    default:
+      track_source_label = "None";
+      break;
+  }
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
                        "Track source: %s, target laps: %zu, regeneration %s",
-                       track_source, mission_definition.targetLaps,
+                       track_source_label.c_str(), mission_definition.targetLaps,
                        mission_definition.allowRegeneration ? "enabled" : "disabled");
 
   SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(sensor_config_path);
