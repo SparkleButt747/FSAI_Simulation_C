@@ -1790,7 +1790,7 @@ int main(int argc, char* argv[]) {
       "CAN transport not wired; pending hardware integration.");
 
   World world;
-  world.init("../configs/vehicle/configDryS.yaml", mission_definition);
+  world.init("../configs/vehicle/configDry.yaml", mission_definition);
 
   Graphics graphics{};
   if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,

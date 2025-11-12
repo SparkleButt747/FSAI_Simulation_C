@@ -312,7 +312,7 @@ fsai::control::runtime::Ai2VcuAdapterConfig BuildAdapterConfig(const VehiclePara
 
 bool TestMissionStatusPackaging() {
   const std::filesystem::path repo_root = std::filesystem::path(FSAI_PROJECT_ROOT);
-  const auto vehicle_config = repo_root / "configs" / "vehicle" / "configDryS.yaml";
+  const auto vehicle_config = repo_root / "configs" / "vehicle" / "configDry.yaml";
 
   VehicleParam params;
   try {
@@ -390,7 +390,7 @@ bool TestMessageRatesAndSaturation() {
 
   const auto test_dir = std::filesystem::path(__FILE__).parent_path();
   const std::filesystem::path repo_root = std::filesystem::path(FSAI_PROJECT_ROOT);
-  const auto vehicle_config = repo_root / "configs" / "vehicle" / "configDryS.yaml";
+  const auto vehicle_config = repo_root / "configs" / "vehicle" / "configDry.yaml";
   const auto baseline_path = test_dir / "baseline" / "control_loop_trace.csv";
 
   const VehicleParam params = LoadVehicleParam(vehicle_config);
@@ -611,7 +611,7 @@ bool TestWatchdogTransitions() {
 
   const auto test_dir = std::filesystem::path(__FILE__).parent_path();
   const std::filesystem::path repo_root = std::filesystem::path(FSAI_PROJECT_ROOT);
-  const auto vehicle_config = repo_root / "configs" / "vehicle" / "configDryS.yaml";
+  const auto vehicle_config = repo_root / "configs" / "vehicle" / "configDry.yaml";
   const VehicleParam params = LoadVehicleParam(vehicle_config);
 
   fsai::control::runtime::Ai2VcuAdapter adapter(BuildAdapterConfig(params));

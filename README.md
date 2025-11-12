@@ -53,7 +53,7 @@ brew install cmake sdl2 yaml-cpp eigen cgal
 
 ## Runtime GUI and controls
 
-Launch the simulator GUI from the build directory so that assets such as `configDryS.yaml` resolve correctly:
+Launch the simulator GUI from the build directory so that assets such as `configDry.yaml` resolve correctly:
 
 ```sh
 ./fsai_run

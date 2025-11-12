@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
   std::signal(SIGINT, handle_signal);
   std::signal(SIGTERM, handle_signal);
 
-  std::string vehicle_config = "../configs/vehicle/configDryS.yaml";
+  std::string vehicle_config = "../configs/vehicle/configDry.yaml";
   std::string can_iface = fsai::sim::svcu::default_can_endpoint();
   uint16_t command_port = fsai::sim::svcu::kDefaultCommandPort;
   uint16_t telemetry_port = fsai::sim::svcu::kDefaultTelemetryPort;

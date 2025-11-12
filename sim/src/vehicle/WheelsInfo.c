@@ -1,7 +1,11 @@
 #include "WheelsInfo.h"
 #include <stdio.h>
 
-WheelsInfo WheelsInfo_create(float lf_speed, float rf_speed, float lb_speed, float rb_speed, float steering) {
+WheelsInfo WheelsInfo_create(float lf_speed,
+                             float rf_speed,
+                             float lb_speed,
+                             float rb_speed,
+                             float steering) {
     WheelsInfo info;
     info.lf_speed = lf_speed;
     info.rf_speed = rf_speed;
@@ -11,12 +15,27 @@ WheelsInfo WheelsInfo_create(float lf_speed, float rf_speed, float lb_speed, flo
     return info;
 }
 
-WheelsInfo WheelsInfo_default() {
-    WheelsInfo info = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+WheelsInfo WheelsInfo_default(void) {
+    WheelsInfo info;
+    info.lf_speed = 0.0f;
+    info.rf_speed = 0.0f;
+    info.lb_speed = 0.0f;
+    info.rb_speed = 0.0f;
+    info.steering = 0.0f;
     return info;
 }
 
-void WheelsInfo_toString(const WheelsInfo* wheels, char* buffer, int bufferSize) {
-    snprintf(buffer, bufferSize, "LF: %f | RF: %f | LB: %f | RB: %f | Steering: %f",
-             wheels->lf_speed, wheels->rf_speed, wheels->lb_speed, wheels->rb_speed, wheels->steering);
+void WheelsInfo_toString(const WheelsInfo* wheels,
+                         char* buffer,
+                         int bufferSize) {
+    if (!wheels || !buffer || bufferSize <= 0) {
+        return;
+    }
+    snprintf(buffer, bufferSize,
+             "LF: %f | RF: %f | LB: %f | RB: %f | Steering: %f",
+             wheels->lf_speed,
+             wheels->rf_speed,
+             wheels->lb_speed,
+             wheels->rb_speed,
+             wheels->steering);
 }

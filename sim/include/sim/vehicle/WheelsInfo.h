@@ -5,24 +5,31 @@
 extern "C" {
 #endif
 
-// Structure representing the wheel speeds and steering angle.
+/**
+ * @brief Simple POD for wheel speeds and steering angle.
+ *
+ * Speeds are typically [rpm] or [m/s] depending on your usage.
+ * Steering in [rad].
+ */
 typedef struct {
-    float lf_speed;   // Left-Front wheel speed
-    float rf_speed;   // Right-Front wheel speed
-    float lb_speed;   // Left-Rear wheel speed
-    float rb_speed;   // Right-Rear wheel speed
-    float steering;   // Steering angle
+    float lf_speed;   // Left-Front wheel
+    float rf_speed;   // Right-Front wheel
+    float lb_speed;   // Left-Rear wheel
+    float rb_speed;   // Right-Rear wheel
+    float steering;   // Front steering angle
 } WheelsInfo;
 
-// "Constructor": Creates a WheelsInfo instance with specified values.
-WheelsInfo WheelsInfo_create(float lf_speed, float rf_speed, float lb_speed, float rb_speed, float steering);
+WheelsInfo WheelsInfo_create(float lf_speed,
+                             float rf_speed,
+                             float lb_speed,
+                             float rb_speed,
+                             float steering);
 
-// Creates a default WheelsInfo with all fields set to zero.
-WheelsInfo WheelsInfo_default();
+WheelsInfo WheelsInfo_default(void);
 
-// Writes a string representation of the WheelsInfo into the provided buffer.
-// The caller must supply a buffer of at least bufferSize bytes.
-void WheelsInfo_toString(const WheelsInfo* wheels, char* buffer, int bufferSize);
+void WheelsInfo_toString(const WheelsInfo* wheels,
+                         char* buffer,
+                         int bufferSize);
 
 #ifdef __cplusplus
 }

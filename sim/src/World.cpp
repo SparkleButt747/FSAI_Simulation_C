@@ -232,6 +232,11 @@ void World::update(double dt) {
     carInput.acc = netAcc;
     carInput.delta = steeringAngle;
 
+    //quick patch to avoid steering outside range
+    carInput.delta = std::clamp(carInput.delta,
+                                carModel.param().input_ranges.delta.min,
+                                carModel.param().input_ranges.delta.max);
+
     carModel.updateState(carState, carInput, dt);
 
     carTransform.position.x = static_cast<float>(carState.position.x());
