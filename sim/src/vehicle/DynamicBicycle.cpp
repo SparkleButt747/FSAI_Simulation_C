@@ -240,9 +240,10 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     last_brake_status_ = bst;
 
     // Raw Fx components (before ellipse), sign convention: forward positive
-    double Fx_drive = double(ps.wheel_force);
-    double Fx_mech_brake = double(bst.total_mechanical_force);
-    double Fx_raw = Fx_drive - Fdrag - Frr - Fx_mech_brake;
+    const double torque_scale = (brk_eff_ > 1e-3) ? (slip_blend * slip_blend) : 1.0;
+    const double Fx_drive_total = double(ps.wheel_force);
+    const double Fx_mech_brake_total = double(bst.total_mechanical_force);
+    const double Fx_raw = Fx_drive_total * torque_scale - Fdrag - Frr - Fx_mech_brake_total * torque_scale;
 
     // Estimate ax, ay (body) using first-pass Fy for dynamic load transfer
     const double m = param_.inertia.m;
@@ -270,7 +271,6 @@ DynamicBicycle::Forces DynamicBicycle::computeForces(const VehicleState& x, cons
     // Longitudinal split: drive/regen by PT (front/rear) + mechanical brakes by bias
     double Fx_fl=0, Fx_fr=0, Fx_rl=0, Fx_rr=0;
 
-    const double torque_scale = (brk_eff_ > 1e-3) ? (slip_blend * slip_blend) : 1.0;
     double Fd_front_each = 0.5 * ps.front_drive_force * torque_scale;
     double Fd_rear_each  = 0.5 * ps.rear_drive_force  * torque_scale;
     double Fr_front_each = 0.5 * ps.front_regen_force * torque_scale;
