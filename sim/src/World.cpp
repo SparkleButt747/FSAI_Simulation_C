@@ -8,7 +8,8 @@
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
-#include "centerline.prot.hpp"
+//#include "centerline.prot.hpp"
+#include "centerline.hpp"
 
 namespace {
 

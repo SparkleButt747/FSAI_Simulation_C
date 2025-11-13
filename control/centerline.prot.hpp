@@ -46,7 +46,7 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
 // );
 
 // Prints CGAL edges to standard out
-void printEdges(Triangulation& T);
+//void printEdges(Triangulation& T);
 
 // Draws CGAL edges to CGAL Basic viewer
 // void drawEdges(Triangulation& T, CGAL::Graphics_scene& scene, CGAL::Color color = CGAL::IO::Color(15, 15, 15));
@@ -97,11 +97,12 @@ std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTri
   const std::vector<Cone>& rightConePositions
 );
 
+/*
 void drawVisibleTriangulationEdges(
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
   const std::vector<Cone>& rightConePositions
-);
+);*/
 
 // NEW: draw edges for an adjacency list indexed by node id
 // void drawEdges(

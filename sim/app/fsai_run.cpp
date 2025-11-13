@@ -54,7 +54,8 @@
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
 #include "runtime_telemetry.hpp"
-#include "centerline.prot.hpp"
+//#include "centerline.prot.hpp"
+#include "centerline.hpp"
 
 namespace {
 constexpr std::size_t kDefaultMissionIndex = 2;
@@ -241,7 +242,7 @@ constexpr double kAckLagWarningSeconds = 0.25;
 constexpr double kBaseLatitudeDeg = 37.4275;
 constexpr double kBaseLongitudeDeg = -122.1697;
 constexpr double kMetersPerDegreeLat = 111111.0;
-constexpr const char* kDefaultSensorConfig = "../configs/sim/sensors.yaml";
+constexpr const char* kDefaultSensorConfig = "../configs/sim/sensors.yaml"; // Why are we using hard coded path?
 
 template <size_t Capacity>
 class RollingBuffer {

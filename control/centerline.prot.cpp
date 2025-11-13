@@ -1,6 +1,6 @@
 #define _USE_MATH_DEFINES
 
-#include "centerline.prot.hpp"
+//#include "centerline.prot.hpp"
 #include "centerline.hpp"
 #include "types.h"
 
@@ -18,6 +18,7 @@ using VertexHandle=Triangulation::Vertex_handle;
 using namespace std;
 
 
+/*
 // Debug method, leaving this here because iterating triangulation edges is weird in CGAL
 void printEdges(Triangulation& T) {
   for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
@@ -36,7 +37,7 @@ void printEdges(Triangulation& T) {
                   << "(" << p2.x() << "," << p2.y() << ")" << '\n';
     }
     std::cout << std::endl;
-  }
+  }*/
 
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
     Triangulation& T, Point carFront, std::unordered_map<Point, FsaiConeSide> coneToSide)
@@ -160,12 +161,12 @@ double getAngle(Point a, Point b) {
   return std::acos(dot / (hypot(a.x(), a.y()) * hypot(b.x(), b.y())));
 }
 
-
+/* Only the getAngle with point params is used...
 // Gets the angle between two direction vectors using Vector2 as the data structure
 double getAngle(Vector2 a, Vector2 b) {
   double dot = a.x*b.x + a.y*b.y;
   return std::acos(dot / (hypot(a.x, a.y) * hypot(b.x, b.y)));
-}
+}*/
 
 // Returns the front of the car as a Point and modifies the triangulation in place
 Point generateVehicleTriangulation(
