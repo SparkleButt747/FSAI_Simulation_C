@@ -1,7 +1,6 @@
 #ifndef FSAI_CENTERLINE_HPP
 #define FSAI_CENTERLINE_HPP
 
-
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_2.h>
 #include <CGAL/draw_triangulation_2.h>
@@ -47,13 +46,11 @@ class PathNode {
     FsaiConeDet second;
     std::vector<PathNode*> children;
 
-    bool operator==(const PathNode& other) const
-    {
+    bool operator==(const PathNode& other) const {
         return midpoint.x == other.midpoint.x && midpoint.y == other.midpoint.y && first.x == other.first.x && first.y == other.first.y;
     }
 
-    bool operator<(const PathNode& other) const
-    {
+    bool operator<(const PathNode& other) const {
         return midpoint.x < other.midpoint.x;
     }
 };
@@ -75,7 +72,6 @@ std::vector<Vector2> getCenterline(
     FsaiVehicleState vehicleState
 );
 
-
 /**
  * Cost is calculated as a combination of these factors:
  * - Change in angle: Sharp are unlikely since there will be multiple cone
@@ -96,7 +92,6 @@ std::vector<Vector2> getCenterline(
  * see table 3 here: https://arxiv.org/pdf/1905.05150
  */
 float calculateCost(const std::vector<PathNode>& path, std::size_t minLen);
-
 
 struct CostWeights {
     float angleMax = 0.441f;
@@ -139,7 +134,7 @@ Point getCarFront(
 
 // Modifies the triangulation of the cones visible from the car position assuming
 // a circular sector veiwing area
-std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
+std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
@@ -148,7 +143,7 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
 );
 
 
-std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulation(
+std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
   Point carFront,
   double carYaw,
   std::vector<Cone> leftConePositions,

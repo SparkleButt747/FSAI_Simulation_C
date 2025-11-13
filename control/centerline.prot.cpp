@@ -17,31 +17,11 @@ using VertexHandle=Triangulation::Vertex_handle;
 
 using namespace std;
 
-
-/*
-// Debug method, leaving this here because iterating triangulation edges is weird in CGAL
-void printEdges(Triangulation& T) {
-  for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
-        auto face_handle = it->first;
-        int edge_index = it->second;
-
-        // Get the two vertices of the edge
-        auto v1 = face_handle->vertex((edge_index + 1) % 3);
-        auto v2 = face_handle->vertex((edge_index + 2) % 3);
-
-        // Get coordinates
-        auto p1 = v1->point();
-        auto p2 = v2->point();
-
-        std::cout << "Edge: (" << p1.x() << "," << p1.y() << ") -> "
-                  << "(" << p2.x() << "," << p2.y() << ")" << '\n';
-    }
-    std::cout << std::endl;
-  }*/
-
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
-    Triangulation& T, Point carFront, std::unordered_map<Point, FsaiConeSide> coneToSide)
-{
+    Triangulation& T,
+    Point carFront,
+    std::unordered_map<Point, FsaiConeSide> coneToSide
+) {
     std::vector<PathNode> nodes;
     // map each triangulation vertex to all node-ids that touch it
     std::map<Point, std::vector<int>> vertex_to_node_ids;
@@ -161,13 +141,6 @@ double getAngle(Point a, Point b) {
   return std::acos(dot / (hypot(a.x(), a.y()) * hypot(b.x(), b.y())));
 }
 
-/* Only the getAngle with point params is used...
-// Gets the angle between two direction vectors using Vector2 as the data structure
-double getAngle(Vector2 a, Vector2 b) {
-  double dot = a.x*b.x + a.y*b.y;
-  return std::acos(dot / (hypot(a.x, a.y) * hypot(b.x, b.y)));
-}*/
-
 // Returns the front of the car as a Point and modifies the triangulation in place
 Point generateVehicleTriangulation(
   Triangulation& T,
@@ -213,8 +186,7 @@ Point getCarFront(
       return carFront;
 };
 
-
-std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
+std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
@@ -242,7 +214,7 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
     return coneToSide;
 }
 
-std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulation(
+std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
   Point carFront,
   double carYaw,
   std::vector<Cone> leftConePositions,
@@ -290,8 +262,7 @@ std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTri
 ) {
 
     Point carFront = Point(carState.position.x(), carState.position.y());
-    //auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw , leftConePositions, rightConePositions);
-    auto triangulation_pair = getVisibleTrackTriangulation(carFront, carState.yaw, leftConePositions, rightConePositions);
+    auto triangulation_pair = getVisibleTrackTriangulationFromCones(carFront, carState.yaw, leftConePositions, rightConePositions);
     auto triangulation = triangulation_pair.first;
 
 
@@ -308,19 +279,10 @@ std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTri
         auto p1 = v1->point();
         auto p2 = v2->point();
 
-        /*
-        edges.push_back({
-          {
-            static_cast<float>(p1.x()),
-            static_cast<float>(p1.y())
-          }, {
-            static_cast<float>(p2.x()),
-            static_cast<float>(p2.y())
-          }});*/
-          edges.emplace_back(
-          Vector2{ static_cast<float>(p1.x()), static_cast<float>(p1.y()) },
-          Vector2{ static_cast<float>(p2.x()), static_cast<float>(p2.y()) }
-          );
+        edges.emplace_back(
+            Vector2{ static_cast<float>(p1.x()), static_cast<float>(p1.y()) },
+            Vector2{ static_cast<float>(p2.x()), static_cast<float>(p2.y()) }
+        );
     }
 
     return {triangulation, edges};

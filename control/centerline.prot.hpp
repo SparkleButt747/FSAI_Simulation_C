@@ -73,7 +73,7 @@ Point getCarFront(
 
 // Modifies the triangulation of the cones visible from the car position assuming
 // a circular sector veiwing area
-std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
+std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
@@ -82,7 +82,7 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
 );
 
 
-std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulation(
+std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
   Point carFront,
   double carYaw,
   std::vector<Cone> leftConePositions,

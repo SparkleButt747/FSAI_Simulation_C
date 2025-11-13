@@ -54,7 +54,6 @@
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
 #include "runtime_telemetry.hpp"
-//#include "centerline.prot.hpp"
 #include "centerline.hpp"
 
 namespace {
@@ -189,6 +188,22 @@ fsai::sim::MissionDescriptor ResolveMissionSelection(
   }
 }
 
+#ifndef FSAI_PROJECT_ROOT
+#define FSAI_PROJECT_ROOT "."
+#endif
+ 
+std::filesystem::path MakeProjectRelativePath(const std::filesystem::path& path) {
+  if (path.is_absolute()) {
+    return path;
+  }
+
+  return std::filesystem::path(FSAI_PROJECT_ROOT) / path;
+}
+ 
+std::filesystem::path MakeProjectRelativePath(const std::string& path) {
+  return MakeProjectRelativePath(std::filesystem::path(path));
+}
+
 fsai::sim::MissionDefinition BuildMissionDefinition(
     const fsai::sim::MissionDescriptor& descriptor) {
   fsai::sim::MissionDefinition definition;
@@ -196,7 +211,7 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
 
   switch (descriptor.type) {
     case fsai::sim::MissionType::kAcceleration: {
-      const std::filesystem::path csv_path{"../configs/tracks/acceleration.csv"};
+      const std::filesystem::path csv_path = MakeProjectRelativePath(std::filesystem::path("configs/tracks/acceleration.csv"));
       definition.track =
           fsai::sim::TrackData::FromTrackResult(fsai::sim::LoadTrackFromCsv(csv_path));
       definition.targetLaps = 1;
@@ -205,7 +220,7 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
       break;
     }
     case fsai::sim::MissionType::kSkidpad: {
-      const std::filesystem::path csv_path{"../configs/tracks/skidpad.csv"};
+      const std::filesystem::path csv_path = MakeProjectRelativePath(std::filesystem::path("configs/tracks/skidpad.csv"));
       definition.track =
           fsai::sim::TrackData::FromTrackResult(fsai::sim::LoadTrackFromCsv(csv_path));
       definition.targetLaps = 4;
@@ -242,7 +257,7 @@ constexpr double kAckLagWarningSeconds = 0.25;
 constexpr double kBaseLatitudeDeg = 37.4275;
 constexpr double kBaseLongitudeDeg = -122.1697;
 constexpr double kMetersPerDegreeLat = 111111.0;
-constexpr const char* kDefaultSensorConfig = "../configs/sim/sensors.yaml"; // Why are we using hard coded path?
+constexpr const char* kDefaultSensorConfig = "configs/sim/sensors.yaml";
 
 template <size_t Capacity>
 class RollingBuffer {
@@ -1699,7 +1714,7 @@ int main(int argc, char* argv[]) {
                        track_source, mission_definition.targetLaps,
                        mission_definition.allowRegeneration ? "enabled" : "disabled");
 
-  SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(sensor_config_path);
+  SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(MakeProjectRelativePath(sensor_config_path).string());
   bool edge_preview_enabled = sensor_cfg.edge_preview_enabled;
   if (edge_preview_override.has_value()) {
     edge_preview_enabled = *edge_preview_override;
@@ -1781,7 +1796,8 @@ int main(int argc, char* argv[]) {
       "CAN transport not wired; pending hardware integration.");
 
   World world;
-  world.init("../configs/vehicle/configDry.yaml", mission_definition);
+  const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
+  world.init(vehicle_config_path.c_str(), mission_definition);
 
   Graphics graphics{};
   if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,

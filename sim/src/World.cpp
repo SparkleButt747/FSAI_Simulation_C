@@ -8,7 +8,6 @@
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
-//#include "centerline.prot.hpp"
 #include "centerline.hpp"
 
 namespace {
@@ -146,7 +145,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     const float carSpeed = Vector3_Magnitude(carVelocity);
 
     auto triangulation = getVisibleTriangulationEdges(vehicleState(), getLeftCones(), getRightCones()).first;
-    auto coneToSide = getVisibleTrackTriangulation(getCarFront(vehicleState()), vehicleState().yaw, getLeftCones(), getRightCones()).second;
+    auto coneToSide = getVisibleTrackTriangulationFromCones(getCarFront(vehicleState()), vehicleState().yaw, getLeftCones(), getRightCones()).second;
     auto [nodes, adj] = generateGraph(triangulation, getCarFront(vehicleState()), coneToSide);
     auto searchResult = beamSearch(adj, nodes, getCarFront(vehicleState()), 30, 2, 20);
     auto pathNodes = searchResult.first;

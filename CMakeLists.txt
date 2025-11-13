@@ -317,6 +317,7 @@ target_include_directories(fsai_run PRIVATE
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
 )
+target_compile_definitions(fsai_run PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
 if(TARGET fsai_vision_runtime)
   target_link_libraries(fsai_run PRIVATE fsai_vision_runtime)
