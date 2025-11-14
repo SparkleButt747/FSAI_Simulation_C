@@ -1,4 +1,6 @@
 #include "features.hpp"
+#include "detect.hpp"
+#include <vector>
 #include <opencv2/opencv.hpp>
 #include <opencv2/features2d.hpp>  // For SIFT and other feature detectors
 #include <opencv2/imgproc.hpp>
