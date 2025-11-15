@@ -59,7 +59,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
             left_feature.cone_index = box_index;
             left_feature.x = left_keypoints[j].pt.x; 
             left_feature.y = left_keypoints[j].pt.y; 
-            left_feature.descriptor = left_descriptors.row(j); 
+            left_feature.descriptor = left_descriptors.row(j).clone(); 
             left_features.push_back(left_feature); 
         }
         
@@ -81,7 +81,8 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         right_feature.cone_index = 0; 
         right_features.push_back(right_feature); 
         
-        y_map[right_feature.y].push_back(right_feature);  
+        int y_key = cvRound(right_feature.y);
+        y_map[y_key].push_back(right_feature);  
     }
     
     std::unordered_map<int, std::vector<Feature>> cone_map; 
@@ -98,7 +99,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
             bool key_exists = y_map.find(j) != y_map.end(); 
             if (!key_exists){continue;}
             
-            std::vector<PseudoFeature> possible_matches = y_map[j]; 
+            const auto& possible_matches = y_map[j];
             
             for (int k = 0; k < possible_matches.size(); ++k){
             	PseudoFeature possible_match = possible_matches[k]; 
@@ -117,6 +118,9 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         int y1 = left_feature_i.y; 
         int x2 = best_match.x; 
         int y2 = best_match.y; 
+        //Case no matches were found in epipolar range.
+        if (minScore == std::numeric_limits<float>::max()) continue;
+
         
         Feature tempFeature;
         tempFeature.cone_index = left_feature_i.cone_index; 
@@ -141,10 +145,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     }
     return all_cone_matches;
 }
-<<<<<<< HEAD
 
 std::vector<PseudoFeature> extract_features(const cv::Mat& frame, cv::Ptr<cv::SIFT> sift) {
     
 }
-=======
->>>>>>> origin/dev_ryan
