@@ -9,7 +9,8 @@
 
 float calculateCost(std::vector<PathNode> path)
 {
-    if(path.size() < 2) return 0.0f;
+    // discourage super-short paths
+    if(path.size() < 8) return 1e3f;
 
 
     // Tunable weights
@@ -115,6 +116,6 @@ float calculateCost(std::vector<PathNode> path)
         W_SPACING_STD * spacingStd +
         W_COLOR       * colorPenalty +
         W_RANGE_SQ    * rangeCost;
-    
+
     return cost;
 }

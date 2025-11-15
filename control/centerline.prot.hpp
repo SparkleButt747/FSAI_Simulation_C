@@ -8,8 +8,10 @@
 #include "TrackGenerator.hpp"
 #include "VehicleState.hpp"
 #include "Vector.h"
+#include "World.hpp"
 #include "Transform.h"
 #include "types.h"
+#include "centerline.hpp"
 
 #include <typeinfo>
 #include <cmath>
@@ -27,6 +29,20 @@ using Point=Triangulation::Point;
 using AllEdgeIterator=Triangulation::All_edges_iterator;
 using FiniteEdgeIterator=Triangulation::Finite_edges_iterator;
 using VertexHandle=Triangulation::Vertex_handle;
+
+// Build a PathNode graph from a visible triangulation
+std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
+    Triangulation& T,
+    CGAL::Graphics_scene& scene,
+    Point carFront
+  );
+
+// Convenience drawer for the PathNode adjacency
+void drawEdges(
+  std::map<PathNode, std::set<PathNode>>& adjacency,
+  CGAL::Graphics_scene& scene,
+  CGAL::Color color = CGAL::IO::Color(15, 15, 15)
+);
 
 // Prints CGAL edges to standard out
 void printEdges(Triangulation& T);
@@ -68,20 +84,44 @@ void getVisibleTrackTriangulation(
 Triangulation getVisibleTrackTriangulation(
   Point carFront,
   double carYaw,
-  std::vector<Vector3> leftConePositions,
-  std::vector<Vector3> rightConePositions,
+  std::vector<Cone> leftConePositions,
+  std::vector<Cone> rightConePositions,
   double sensorRange = 35.0,
   double sensorFOV = 2 * M_PI / 3
 );
 
 std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
   VehicleState carState,
-  const std::vector<Vector3>& leftConePositions,
-  const std::vector<Vector3>& rightConePositions
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions
 );
 
 void drawVisibleTriangulationEdges(
   VehicleState carState,
-  const std::vector<Vector3>& leftConePositions,
-  const std::vector<Vector3>& rightConePositions
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions
+);
+
+// NEW: draw edges for an adjacency list indexed by node id
+void drawEdges(
+  const std::vector<std::vector<int>>& adjacency,
+  const std::vector<PathNode>& nodes,
+  CGAL::Graphics_scene& scene,
+  CGAL::Color color = CGAL::IO::Color(15, 15, 15));
+
+
+// Returns a simple path (sequence of PathNode) with the lowest cost according to calculateCost.
+// Explores all simple paths up to maxLen nodes.
+std::vector<PathNode> bfsLowestCost(
+  const std::vector<std::vector<int>>& adj,
+  const std::vector<PathNode>& nodes,
+  const Point& carFront,
+  std::size_t maxLen
+);
+
+// Draw a path (by connecting PathNode midpoints).
+void drawPathMidpoints(
+  const std::vector<PathNode>& path,
+  CGAL::Graphics_scene& scene,
+  CGAL::Color color = CGAL::IO::Color(255, 100, 30)
 );

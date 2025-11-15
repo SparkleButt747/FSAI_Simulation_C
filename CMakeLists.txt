@@ -17,8 +17,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
+    set(OpenCV_DIR /opt/homebrew/lib/cmake/opencv4)
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "" FORCE)
+    set(OpenCV_DIR /usr/local/lib/cmake/opencv4)
   endif()
 endif()
 
@@ -100,7 +102,20 @@ find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(PkgConfig REQUIRED)
 find_package(SDL2 QUIET CONFIG)
 find_package(Threads REQUIRED)
+
 # onnx required by vision
+<<<<<<< HEAD
+find_package(onnxruntime QUIET CONFIG)
+if(NOT onnxruntime_FOUND)
+  find_package(ONNXRuntime QUIET CONFIG)
+endif()
+if(NOT (onnxruntime_FOUND OR ONNXRuntime_FOUND))
+  message(FATAL_ERROR
+    "onnxruntime not found. Set onnxruntime_DIR or ONNXRuntime_DIR to the folder with onnxruntimeConfig.cmake")
+endif()
+
+=======
+>>>>>>> dev-connect-vis-ctrl
 set(SDL2_IMPORTED_TARGET "")
 set(SDL2_INCLUDE_DIRS "")
 if(TARGET SDL2::SDL2)
@@ -170,10 +185,10 @@ list(REMOVE_DUPLICATES HEADER_DIRS)
 # This line MUST be active
 add_subdirectory(vision_test/runtime_cpp/src)
 target_include_directories(fsai_vision_runtime PUBLIC
-    
+
     # This path lets fsai_run find "vision/edge_preview.hpp"
-    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include" 
-    
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+
     # This path lets fsai_run find "common/include/common/types.h"
     "${CMAKE_SOURCE_DIR}"
 
@@ -201,7 +216,7 @@ target_include_directories(fsai_vision_runtime PUBLIC
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src"
 
     # Path for "vision/edge_preview.hpp"
-    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src" 
+    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
 
     # Path for "common/include/common/types.h"
     "${CMAKE_SOURCE_DIR}"
@@ -234,7 +249,7 @@ list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/.git/.*")
 
 
 # Drop everything under vision/
-# Re-introduce vision 
+# Re-introduce vision
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision_test/.*")

@@ -1,6 +1,4 @@
 #include "features.hpp"
-#include "detect.hpp"
-#include <vector>
 #include <opencv2/opencv.hpp>
 #include <opencv2/features2d.hpp>  // For SIFT and other feature detectors
 #include <opencv2/imgproc.hpp>
@@ -129,11 +127,9 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     }
     
     for (const auto& pair: cone_map){
-        ConeMatches tempConeMatch;
-        
-        int cone_index = pair.first;  
+        ConeMatches tempConeMatch; 
     
-        tempConeMatch.cone_index = cone_index; 
+        tempConeMatch.cone_index = pair.first; 
         tempConeMatch.bound = box_bounds[cone_index];
         tempConeMatch.matches = pair.second; 
         
@@ -141,10 +137,3 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     }
     return all_cone_matches;
 }
-<<<<<<< HEAD
-
-std::vector<PseudoFeature> extract_features(const cv::Mat& frame, cv::Ptr<cv::SIFT> sift) {
-    
-}
-=======
->>>>>>> origin/dev_ryan
