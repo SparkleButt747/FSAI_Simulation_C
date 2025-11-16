@@ -81,6 +81,48 @@ tools/scripts/run_sim_with_svcu.sh
 
 The script prints the process IDs and then launches the GUI-enabled simulator.
 
+## Mission selection and configuration
+
+When `fsai_run` starts without a mission override it checks whether standard
+input is interactive. If it can prompt the user, a numbered mission menu is
+printed; otherwise the simulator defaults to **Autocross** (option 3 in the
+list).【F:sim/app/fsai_run.cpp†L148-L171】 Enter either the displayed number or
+one of the mission tokens (for example `accel`, `skid`, `auto`, or `track`) to
+choose a mission.【F:sim/app/fsai_run.cpp†L62-L124】 Pressing enter without
+typing anything accepts the highlighted default.【F:sim/app/fsai_run.cpp†L172-L189】
+
+To bypass the prompt pass `--mission <value>` on the command line. The flag
+accepts the same numbers and tokens that the interactive prompt lists; invalid
+values cause the simulator to exit with an error message.【F:sim/app/fsai_run.cpp†L1236-L1263】
+
+Acceleration and skidpad missions load their cone layouts from
+`configs/tracks/acceleration.csv` and `configs/tracks/skidpad.csv`
+respectively.【F:sim/app/fsai_run.cpp†L200-L217】 The CSV schema and guidelines
+for creating custom layouts live in `configs/tracks/README.md`.
+
+## Mission lifecycle overview
+
+Mission timing and stopping behaviour are coordinated by
+`MissionRuntimeState` and `World`:
+
+- **Acceleration** – one timed lap on the straight-line CSV track. Mission
+  time advances until the checkpoint at the far end is crossed, then the
+  simulator commands a full brake application to stop the car.【F:sim/app/fsai_run.cpp†L200-L206】【F:sim/src/MissionRuntimeState.cpp†L18-L70】【F:sim/src/World.cpp†L320-L336】
+- **Skidpad** – four laps total: one warmup, two timed laps, and one exit lap.
+  The layout is a simplified single-loop CSV that does not yet model separate
+  clockwise/counter-clockwise circles. After the exit lap the stop command is
+  issued in the same way as the other missions.【F:sim/app/fsai_run.cpp†L206-L214】【F:sim/src/MissionRuntimeState.cpp†L71-L116】【F:configs/tracks/skidpad.csv†L1-L40】【F:sim/src/World.cpp†L320-L336】
+- **Autocross** – one timed lap on a procedurally generated random track. If
+  cone collisions occur and the mission allows regeneration, resetting the
+  simulation produces a fresh layout.【F:sim/app/fsai_run.cpp†L214-L222】【F:sim/src/MissionRuntimeState.cpp†L71-L116】【F:sim/src/World.cpp†L338-L376】
+- **Trackdrive** – ten timed laps on a random track with the same regeneration
+  logic as Autocross.【F:sim/app/fsai_run.cpp†L218-L222】【F:sim/src/MissionRuntimeState.cpp†L71-L116】【F:sim/src/World.cpp†L338-L376】
+
+`World::handleMissionCompletion()` zeros the throttle, applies full brake, and
+marks that the stop command was sent so the simulator does not repeatedly log
+the message.【F:sim/src/World.cpp†L320-L336】 This behaviour applies to every
+mission once the configured lap segments are complete.【F:sim/src/MissionRuntimeState.cpp†L41-L70】
+
 ## Building BoundaryEstimation.cpp
 
 1. Make sure you have installed `cgal` and `qt6`.

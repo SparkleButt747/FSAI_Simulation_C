@@ -87,8 +87,10 @@ bool decode_ai2vcu_status(const can_frame& frame, Ai2VcuStatus& out) {
   std::memset(&out, 0, sizeof(out));
   out.handshake = read_bits_le(frame.data, 0, 1) != 0;
   out.estop_request = read_bits_le(frame.data, 8, 1) != 0;
+  out.mission_complete = read_bits_le(frame.data, 9, 1) != 0;
   out.mission_status = static_cast<MissionStatus>(read_bits_le(frame.data, 12, 2));
   out.direction_request = static_cast<DirectionRequest>(read_bits_le(frame.data, 14, 2));
+  out.mission_id = static_cast<uint8_t>(read_bits_le(frame.data, 20, 4));
   out.lap_counter = static_cast<uint8_t>(read_bits_le(frame.data, 16, 4));
   out.cones_count_actual = static_cast<uint8_t>(read_bits_le(frame.data, 24, 8));
   out.cones_count_all = static_cast<uint16_t>(read_bits_le(frame.data, 32, 16));
@@ -250,9 +252,11 @@ can_frame encode_ai2vcu_status(const Ai2VcuStatus& status) {
 
   write_bits_le(frame.data, 0, 1, status.handshake ? 1u : 0u);
   write_bits_le(frame.data, 8, 1, status.estop_request ? 1u : 0u);
+  write_bits_le(frame.data, 9, 1, status.mission_complete ? 1u : 0u);
   write_bits_le(frame.data, 12, 2, static_cast<uint32_t>(status.mission_status));
   write_bits_le(frame.data, 14, 2, static_cast<uint32_t>(status.direction_request));
   write_bits_le(frame.data, 16, 4, status.lap_counter);
+  write_bits_le(frame.data, 20, 4, clamp<uint32_t>(status.mission_id, 0u, 15u));
   write_bits_le(frame.data, 24, 8, status.cones_count_actual);
   write_bits_le(frame.data, 32, 16, status.cones_count_all);
   write_bits_le(frame.data, 48, 8, pack_u8(status.veh_speed_actual_kph, 1.0, 0.0, 255.0));

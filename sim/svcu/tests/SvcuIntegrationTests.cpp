@@ -274,6 +274,9 @@ fsai::control::runtime::Ai2VcuAdapter::AdapterTelemetry MakeTelemetry(float spee
   fsai::control::runtime::Ai2VcuAdapter::AdapterTelemetry telemetry{};
   telemetry.measured_speed_mps = speed_mps;
   telemetry.lap_counter = lap_counter;
+  telemetry.mission_selected = true;
+  telemetry.mission_running = true;
+  telemetry.mission_finished = false;
   return telemetry;
 }
 
@@ -305,6 +308,73 @@ fsai::control::runtime::Ai2VcuAdapterConfig BuildAdapterConfig(const VehiclePara
   cfg.brake_rear_bias = std::clamp(1.0f - front_bias, 0.0f, 1.0f);
   cfg.max_speed_kph = static_cast<float>(params.input_ranges.vel.max * 3.6);
   return cfg;
+}
+
+bool TestMissionStatusPackaging() {
+  const std::filesystem::path repo_root = std::filesystem::path(FSAI_PROJECT_ROOT);
+  const auto vehicle_config = repo_root / "configs" / "vehicle" / "configDry.yaml";
+
+  VehicleParam params;
+  try {
+    params = LoadVehicleParam(vehicle_config);
+  } catch (...) {
+    return Fail("mission status packaging vehicle load failed");
+  }
+
+  auto cfg = BuildAdapterConfig(params);
+  cfg.mission_descriptor = fsai::sim::MissionDescriptor{};
+  cfg.mission_descriptor->type = fsai::sim::MissionType::kTrackdrive;
+  cfg.mission_descriptor->name = "Trackdrive";
+  cfg.mission_descriptor->short_name = "track";
+
+  fsai::control::runtime::Ai2VcuAdapter adapter(cfg);
+
+  fsai::types::ControlCmd cmd{};
+  cmd.t_ns = NowNs();
+  auto ready_status = MakeStatus(fsai::sim::svcu::dbc::AsState::kReady, false);
+
+  fsai::control::runtime::Ai2VcuAdapter::AdapterTelemetry telemetry{};
+  telemetry.mission_selected = true;
+  telemetry.mission_running = false;
+  telemetry.mission_finished = false;
+  telemetry.mission_laps_target = 3;
+  telemetry.mission_laps_completed = 0;
+
+  auto selected = adapter.Adapt(cmd, ready_status, telemetry);
+  if (selected.status.mission_status != fsai::sim::svcu::dbc::MissionStatus::kSelected) {
+    return Fail("mission status did not enter selected state");
+  }
+  if (selected.status.mission_id == 0) {
+    return Fail("mission id missing in selected state");
+  }
+  if (selected.status.mission_complete) {
+    return Fail("mission complete flagged during selection");
+  }
+
+  telemetry.mission_running = true;
+  auto running = adapter.Adapt(cmd, MakeStatus(fsai::sim::svcu::dbc::AsState::kDriving), telemetry);
+  if (running.status.mission_status != fsai::sim::svcu::dbc::MissionStatus::kRunning) {
+    return Fail("mission status did not enter running state");
+  }
+  if (running.status.direction_request != fsai::sim::svcu::dbc::DirectionRequest::kForward) {
+    return Fail("direction request not forward while running");
+  }
+
+  telemetry.mission_running = false;
+  telemetry.mission_finished = true;
+  telemetry.mission_laps_completed = 3;
+  auto finished = adapter.Adapt(cmd, MakeStatus(fsai::sim::svcu::dbc::AsState::kDriving), telemetry);
+  if (finished.status.mission_status != fsai::sim::svcu::dbc::MissionStatus::kFinished) {
+    return Fail("mission status did not enter finished state");
+  }
+  if (!finished.status.mission_complete) {
+    return Fail("mission complete flag missing");
+  }
+  if (finished.status.direction_request != fsai::sim::svcu::dbc::DirectionRequest::kNeutral) {
+    return Fail("direction request not neutral after finish");
+  }
+
+  return true;
 }
 
 bool TestMessageRatesAndSaturation() {
@@ -736,6 +806,9 @@ bool TestWatchdogTransitions() {
 }  // namespace
 
 int main() {
+  if (!TestMissionStatusPackaging()) {
+    return 1;
+  }
   if (!TestMessageRatesAndSaturation()) {
     return 1;
   }
