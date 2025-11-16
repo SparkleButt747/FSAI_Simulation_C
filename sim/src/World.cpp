@@ -1,3 +1,4 @@
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -415,9 +416,12 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
             boundarySegments_.push_back(makeSegment(last, first, config.vehicleCollisionRadius));
         }
     };
+    bool isSkidpad = (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad);
 
-    appendBoundarySegments(leftCones);
-    appendBoundarySegments(rightCones);
+    if (!isSkidpad) {
+        appendBoundarySegments(leftCones);
+        appendBoundarySegments(rightCones);
+    }
 
     if (!track.checkpoints.empty()) {
         lastCheckpoint = transformToVector3(track.checkpoints.back());
@@ -629,4 +633,3 @@ void World::reset() {
     const float initDist = std::sqrt(initDx * initDx + initDz * initDz);
     insideLastCheckpoint_ = initDist < config.lapCompletionThreshold;
 }
-
