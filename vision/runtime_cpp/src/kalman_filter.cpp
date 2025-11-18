@@ -60,7 +60,7 @@ namespace fsai::vision
 		Kalman_filter::Vec4 Kalman_filter::state() const
 		{
 			return x_;
-	j}
+		}
 		Kalman_filter::Mat4 Kalman_filter::covariance() const
 		{
 			return P_;
