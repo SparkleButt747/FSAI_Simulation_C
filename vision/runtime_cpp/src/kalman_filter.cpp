@@ -25,7 +25,8 @@ namespace fsai::vision
 			R_ *=0.05;
 
 			P_.setIdentity();
-			P_*=1.0;
+			P_.block<2,2>(0,0) *= 0.05;
+			P_.block<2,2>(2,2) *= 1e6;
 
 			x_.setZero();
 		}
