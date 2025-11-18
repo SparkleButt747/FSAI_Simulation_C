@@ -30,6 +30,8 @@ VisionNode::VisionNode(){
     std::cout << "VisionNode: Initialisation ..." << std::endl;
     camera_ = std::make_unique<fsai::vision::SimCamera>();
     detector_ = std::make_unique<fsai::vision::ConeDetector>(PATH_TO_MODEL);
+    constexpr size_t DETECTION_BUFFER_CAPACITY = 10; // Choose a suitable size
+    detection_buffer_ = std::make_unique<DetectionsRingBuffer>(DETECTION_BUFFER_CAPACITY);
     std::cout << "VisionNode: Initialisation complete" << std::endl;
 }
 
@@ -178,7 +180,6 @@ void VisionNode::runProcessingLoop(){
             latest_renderable_frame_.valid = true;
         }
 
-        // 2. Loop through the vector and copy into the C-style array
         // 2. Feature matching
         auto t3 = std::chrono::high_resolution_clock::now();
         std::vector<ConeMatches> matched_features = match_features_per_cone(left_mat,right_mat,detections);
@@ -255,10 +256,7 @@ void VisionNode::runProcessingLoop(){
             "Match: " + std::to_string(ms_match) + " | " +
             "Post: " + std::to_string(ms_rest)
         );
-        {
-            std::lock_guard<std::mutex> lock(detection_mutex_);
-            latest_detections_ = new_detections;
-        }
+        detection_buffer_->push(new_detections);
     }
 }
 }

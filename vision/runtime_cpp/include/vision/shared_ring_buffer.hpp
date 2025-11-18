@@ -9,7 +9,7 @@
 #include <vector>
 #include <stdexcept>
 
-namespace fsai::common {
+namespace fsai::vision {
 
 template <typename T>
 class GenericRingBuffer{

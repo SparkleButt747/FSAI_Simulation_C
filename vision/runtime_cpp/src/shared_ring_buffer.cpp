@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <utility> // for std::move
 
-namespace fsai::common {
+namespace fsai::vision {
 
 template <typename T>
 class GenericRingBuffer {

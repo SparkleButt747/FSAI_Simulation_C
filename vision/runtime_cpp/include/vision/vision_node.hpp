@@ -96,6 +96,10 @@ class VisionNode{
     std::mutex render_mutex_;
     RenderableFrame latest_renderable_frame_;
 
+    //Add ring buffer type 
+    using DetectionsRingBuffer = fsai::vision::GenericRingBuffer<fsai::types::Detections>;
+    std::unique_ptr<DetectionsRingBuffer> detection_buffer_;
+
 
 };
 }
