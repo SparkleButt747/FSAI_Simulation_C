@@ -15,7 +15,7 @@
 #include "centroid.hpp"
 
 #include "common/include/common/types.h"
-#include "logging.hpp"
+#include "sim/include/logging.hpp"
 #include <iostream>
 #include <chrono>
 
