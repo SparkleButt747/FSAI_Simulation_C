@@ -1,4 +1,3 @@
-//#include "centerline.prot.hpp"
 #include "centerline.hpp"
 
 #include <SDL.h>
@@ -19,185 +18,174 @@
 #include <vector>
 
 namespace {
+    struct Bounds {
+        float minX = std::numeric_limits<float>::infinity();
+        float maxX = -std::numeric_limits<float>::infinity();
+        float minY = std::numeric_limits<float>::infinity();
+        float maxY = -std::numeric_limits<float>::infinity();
 
-struct Bounds {
-    float minX = std::numeric_limits<float>::infinity();
-    float maxX = -std::numeric_limits<float>::infinity();
-    float minY = std::numeric_limits<float>::infinity();
-    float maxY = -std::numeric_limits<float>::infinity();
+        void expand(float x, float y) {
+            if (!std::isfinite(x) || !std::isfinite(y)) {
+                return;
+            }
+            minX = std::min(minX, x);
+            maxX = std::max(maxX, x);
+            minY = std::min(minY, y);
+            maxY = std::max(maxY, y);
+        }
 
-    void expand(float x, float y)
-    {
-        if (!std::isfinite(x) || !std::isfinite(y)) {
+        [[nodiscard]] bool valid() const {
+            return minX <= maxX && minY <= maxY;
+        }
+    };
+
+    Bounds computeTrackBounds(
+        const TrackResult& track,
+        const std::vector<PathNode>& nodes,
+        const Point& carFront
+    ) {
+        Bounds bounds;
+
+        bounds.expand(static_cast<float>(carFront.x()), static_cast<float>(carFront.y()));
+
+        for (const auto& cone : track.leftCones) {
+            bounds.expand(cone.position.x, cone.position.z);
+        }
+        for (const auto& cone : track.rightCones) {
+            bounds.expand(cone.position.x, cone.position.z);
+        }
+        for (const auto& cone : track.startCones) {
+            bounds.expand(cone.position.x, cone.position.z);
+        }
+        for (const auto& node : nodes) {
+            bounds.expand(node.midpoint.x, node.midpoint.y);
+        }
+
+        if (!bounds.valid()) {
+            bounds.expand(-10.0f, -10.0f);
+            bounds.expand(10.0f, 10.0f);
+        }
+
+        return bounds;
+    }
+
+    Bounds extendBoundsWithPath(Bounds base, const std::vector<PathNode>& path) {
+        for (const auto& node : path) {
+            base.expand(node.midpoint.x, node.midpoint.y);
+        }
+
+        return base;
+    }
+
+    SDL_FPoint worldToScreen(
+        const Bounds& bounds,
+        float worldX,
+        float worldY,
+        int width,
+        int height,
+        float margin
+    ) {
+        const float spanX = std::max(1e-3f, bounds.maxX - bounds.minX);
+        const float spanY = std::max(1e-3f, bounds.maxY - bounds.minY);
+
+        float availableWidth = static_cast<float>(width) - 2.0f * margin;
+        float availableHeight = static_cast<float>(height) - 2.0f * margin;
+        if (availableWidth <= 0.0f) {
+            availableWidth = 1.0f;
+        }
+        if (availableHeight <= 0.0f) {
+            availableHeight = 1.0f;
+        }
+
+        const float scale = std::min(availableWidth / spanX, availableHeight / spanY);
+        const float offsetX = margin + 0.5f * (availableWidth - scale * spanX);
+        const float offsetY = margin + 0.5f * (availableHeight - scale * spanY);
+
+        const float screenX = offsetX + (worldX - bounds.minX) * scale;
+        const float screenY = offsetY + (bounds.maxY - worldY) * scale;
+
+        return SDL_FPoint{screenX, screenY};
+    }
+
+    void drawConeSet(
+        SDL_Renderer* renderer,
+        const std::vector<Transform>& cones,
+        SDL_Color color,
+        const Bounds& bounds,
+        int width,
+        int height,
+        float margin,
+        float markerSize
+    ) {
+        SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+        for (const auto& cone : cones) {
+            const SDL_FPoint p = worldToScreen(bounds, cone.position.x, cone.position.z, width, height, margin);
+            const SDL_FRect rect{p.x - markerSize * 0.5f, p.y - markerSize * 0.5f, markerSize, markerSize};
+            SDL_RenderFillRectF(renderer, &rect);
+        }
+    }
+
+    void drawPath(
+        SDL_Renderer* renderer,
+        const std::vector<PathNode>& path,
+        SDL_Color color,
+        const Bounds& bounds,
+        int width,
+        int height,
+        float margin
+    ) {
+        if (path.size() < 2) {
             return;
         }
-        minX = std::min(minX, x);
-        maxX = std::max(maxX, x);
-        minY = std::min(minY, y);
-        maxY = std::max(maxY, y);
+
+        std::vector<SDL_FPoint> points;
+        points.reserve(path.size());
+        for (const auto& node : path) {
+            points.push_back(worldToScreen(bounds, node.midpoint.x, node.midpoint.y, width, height, margin));
+        }
+
+        SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+        for (std::size_t i = 1; i < points.size(); ++i) {
+            SDL_RenderDrawLineF(renderer, points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
+        }
+
+        const float markerSize = 4.0f;
+        for (const SDL_FPoint& p : points) {
+            const SDL_FRect rect{p.x - markerSize * 0.5f, p.y - markerSize * 0.5f, markerSize, markerSize};
+            SDL_RenderFillRectF(renderer, &rect);
+        }
     }
 
-    [[nodiscard]] bool valid() const
-    {
-        return minX <= maxX && minY <= maxY;
+    void drawCarFront(
+        SDL_Renderer* renderer,
+        const Point& carFront,
+        const Bounds& bounds,
+        int width,
+        int height,
+        float margin
+    ) {
+        const SDL_FPoint p = worldToScreen(bounds, static_cast<float>(carFront.x()), static_cast<float>(carFront.y()), width, height, margin);
+        SDL_SetRenderDrawColor(renderer, 220, 70, 70, 255);
+        const float halfSize = 6.0f;
+        SDL_RenderDrawLineF(renderer, p.x - halfSize, p.y, p.x + halfSize, p.y);
+        SDL_RenderDrawLineF(renderer, p.x, p.y - halfSize, p.x, p.y + halfSize);
     }
-};
-
-Bounds computeTrackBounds(
-    const TrackResult& track,
-    const std::vector<PathNode>& nodes,
-    const Point& carFront)
-{
-    Bounds bounds;
-
-    bounds.expand(static_cast<float>(carFront.x()), static_cast<float>(carFront.y()));
-
-    for (const auto& cone : track.leftCones) {
-        bounds.expand(cone.position.x, cone.position.z);
-    }
-    for (const auto& cone : track.rightCones) {
-        bounds.expand(cone.position.x, cone.position.z);
-    }
-    for (const auto& cone : track.startCones) {
-        bounds.expand(cone.position.x, cone.position.z);
-    }
-    for (const auto& node : nodes) {
-        bounds.expand(node.midpoint.x, node.midpoint.y);
-    }
-
-    if (!bounds.valid()) {
-        bounds.expand(-10.0f, -10.0f);
-        bounds.expand(10.0f, 10.0f);
-    }
-
-    return bounds;
-}
-
-Bounds extendBoundsWithPath(Bounds base, const std::vector<PathNode>& path)
-{
-    for (const auto& node : path) {
-        base.expand(node.midpoint.x, node.midpoint.y);
-    }
-    return base;
-}
-
-SDL_FPoint worldToScreen(
-    const Bounds& bounds,
-    float worldX,
-    float worldY,
-    int width,
-    int height,
-    float margin)
-{
-    const float spanX = std::max(1e-3f, bounds.maxX - bounds.minX);
-    const float spanY = std::max(1e-3f, bounds.maxY - bounds.minY);
-
-    float availableWidth = static_cast<float>(width) - 2.0f * margin;
-    float availableHeight = static_cast<float>(height) - 2.0f * margin;
-    if (availableWidth <= 0.0f) {
-        availableWidth = 1.0f;
-    }
-    if (availableHeight <= 0.0f) {
-        availableHeight = 1.0f;
-    }
-
-    const float scale = std::min(availableWidth / spanX, availableHeight / spanY);
-    const float offsetX = margin + 0.5f * (availableWidth - scale * spanX);
-    const float offsetY = margin + 0.5f * (availableHeight - scale * spanY);
-
-    const float screenX = offsetX + (worldX - bounds.minX) * scale;
-    const float screenY = offsetY + (bounds.maxY - worldY) * scale;
-
-    return SDL_FPoint{screenX, screenY};
-}
-
-void drawConeSet(
-    SDL_Renderer* renderer,
-    const std::vector<Transform>& cones,
-    SDL_Color color,
-    const Bounds& bounds,
-    int width,
-    int height,
-    float margin,
-    float markerSize)
-{
-    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
-    for (const auto& cone : cones) {
-        const SDL_FPoint p = worldToScreen(bounds, cone.position.x, cone.position.z, width, height, margin);
-        const SDL_FRect rect{p.x - markerSize * 0.5f, p.y - markerSize * 0.5f, markerSize, markerSize};
-        SDL_RenderFillRectF(renderer, &rect);
-    }
-}
-
-void drawPath(
-    SDL_Renderer* renderer,
-    const std::vector<PathNode>& path,
-    SDL_Color color,
-    const Bounds& bounds,
-    int width,
-    int height,
-    float margin)
-{
-    if (path.size() < 2) {
-        return;
-    }
-
-    std::vector<SDL_FPoint> points;
-    points.reserve(path.size());
-    for (const auto& node : path) {
-        points.push_back(worldToScreen(bounds, node.midpoint.x, node.midpoint.y, width, height, margin));
-    }
-
-    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
-    for (std::size_t i = 1; i < points.size(); ++i) {
-        SDL_RenderDrawLineF(renderer, points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
-    }
-
-    const float markerSize = 4.0f;
-    for (const SDL_FPoint& p : points) {
-        const SDL_FRect rect{p.x - markerSize * 0.5f, p.y - markerSize * 0.5f, markerSize, markerSize};
-        SDL_RenderFillRectF(renderer, &rect);
-    }
-}
-
-void drawCarFront(
-    SDL_Renderer* renderer,
-    const Point& carFront,
-    const Bounds& bounds,
-    int width,
-    int height,
-    float margin)
-{
-    const SDL_FPoint p = worldToScreen(bounds, static_cast<float>(carFront.x()), static_cast<float>(carFront.y()), width, height, margin);
-    SDL_SetRenderDrawColor(renderer, 220, 70, 70, 255);
-    const float halfSize = 6.0f;
-    SDL_RenderDrawLineF(renderer, p.x - halfSize, p.y, p.x + halfSize, p.y);
-    SDL_RenderDrawLineF(renderer, p.x, p.y - halfSize, p.x, p.y + halfSize);
-}
-
 }  // namespace
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
     using Clock = std::chrono::high_resolution_clock;
 
     // Optional seed random number generator.
     if (argc > 1) {
         srand(atoi(argv[1]));
         std::cout << "Seed from cmd args: " << argv[1] << '\n';
-        srand(atoi(argv[1]));
-        std::cout << "Seed from cmd args: " << argv[1] << '\n';
     } else {
-        unsigned seed = static_cast<unsigned>(time(nullptr));
-        std::cout << "Seed: " << seed << '\n';
-        srand(seed);
         unsigned seed = static_cast<unsigned>(time(nullptr));
         std::cout << "Seed: " << seed << '\n';
         srand(seed);
     }
 
     PathConfig pathConfig = PathConfig(5);
-    const int nPoints = pathConfig.resolution;
     const int nPoints = pathConfig.resolution;
     PathGenerator pathGen(pathConfig);
     PathResult path = pathGen.generatePath(nPoints);
@@ -212,24 +200,16 @@ int main(int argc, char* argv[])
     auto t1 = Clock::now();
     for (const auto& cone : track.leftCones) {
         T.insert(Point(cone.position.x, cone.position.z));
-    auto t1 = Clock::now();
-    for (const auto& cone : track.leftCones) {
-        T.insert(Point(cone.position.x, cone.position.z));
     }
     for (const auto& cone : track.rightCones) {
         T.insert(Point(cone.position.x, cone.position.z));
-    for (const auto& cone : track.rightCones) {
-        T.insert(Point(cone.position.x, cone.position.z));
     }
-    auto t2 = Clock::now();
-    const std::chrono::duration<double, std::milli> insertTime = t2 - t1;
-    std::cout << "Triangulation insert: " << insertTime.count() << "ms\n";
     auto t2 = Clock::now();
     const std::chrono::duration<double, std::milli> insertTime = t2 - t1;
     std::cout << "Triangulation insert: " << insertTime.count() << "ms\n";
 
     Triangulation visibleT;
-    auto coneToSide = getVisibleTrackTriangulation(visibleT, carFront, track);
+    auto coneToSide = getVisibleTrackTriangulationFromTrack(visibleT, carFront, track);
 
     auto [nodes, adjacency] = generateGraph(visibleT, carFront, coneToSide);
 

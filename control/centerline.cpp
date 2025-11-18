@@ -2,7 +2,6 @@
 #include "utils.h"
 #include "types.h"
 
-
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -20,27 +19,21 @@ using VertexHandle=Triangulation::Vertex_handle;
 using namespace std;
 
 namespace {
-
-CostWeights& costWeightsStorage()
-{
-    static CostWeights weights{};
-    return weights;
+    CostWeights& costWeightsStorage(){
+        static CostWeights weights{};
+        return weights;
+    }
 }
 
-}
-
-CostWeights defaultCostWeights()
-{
+CostWeights defaultCostWeights() {
     return CostWeights{};
 }
 
-CostWeights getCostWeights()
-{
+CostWeights getCostWeights() {
     return costWeightsStorage();
 }
 
-void setCostWeights(const CostWeights& weights)
-{
+void setCostWeights(const CostWeights& weights) {
     auto& storage = costWeightsStorage();
     storage.angleMax   = std::max(0.0f, weights.angleMax);
     storage.widthStd   = std::max(0.0f, weights.widthStd);
@@ -49,35 +42,28 @@ void setCostWeights(const CostWeights& weights)
     storage.rangeSq    = std::max(0.0f, weights.rangeSq);
 }
 
-
 namespace {
-
-float clampAngle(float angle)
-{
-    while (angle > static_cast<float>(M_PI)) {
-        angle -= 2.0f * static_cast<float>(M_PI);
+    float clampAngle(float angle){
+        while (angle > static_cast<float>(M_PI)) {
+            angle -= 2.0f * static_cast<float>(M_PI);
+        }
+        while (angle < -static_cast<float>(M_PI)) {
+            angle += 2.0f * static_cast<float>(M_PI);
+        }
+        return angle;
     }
-    while (angle < -static_cast<float>(M_PI)) {
-        angle += 2.0f * static_cast<float>(M_PI);
-    }
-    return angle;
 }
 
-}  // namespace
-
-float calculateCost(const std::vector<PathNode>& path, std::size_t minLen)
-{
+float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
     if (path.size() < minLen) {
         return std::numeric_limits<float>::infinity();
     }
-
 
     // Tunable weights
     const CostWeights weights = getCostWeights();
 
     constexpr float SENSOR_RANGE  = 20.0f;    // meters
     constexpr float NOMINAL_TRACK_WIDTH = 3.5f;  // see FS Driverless rules / AMZ Driverless
-
 
     // 1) Curvature and smoothness (AMZ Driverless Section 4.3.1 / Table 3)
     float maxTurn = 0.0f;
@@ -87,24 +73,6 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen)
     std::vector<float> headings;
     headings.reserve(path.size() - 1);
 
-    for (std::size_t i = 1; i < path.size(); ++i) {
-        const auto& prev = path[i - 1].midpoint;
-        const auto& next = path[i].midpoint;
-        const float dx = next.x - prev.x;
-        const float dy = next.y - prev.y;
-        if (dx == 0.0f && dy == 0.0f) {
-            headings.push_back(headings.empty() ? 0.0f : headings.back());
-            continue;
-        }
-        float heading = std::atan2(dy, dx);
-        if (!headings.empty()) {
-            heading = clampAngle(headings.back() + clampAngle(heading - headings.back()));
-        }
-        headings.push_back(heading);
-    }
-
-    for (std::size_t i = 1; i + 1 < path.size(); ++i) {
-        float ang = angleBetween(path[i - 1].midpoint, path[i].midpoint, path[i + 1].midpoint);
     for (std::size_t i = 1; i < path.size(); ++i) {
         const auto& prev = path[i - 1].midpoint;
         const auto& next = path[i].midpoint;
@@ -139,24 +107,8 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen)
     if (turnSamples > 0) {
         const float rmsTurn = std::sqrt(turnAccumSq / static_cast<float>(turnSamples));
         curvatureScore = 0.6f * maxTurn + 0.4f * rmsTurn;
-        turn = std::max(0.0f, turn);
-        maxTurn = std::max(maxTurn, turn);
-        turnAccumSq += turn * turn;
-        ++turnSamples;
-    }
-
-    float headingStd = 0.0f;
-    if (headings.size() >= 2) {
-        headingStd = stdev(headings);
-    }
-
-    float curvatureScore = 0.0f;
-    if (turnSamples > 0) {
-        const float rmsTurn = std::sqrt(turnAccumSq / static_cast<float>(turnSamples));
-        curvatureScore = 0.6f * maxTurn + 0.4f * rmsTurn;
     }
     curvatureScore += 0.25f * headingStd;
-
 
     // 2) Standard deviation of track width
     std::vector<float> widths;
@@ -173,7 +125,6 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen)
     }
     const float widthMeanDeviation = std::abs(widthMean - NOMINAL_TRACK_WIDTH);
     const float widthScore = 0.7f * widthStd + 0.3f * widthMeanDeviation;
-
 
     // 3) Std dev of distances between consecutive left cones and consecutive right cones
     std::vector<float> leftSpacing, rightSpacing;
@@ -199,21 +150,16 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen)
     const float spacingAsymmetry = std::abs(leftMean - rightMean);
     const float spacingScore = spacingStd + 0.2f * spacingAsymmetry;
 
-
     // 4) Color penalty, 0 if any color info missing, else 1 per mismatch
     int sameSide=0;
     int considered=0;
-    int sameSide=0;
-    int considered=0;
 
-    for (const auto& n : path)
-    {
+    for (const auto& n : path) {
         const auto a=n.first.side;
         const auto b=n.second.side;
 
         if(a==FSAI_CONE_UNKNOWN || b==FSAI_CONE_UNKNOWN)
         {
-            continue;
             continue;
         }
 
@@ -221,15 +167,13 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen)
                                 (a==FSAI_CONE_RIGHT && b==FSAI_CONE_LEFT);
 
         considered++;
-        if(!opposite) 
-        {
+        if(!opposite) {
             sameSide++;
         }
     }
 
     float colorPenalty = 0.0f;
-    if(considered>0) 
-    {
+    if(considered>0) {
         colorPenalty = static_cast<float>(sameSide)/static_cast<float>(considered);
     }
 
@@ -252,22 +196,8 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen)
         rangeCost += shortfall * shortfall;
     }
 
-    if (path.size() < 4)
-    {
-        // Encourage the beam search to keep extending short candidates.
-        const float minUsefulLength = 0.5f * SENSOR_RANGE;
-        const float shortfall = std::max(0.0f, minUsefulLength - pathLen);
-        rangeCost += shortfall * shortfall;
-    }
-
     // Weighted sum
     const float cost =
-        weights.angleMax   * curvatureScore +
-        weights.widthStd   * widthScore +
-        weights.spacingStd * spacingScore +
-        weights.color      * colorPenalty +
-        weights.rangeSq    * rangeCost;
-
         weights.angleMax   * curvatureScore +
         weights.widthStd   * widthScore +
         weights.spacingStd * spacingScore +
@@ -278,15 +208,16 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen)
 }
 
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
-    Triangulation& T, Point carFront, std::unordered_map<Point, FsaiConeSide> coneToSide)
-{
+    Triangulation& T,
+    Point carFront,
+    std::unordered_map<Point, FsaiConeSide> coneToSide
+) {
     std::vector<PathNode> nodes;
     // map each triangulation vertex to all node-ids that touch it
     std::map<Point, std::vector<int>> vertex_to_node_ids;
 
     // create a node for every triangulation edge we consider “drivable”
-    for(auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it)
-    {
+    for(auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
         auto seg = T.segment(*it);
         Point p1 = seg.source();
         Point p2 = seg.target();
@@ -306,7 +237,9 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         auto it2 = coneToSide.find(p2);
         d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
 
-        if (d1.side == d2.side) continue;
+        if (d1.side == d2.side) {
+            continue;
+        }
 
         node.first  = d1;
         node.second = d2;
@@ -319,31 +252,28 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
 
     // build index-based adjacency
     std::vector<std::vector<int>> adj(nodes.size());
-    for (auto& kv : vertex_to_node_ids)
-    {
+    for (auto& kv : vertex_to_node_ids) {
         auto& ids = kv.second;
-        for (size_t i = 0; i < ids.size(); ++i)
-            for (size_t j = i + 1; j < ids.size(); ++j)
-            {
+        for (size_t i = 0; i < ids.size(); ++i){
+            for (size_t j = i + 1; j < ids.size(); ++j) {
                 adj[ids[i]].push_back(ids[j]);
                 adj[ids[j]].push_back(ids[i]);
             }
+        }
     }
 
     // pick start by nearest midpoint to carFront; draw its segment in red
     int start_id = 0;
     double best = std::numeric_limits<double>::infinity();
-    for (auto& n : nodes)
-    {
+    for (auto& n : nodes) {
         const double dx = n.midpoint.x - static_cast<float>(carFront.x());
         const double dy = n.midpoint.y - static_cast<float>(carFront.y());
         const double d2 = dx*dx + dy*dy;
-        if (d2 < best) { best = d2; start_id = n.id; }
+        if (d2 < best) {
+            best = d2;
+            start_id = n.id;
+        }
     }
-
-    // scene.add_segment(Point(nodes[start_id].first.x,  nodes[start_id].first.y),
-    //                   Point(nodes[start_id].second.x, nodes[start_id].second.y),
-    //                   CGAL::IO::Color(250,15,15));
 
     return {nodes, adj};
 }
@@ -359,10 +289,8 @@ double getInitialTrackYaw(TrackResult track) {
 // Gets the angle between two direction vectors using Point as the data structure
 double getAngle(Point a, Point b) {
   double dot = a.x()*b.x() + a.y()*b.y();
-  // std::cout << "angle: " << std::acos(dot / (hypot(a.x(), a.y()) * hypot(b.x(), b.y())));
   return std::acos(dot / (hypot(a.x(), a.y()) * hypot(b.x(), b.y())));
 }
-
 
 
 // Returns the front of the car as a Point and modifies the triangulation in place
@@ -410,8 +338,7 @@ Point getCarFront(
       return carFront;
 };
 
-
-std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
+std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
@@ -426,8 +353,14 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
       for (int i = 0; i < cones.size(); i++) {
         Point delta = Point(cones[i].position.x - carFront.x(), cones[i].position.z - carFront.y());
         Point cone = Point(cones[i].position.x, cones[i].position.z);
-        if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
-        if (getAngle(carVector, delta) > sensorFOV/2) continue;
+        
+        if (std::hypot(delta.x(), delta.y()) > sensorRange) {
+            continue;
+        }
+        if (getAngle(carVector, delta) > sensorFOV/2) {
+            continue;
+        }
+        
         coneToSide[cone] = side;
         T.insert(cone);
       }
@@ -436,10 +369,11 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
     addCones(fullTrack.startCones, FSAI_CONE_UNKNOWN);
     addCones(fullTrack.leftCones, FSAI_CONE_LEFT);
     addCones(fullTrack.rightCones, FSAI_CONE_RIGHT);
+
     return coneToSide;
 }
 
-std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulation(
+std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
   Point carFront,
   double carYaw,
   std::vector<Cone> leftConePositions,
@@ -455,8 +389,14 @@ std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrac
       for (Cone cone3d: cones) {
         Point delta = Point(cone3d.position.x - carFront.x(), cone3d.position.z - carFront.y());
         Point cone = Point(cone3d.position.x, cone3d.position.z);
-        if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
-        if (getAngle(carVector, delta) > sensorFOV/2) continue;
+        
+        if (std::hypot(delta.x(), delta.y()) > sensorRange) { 
+            continue;
+        }
+        if (getAngle(carVector, delta) > sensorFOV/2) {
+            continue;
+        }
+        
         coneToSide[cone] = side;
         visibleTrack.insert(cone);
       }
@@ -468,7 +408,6 @@ std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrac
     return {visibleTrack, coneToSide};
 }
 
-
 std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
@@ -476,10 +415,8 @@ std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTri
 ) {
 
     Point carFront = Point(carState.position.x(), carState.position.y());
-    //auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw , leftConePositions, rightConePositions);
-    auto triangulation_pair = getVisibleTrackTriangulation(carFront, carState.yaw, leftConePositions, rightConePositions);
+    auto triangulation_pair = getVisibleTrackTriangulationFromCones(carFront, carState.yaw, leftConePositions, rightConePositions);
     auto triangulation = triangulation_pair.first;
-
 
     std::vector<std::pair<Vector2, Vector2>> edges {};
     for (auto it = triangulation.finite_edges_begin(); it != triangulation.finite_edges_end(); ++it) {
@@ -494,19 +431,10 @@ std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTri
         auto p1 = v1->point();
         auto p2 = v2->point();
 
-        /*
-        edges.push_back({
-          {
-            static_cast<float>(p1.x()),
-            static_cast<float>(p1.y())
-          }, {
-            static_cast<float>(p2.x()),
-            static_cast<float>(p2.y())
-          }});*/
-          edges.emplace_back(
-          Vector2{ static_cast<float>(p1.x()), static_cast<float>(p1.y()) },
-          Vector2{ static_cast<float>(p2.x()), static_cast<float>(p2.y()) }
-          );
+        edges.emplace_back(
+            Vector2{ static_cast<float>(p1.x()), static_cast<float>(p1.y()) },
+            Vector2{ static_cast<float>(p2.x()), static_cast<float>(p2.y()) }
+        );
     }
 
     return {triangulation, edges};
@@ -519,18 +447,15 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     std::size_t maxLen,
     std::size_t minLen,
     std::size_t beamWidth
-)
-{
-    if (nodes.empty() || adj.empty() || maxLen == 0 || beamWidth == 0)
-    {
+) {
+    if (nodes.empty() || adj.empty() || maxLen == 0 || beamWidth == 0) {
         return {};
     }
 
     auto buildPathFromIds = [&](const std::vector<int>& ids) {
         std::vector<PathNode> path;
         path.reserve(ids.size());
-        for (int id : ids)
-        {
+        for (int id : ids) {
             if (id < 0 || static_cast<std::size_t>(id) >= nodes.size())
             {
                 continue;
@@ -541,31 +466,28 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     };
 
     auto evaluate = [&](const std::vector<int>& ids) {
-        if (ids.size() < 2)
-        {
+        if (ids.size() < 2){
             return 0.0f;
         }
         const auto path = buildPathFromIds(ids);
+
         return calculateCost(path, minLen);
     };
 
     // pick start = node closest to carFront (simple, deterministic)
     int start = 0;
     double bestD2 = std::numeric_limits<double>::infinity();
-    for (std::size_t i = 0; i < nodes.size(); ++i)
-    {
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
         const double dx = nodes[i].midpoint.x - carFront.x();
         const double dy = nodes[i].midpoint.y - carFront.y();
         const double d2 = dx * dx + dy * dy;
-        if (d2 < bestD2)
-        {
+        if (d2 < bestD2) {
             bestD2 = d2;
             start = static_cast<int>(i);
         }
     }
 
-    struct Candidate
-    {
+    struct Candidate {
         std::vector<int> indices;
         float cost;
 
@@ -580,31 +502,26 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     float bestCost = std::numeric_limits<float>::infinity();
 
     auto updateBest = [&](const Candidate& candidate) {
-        if (candidate.indices.size() < 2)
-        {
+        if (candidate.indices.size() < 2) {
             return;
         }
-        if (!std::isfinite(candidate.cost))
-        {
+        if (!std::isfinite(candidate.cost)) {
             return;
         }
         if (candidate.cost < bestCost ||
-            (candidate.cost == bestCost && candidate.indices.size() > bestCandidate.indices.size()))
-        {
+            (candidate.cost == bestCost && candidate.indices.size() > bestCandidate.indices.size())
+        ) {
             bestCost = candidate.cost;
             bestCandidate = candidate;
         }
     };
 
-    for (std::size_t depth = 0; depth < maxLen && !beam.empty(); ++depth)
-    {
+    for (std::size_t depth = 0; depth < maxLen && !beam.empty(); ++depth) {
         std::vector<Candidate> next;
         bool extendedAny = false;
 
-        for (Candidate& candidate : beam)
-        {
-            if (candidate.indices.size() >= maxLen)
-            {
+        for (Candidate& candidate : beam) {
+            if (candidate.indices.size() >= maxLen) {
                 updateBest(candidate);
                 next.push_back(std::move(candidate));
                 continue;
@@ -613,18 +530,14 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
             const int last = candidate.indices.back();
             bool extendedCurrent = false;
 
-            if (last >= 0 && static_cast<std::size_t>(last) < adj.size())
-            {
-                for (int nb : adj[static_cast<std::size_t>(last)])
-                {
-                    if (nb < 0 || static_cast<std::size_t>(nb) >= nodes.size())
-                    {
+            if (last >= 0 && static_cast<std::size_t>(last) < adj.size()) {
+                for (int nb : adj[static_cast<std::size_t>(last)]) {
+                    if (nb < 0 || static_cast<std::size_t>(nb) >= nodes.size()) {
                         continue;
                     }
 
                     // avoid loops by preventing revisiting a node already on the path
-                    if (std::find(candidate.indices.begin(), candidate.indices.end(), nb) != candidate.indices.end())
-                    {
+                    if (std::find(candidate.indices.begin(), candidate.indices.end(), nb) != candidate.indices.end()) {
                         continue;
                     }
 
@@ -640,63 +553,54 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
                 }
             }
 
-            if (!extendedCurrent)
-            {
+            if (!extendedCurrent) {
                 updateBest(candidate);
                 next.push_back(std::move(candidate));
             }
         }
 
-        if (!extendedAny)
-        {
+        if (!extendedAny) {
             break;
         }
 
         std::sort(next.begin(), next.end(), [](const Candidate& a, const Candidate& b) {
             const bool aFinite = std::isfinite(a.cost);
             const bool bFinite = std::isfinite(b.cost);
-            if (aFinite != bFinite)
-            {
+            if (aFinite != bFinite) {
                 return aFinite;
             }
-            if (a.cost == b.cost)
-            {
+            if (a.cost == b.cost) {
                 return a.indices.size() > b.indices.size();
             }
+
             return a.cost < b.cost;
         });
 
-        if (next.size() > beamWidth)
-        {
+        if (next.size() > beamWidth) {
             next.resize(beamWidth);
         }
 
         beam = std::move(next);
     }
 
-    if (bestCandidate.indices.size() < 2)
-    {
-        for (const Candidate& candidate : beam)
-        {
-            if (candidate.indices.size() < 2)
-            {
+    if (bestCandidate.indices.size() < 2) {
+        for (const Candidate& candidate : beam) {
+            if (candidate.indices.size() < 2) {
                 continue;
             }
-            if (!std::isfinite(candidate.cost))
-            {
+            if (!std::isfinite(candidate.cost)) {
                 continue;
             }
             if (candidate.cost < bestCost ||
-                (candidate.cost == bestCost && candidate.indices.size() > bestCandidate.indices.size()))
-            {
+                (candidate.cost == bestCost && candidate.indices.size() > bestCandidate.indices.size())
+            ) {
                 bestCost = candidate.cost;
                 bestCandidate = candidate;
             }
         }
     }
 
-    if (bestCandidate.indices.size() < 2)
-    {
+    if (bestCandidate.indices.size() < 2) {
         return {};
     }
 
@@ -711,6 +615,7 @@ std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode
             Vector2{path[i].midpoint.x, path[i].midpoint.y}
         );
     }
+
     return edges;
 }
 
@@ -723,14 +628,14 @@ Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
             path[i].midpoint.y
         };
     }
+    
     return checkpoints;
 }
 
 std::vector<Vector2> getCenterline(
     std::vector<FsaiConeDet> coneDetections,
     FsaiVehicleState vehicleState
-)
-{
+) {
     // 1. Build the car front point in 2D
     const Point carFront(vehicleState.x, vehicleState.y);
 
@@ -751,16 +656,15 @@ std::vector<Vector2> getCenterline(
     // 3. Insert cones into triangulation, filtering by FOV / range / confidence
     // I am not sure how coneDetections are given to us so this might be wrong
     // y might need to be changed to z
-    for(const FsaiConeDet& det : coneDetections)
-    {
+    for(const FsaiConeDet& det : coneDetections) {
         // Optional: ignore very low-confidence detections
         if (det.conf < 0.3f) {
             continue;
         }
 
+        const Point conePoint(det.x, det.y);
         /*
         // Project detection into 2D ground plane: (x,y)
-        const Point conePoint(det.x, det.y);
 
         // Relative vector from car to cone
         const Point delta(conePoint.x() - carFront.x(),
