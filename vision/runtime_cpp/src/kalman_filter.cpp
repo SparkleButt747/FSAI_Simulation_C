@@ -2,17 +2,7 @@
 
 namespace fsai::vision
 {
-	class Kalman_filter
-	{
-	public:
-		using Vec4 = Eigen::Matrix<double,4,1>;
-		using Vec2 = Eigen::Matrix<double,2,1>;
-		using Mat4 = Eigen::Matrix<double,4,4>;
-		using Mat2 = Eigen::Matrix<double,2,2>;
-		using Mat2x4 = Eigen::Matrix<double,2,4>;
-		using Mat4x2 = Eigen::Matrix<double,4,2>;
-
-		explicit Kalman_filter(const double dt) : dt_(dt)
+		Kalman_filter::Kalman_filter(const double dt) : dt_(dt)
 		{
 			F_.setIdentity();
 			F_(0,2) = dt_;
@@ -40,18 +30,18 @@ namespace fsai::vision
 			x_.setZero();
 		}
 
-		void initialize(const double x, const double y)
+		void Kalman_filter::initialize(const double x, const double y)
 		{
 			x_ << x, y, 0, 0;
 		}
 
-		void predict()
+		void Kalman_filter::predict()
 		{
 			x_ = F_ * x_;
 			P_ = F_ * P_ * F_.transpose() + Q_;
 		}
 
-		void update(const double mx, const double my)
+		void Kalman_filter::update(const double mx, const double my)
 		{
 			Vec2 z;
 			z << mx, my;
@@ -67,24 +57,14 @@ namespace fsai::vision
 			P_ = (I - K * H_) * P_ * (I - K * H_).transpose() + K * R_ * K.transpose();
 		}
 
-		[[nodiscard]] Vec4 state() const
+		Kalman_filter::Vec4 Kalman_filter::state() const
 		{
 			return x_;
-		}
-		[[nodiscard]] Mat4 covariance() const
+	j}
+		Kalman_filter::Mat4 Kalman_filter::covariance() const
 		{
 			return P_;
 		}
-
-	private:
-		double dt_;
-		Vec4 x_;
-		Mat4 P_;
-		Mat4 F_;
-		Mat2x4 H_;
-		Mat4 Q_;
-		Mat2 R_;
-	};
 }
 
 
