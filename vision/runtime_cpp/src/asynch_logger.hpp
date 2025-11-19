@@ -4,7 +4,10 @@
 
 #pragma once
 #include <string>
-#include <quill/Quill.h>
+#include <quill/Frontend.h>
+#include <quill/LogMacros.h>
+#include <quill/sinks/FileSink.h>
+#include <quill/Backend.h>
 
 namespace fsai::vision {
     class Asynch_logger{
