@@ -14,8 +14,7 @@ namespace fsai::vision {
          * @param logger_name Name of the logger.
          * @param file_path Path to the output log file.
          */
-        explicit Asynch_logger(const std::string& logger_name = "app_logger",
-                               const std::string& file_path   = "app.log");
+        explicit Asynch_logger(const std::string& logger_name = "app_logger", const std::string& file_path   = "app.log");
 
         /**
          * @brief Logs an informational message.
