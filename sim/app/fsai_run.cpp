@@ -1439,7 +1439,29 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
 
-
+ std::shared_ptr<fsai::vision::DetectionRingBuffer> detection_buffer = fsai::vision::getActiveDetectionBuffer();
+    if (detection_buffer == nullptr) {
+      printf("Detection Buffer not initialised");
+      exit(-1);
+    }
+    auto detections = detection_buffer->tryPop();
+    if (detections != std::nullopt) {
+        for (int i = 0; i < detections->n; i++) {
+          FsaiConeDet cone = detections->dets[i];
+          int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
+                                        graphics->width / 2.0f);
+          int cone_y = static_cast<int>(cone.y * K_RENDER_SCALE +
+                                        graphics->height / 2.0f);
+          if (cone.side == FSAI_CONE_LEFT) {
+            SDL_SetRenderDrawColor(graphics->renderer, 5, 200, 5, static_cast<uint8_t>(255*cone.conf));
+          } else if (cone.side == FSAI_CONE_RIGHT) {
+            SDL_SetRenderDrawColor(graphics->renderer, 200, 5, 5, static_cast<uint8_t>(255*cone.conf));
+          } else if (cone.side == FSAI_CONE_UNKNOWN) {
+            SDL_SetRenderDrawColor(graphics->renderer, 150, 150, 150, 250);
+          }
+          Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 5);
+      }
+    }
   std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.getLeftCones(), world.getRightCones()).second;
   for (auto edge: triangulationEdges) {
     Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
@@ -1923,11 +1945,6 @@ int main(int argc, char* argv[]) {
 
   const VehicleParam& vehicle_param = world.model().param();
 
-  std::shared_ptr<fsai::vision::DetectionRingBuffer> detection_buffer = fsai::vision::getActiveDetectionBuffer();
-  if (detection_buffer == nullptr) {
-    printf("Detection Buffer not initialised");
-    exit(-1);
-  }
 
   fsai::control::runtime::CanIface::Config can_cfg{};
   can_cfg.endpoint = can_iface;
@@ -2031,15 +2048,7 @@ int main(int argc, char* argv[]) {
     ImGui::NewFrame();
 
     can_interface.Poll(fsai_clock_now());
-    auto detections = detection_buffer->tryPop();
-    if (detections != std::nullopt) {
-        for (int i = 0; i < detections.n; i++) {
-          FsaiConeDet cone = detections.dets[i];
-          int cone_x = cone.x
-          Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 20);
-            SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
-                         color.a);
-    }
+
     float autopThrottle = world.throttleInput;
     float autopBrake = world.brakeInput;
     float autopSteer = world.steeringAngle;
