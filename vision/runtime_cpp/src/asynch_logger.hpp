@@ -6,7 +6,7 @@
 #include <string>
 #include <quill/Quill.h>
 
-namespace fsai::util {
+namespace fsai::vision {
     class Asynch_logger{
     public:
         /**
