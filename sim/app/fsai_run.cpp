@@ -1439,28 +1439,20 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
 
- std::shared_ptr<fsai::vision::DetectionRingBuffer> detection_buffer = fsai::vision::getActiveDetectionBuffer();
-    if (detection_buffer == nullptr) {
-      printf("Detection Buffer not initialised");
-      exit(-1);
-    }
-    auto detections = detection_buffer->tryPop();
-    if (detections != std::nullopt) {
-        for (int i = 0; i < detections->n; i++) {
-          FsaiConeDet cone = detections->dets[i];
+    for (auto cone : world.coneDetections) {
+          printf("\n\n cone conf %f \n\n", cone.conf);
           int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
           int cone_y = static_cast<int>(cone.y * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
           if (cone.side == FSAI_CONE_LEFT) {
-            SDL_SetRenderDrawColor(graphics->renderer, 5, 200, 5, static_cast<uint8_t>(255*cone.conf));
+            SDL_SetRenderDrawColor(graphics->renderer, 5, 200, 5, 255);
           } else if (cone.side == FSAI_CONE_RIGHT) {
-            SDL_SetRenderDrawColor(graphics->renderer, 200, 5, 5, static_cast<uint8_t>(255*cone.conf));
+            SDL_SetRenderDrawColor(graphics->renderer, 200, 5, 5, 255);
           } else if (cone.side == FSAI_CONE_UNKNOWN) {
             SDL_SetRenderDrawColor(graphics->renderer, 150, 150, 150, 250);
           }
           Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 5);
-      }
     }
   std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.getLeftCones(), world.getRightCones()).second;
   for (auto edge: triangulationEdges) {
@@ -2663,6 +2655,18 @@ int main(int argc, char* argv[]) {
       }
       if (stereo_display) {
         stereo_display->present(frame);
+      }
+    }
+
+    std::shared_ptr<fsai::vision::DetectionRingBuffer> detection_buffer = fsai::vision::getActiveDetectionBuffer();
+    if (detection_buffer == nullptr) {
+      printf("Detection Buffer not initialised");
+      exit(-1);
+    }
+    auto detections = detection_buffer->tryPop();
+    if (detections != std::nullopt) {
+        for (int i = 0; i < detections->n; i++) {
+          world.coneDetections.push_back(detections->dets[i]);
       }
     }
 

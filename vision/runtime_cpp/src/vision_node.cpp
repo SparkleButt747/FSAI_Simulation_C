@@ -16,7 +16,7 @@
 
 #include "vision/detection_buffer_registry.hpp"
 #include "common/include/common/types.h"
-#include "sim/include/logging.hpp"
+#include "logging.hpp"
 #include <iostream>
 #include <chrono>
 
@@ -115,7 +115,7 @@ inline bool VisionNode::triangulatePoint(const Feature& feat, Eigen::Vector3d& r
 
     // Check for near-zero disparity to avoid division by zero
     if (std::abs(disparity) < 1e-6) {
-        // Optimization: Use standard generic infinity if Eigen supports it, 
+        // Optimization: Use standard generic infinity if Eigen supports it,
         // or keep your specific error handling here.
         result.setConstant(std::numeric_limits<double>::infinity());
         return false;
@@ -127,7 +127,7 @@ inline bool VisionNode::triangulatePoint(const Feature& feat, Eigen::Vector3d& r
 
     // Calculate coordinates directly into the result vector
     result.x() = (feat.x_1 - cameraParams_.cx) * Q;
-    
+
     result.z() = cameraParams_.fx * Q;
 
     result.y() = (feat.y_1 - cameraParams_.cy) * result.z() / cameraParams_.fy;
@@ -145,7 +145,7 @@ std::optional<fsai::types::Detections> VisionNode::getLatestDetections(){
 void VisionNode::runProcessingLoop(){
     
     // FIX 2: Add the main "while(running_)" loop
-    
+
     while(running_){
 
         // We use tryGetLatestFrame() for a non-blocking loop.
@@ -168,7 +168,7 @@ void VisionNode::runProcessingLoop(){
         auto t1 = std::chrono::high_resolution_clock::now();
         cv::Mat left_mat = frameToMat(handle_opt->frame.left);
         cv::Mat right_mat = frameToMat(handle_opt->frame.right);
-        
+
         fsai::types::Detections new_detections{};
         new_detections.t_ns = handle_opt->frame.t_sync_ns;
         new_detections.n = 0; // Number of cones found
@@ -191,7 +191,7 @@ void VisionNode::runProcessingLoop(){
         // convert the features to 2D point struct
         auto t4 = std::chrono::high_resolution_clock::now();
         std::vector<ConeCluster> cone_cluster;
-        
+
         std::vector<Eigen::Vector2d> local_centres;
 
         for(const auto& cone:matched_features){
@@ -213,7 +213,7 @@ void VisionNode::runProcessingLoop(){
                     local_centres.push_back(center);
                 }
             }
-        } 
+        }
         // 5. Recovering global position
         //apply rigid body transformation and translation
         Eigen::Vector2d vehicle_pos {0.0,0.0};

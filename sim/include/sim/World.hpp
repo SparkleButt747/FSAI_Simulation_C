@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <Eigen/Dense>
+#include "types.h"
 #include "DynamicBicycle.hpp"
 #include "VehicleState.hpp"
 #include "VehicleInput.hpp"
@@ -59,6 +60,7 @@ public:
     int useController{1};
     int regenTrack{1};
     std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
+    std::vector<FsaiConeDet> coneDetections {};
 
 
     const VehicleState& vehicleState() const { return carState; }
