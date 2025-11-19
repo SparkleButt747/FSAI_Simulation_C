@@ -1,53 +1,128 @@
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
-#include <memory>
+#include <vector>
 #include <mutex>
 #include <condition_variable>
 #include <optional>
-#include <vector>
 #include <stdexcept>
+#include <utility> // for std::move
 
-namespace fsai::vision {
+// Crucial: The namespace must match what the Linker is looking for.
+// Your linker error said: fsai::vision::GenericRingBuffer
+namespace fsai::vision { 
 
 template <typename T>
-class GenericRingBuffer{
-    public:
-    /**
-     * @param capacity The size of the ring buffer
-     */
-    explicit GenericRingBuffer(std::size_t capacity);
-    /**
-     * @param T
-     * @return
-     */
-    bool tryPush(const T& item);
-    /**
-     * @param T item to be pushed onto the ring buffer
-     * @returns false if buffer is at capacity, false otherwise
-     */
-    void push(const T& item);
-    /**
-     * @returns T or if buffer is empty std::nullopt
-     */
-    std::optional<T> tryPop();
-    /**
-     * @returns T, most recent item from buffer
-     * @details blocking pop, will wait for item
-     */
-    T pop();
-    std::size_t capacity() const;
-    std::size_t size() const;
-    bool isEmpty() const;
-    bool isFull() const;
-    private:
-    void writeUnlocked(const T& item);
-    T readUnlocked();
+class GenericRingBuffer {
+public:
+    // Constructor: Pre-allocates memory
+    explicit GenericRingBuffer(std::size_t capacity)
+        : slots_(capacity), capacity_(capacity) {
+        if (capacity == 0) {
+            throw std::invalid_argument("Buffer capacity must be greater than zero");
+        }
+    }
+
+    // Delete copy/move to prevent accidental duplication of mutexes
+    GenericRingBuffer(const GenericRingBuffer&) = delete;
+    GenericRingBuffer& operator=(const GenericRingBuffer&) = delete;
+
+    // -------------------------------------------------------
+    // PRODUCER METHODS
+    // -------------------------------------------------------
+
+    bool tryPush(const T& item) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (count_ == capacity_) {
+            return false;
+        }
+        writeUnlocked(item);
+        lock.unlock();
+        not_empty_.notify_one();
+        return true;
+    }
+
+    void push(const T& item) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        not_full_.wait(lock, [this]() { return count_ < capacity_; });
+        writeUnlocked(item);
+        lock.unlock();
+        not_empty_.notify_one();
+    }
+
+    // -------------------------------------------------------
+    // CONSUMER METHODS
+    // -------------------------------------------------------
+
+    std::optional<T> tryPop() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (count_ == 0) {
+            return std::nullopt;
+        }
+        T item = readUnlocked();
+        lock.unlock();
+        not_full_.notify_one();
+        return item;
+    }
+
+    T pop() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        not_empty_.wait(lock, [this]() { return count_ > 0; });
+        T item = readUnlocked();
+        lock.unlock();
+        not_full_.notify_one();
+        return item;
+    }
+
+    // -------------------------------------------------------
+    // DIAGNOSTICS
+    // -------------------------------------------------------
+
+    std::size_t capacity() const {
+        return capacity_;
+    }
+
+    std::size_t size() const {
+        std::scoped_lock<std::mutex> lock(mutex_);
+        return count_;
+    }
+
+    bool isEmpty() const {
+        std::scoped_lock<std::mutex> lock(mutex_);
+        return count_ == 0;
+    }
+
+    bool isFull() const {
+        std::scoped_lock<std::mutex> lock(mutex_);
+        return count_ == capacity_;
+    }
+
+private:
+    // Helper: Assumes lock is already held
+    void writeUnlocked(const T& item) {
+        slots_[head_] = item; 
+        head_ = (head_ + 1) % capacity_;
+        ++count_;
+    }
+
+    // Helper: Assumes lock is already held
+    T readUnlocked() {
+        T item = std::move(slots_[tail_]);
+        tail_ = (tail_ + 1) % capacity_;
+        --count_;
+        return item;
+    }
+
+    // Member Variables
     std::vector<T> slots_;
     const std::size_t capacity_;
     std::size_t head_ = 0;
+    std::size_t tail_ = 0;
+    std::size_t count_ = 0;
 
+    // Synchronization
+    mutable std::mutex mutex_;
+    std::condition_variable not_empty_;
+    std::condition_variable not_full_;
 };
 
-} // namespace fsai::common
+} // namespace fsai::vision

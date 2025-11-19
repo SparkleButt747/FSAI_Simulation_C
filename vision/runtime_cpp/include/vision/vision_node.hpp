@@ -98,7 +98,7 @@ class VisionNode{
 
     //Add ring buffer type 
     using DetectionsRingBuffer = fsai::vision::GenericRingBuffer<fsai::types::Detections>;
-    std::unique_ptr<DetectionsRingBuffer> detection_buffer_;
+    std::shared_ptr<DetectionsRingBuffer> detection_buffer_;
 
 
 };

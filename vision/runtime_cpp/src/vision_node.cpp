@@ -14,6 +14,7 @@
 #include "features.hpp"
 #include "centroid.hpp"
 
+#include "vision/detection_buffer_registry.hpp"
 #include "common/include/common/types.h"
 #include "sim/include/logging.hpp"
 #include <iostream>
@@ -31,7 +32,10 @@ VisionNode::VisionNode(){
     camera_ = std::make_unique<fsai::vision::SimCamera>();
     detector_ = std::make_unique<fsai::vision::ConeDetector>(PATH_TO_MODEL);
     constexpr size_t DETECTION_BUFFER_CAPACITY = 10; // Choose a suitable size
-    detection_buffer_ = std::make_unique<DetectionsRingBuffer>(DETECTION_BUFFER_CAPACITY);
+    detection_buffer_ = std::make_shared<DetectionsRingBuffer>(DETECTION_BUFFER_CAPACITY);
+
+    setActiveDetectionBuffer(detection_buffer_);
+
     std::cout << "VisionNode: Initialisation complete" << std::endl;
 }
 
