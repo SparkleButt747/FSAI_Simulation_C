@@ -23,25 +23,25 @@ namespace fsai::vision {
          * @brief Logs an informational message.
          * @param msg string.
          */
-	void info(const std::string& msg);
+        void info(const std::string& msg);
 
         /**
          * @brief Logs a warning message.
          * @param msg string.
          */
-	void warn(const std::string& msg);
+        void warn(const std::string& msg);
 
         /**
          * @brief Logs an error message.
          * @param msg string.
          */
-	void error(const std::string& msg);
+        void error(const std::string& msg);
 
         /**
          * @brief Logs a debug message.
          * @param msg string.
          */
-	void debug(const std::string& msg);
+        void debug(const std::string& msg);
 
     private:
         quill::Logger* logger_;
