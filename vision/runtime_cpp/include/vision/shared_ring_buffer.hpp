@@ -29,7 +29,6 @@ public:
     // -------------------------------------------------------
     // PRODUCER METHODS
     // -------------------------------------------------------
-
     bool tryPush(const T& item) {
         std::unique_lock<std::mutex> lock(mutex_);
         if (count_ == capacity_) {
@@ -40,7 +39,10 @@ public:
         not_empty_.notify_one();
         return true;
     }
-
+    /**
+     * Blocking push.
+     * @param T the item to be pushed to the ring buffer
+     */
     void push(const T& item) {
         std::unique_lock<std::mutex> lock(mutex_);
         not_full_.wait(lock, [this]() { return count_ < capacity_; });
@@ -52,7 +54,10 @@ public:
     // -------------------------------------------------------
     // CONSUMER METHODS
     // -------------------------------------------------------
-
+    /**
+     * Non-blockig pop
+     * @return optional<T> if buffer is not full, nullopt else
+     */
     std::optional<T> tryPop() {
         std::unique_lock<std::mutex> lock(mutex_);
         if (count_ == 0) {
@@ -63,7 +68,10 @@ public:
         not_full_.notify_one();
         return item;
     }
-
+    /**
+     * Blocking pop, will wait till an element is available
+     * @returns T the most recent item pushed to the buffer
+     */
     T pop() {
         std::unique_lock<std::mutex> lock(mutex_);
         not_empty_.wait(lock, [this]() { return count_ > 0; });
