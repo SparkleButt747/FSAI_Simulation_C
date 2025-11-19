@@ -43,6 +43,8 @@
 #include "vision/frame_ring_buffer.hpp"
 #include "vision/vision_node.hpp"
 #include "vision/detection_preview.hpp"
+#include "vision/shared_ring_buffer.hpp"
+#include "vision/detection_buffer_registry.hpp"
 #include "types.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
@@ -1921,6 +1923,12 @@ int main(int argc, char* argv[]) {
 
   const VehicleParam& vehicle_param = world.model().param();
 
+  std::shared_ptr<fsai::vision::DetectionRingBuffer> detection_buffer = fsai::vision::getActiveDetectionBuffer();
+  if (detection_buffer == nullptr) {
+    printf("Detection Buffer not initialised");
+    exit(-1);
+  }
+
   fsai::control::runtime::CanIface::Config can_cfg{};
   can_cfg.endpoint = can_iface;
   can_cfg.enable_loopback = true;
@@ -2023,7 +2031,15 @@ int main(int argc, char* argv[]) {
     ImGui::NewFrame();
 
     can_interface.Poll(fsai_clock_now());
-
+    auto detections = detection_buffer->tryPop();
+    if (detections != std::nullopt) {
+        for (int i = 0; i < detections.n; i++) {
+          FsaiConeDet cone = detections.dets[i];
+          int cone_x = cone.x
+          Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 20);
+            SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
+                         color.a);
+    }
     float autopThrottle = world.throttleInput;
     float autopBrake = world.brakeInput;
     float autopSteer = world.steeringAngle;
