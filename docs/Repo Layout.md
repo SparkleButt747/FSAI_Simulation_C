@@ -72,15 +72,24 @@ fsai/
 │  └─ test/
 │     ├─ TestSteering.c   TestThrottle.c
 ├─ vision/
-│  ├─ include/vision/api.h
-│  ├─ providers/
-│  │  ├─ fake_from_sim.cpp         # PathLogic → Detections (+noise/dropout)
-│  │  └─ zed_runtime.cpp           # placeholder; later ONNX/TensorRT
-│  ├─ proto_py/
-│  │  ├─ node.py  triangulation.py  eval/
-│  └─ models/
-│     ├─ cones_yolo.onnx
-│     └─ model.card.yaml
+├── models/
+│   └── cone_model.onnx
+├── resources/
+│   ├── best.pt
+│   └── bestv8.pt
+├── runtime_cpp/
+│   ├── include
+│   │   └── vision
+│   │       ├── api.h
+│   │       └── api.hpp
+│   ├── providers/
+│   │   └── fake_from_sim.cpp
+│   └── src/
+│       ├── detect.cpp
+│       ├── detect.hpp
+│       ├── triangulate.cpp
+│       ├── triangulate.hpp
+│       └── vision_node.cpp
 ├─ record/
 │  ├─ include/record/api.h
 │  ├─ src/recorder.cpp  replay.cpp

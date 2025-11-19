@@ -1,7 +1,149 @@
+/**
+ * @brief This file handles the joining of the whole vision pipeline from image to ConDet
+ * TO-DO:
+ * 
+ */
+#include "vision/vision_node.hpp"
+#include "common/include/common/types.h"
+#include "detect.hpp"
+#include "sim_camera.hpp"
+#include <iostream>
+#include <chrono>
+
+const char* PATH_TO_MODEL = "../vision/models/cone_model.onnx";
+constexpr std::chrono::milliseconds kIdleSleep(5);
+namespace fsai{
+namespace vision{
+
+VisionNode::VisionNode(){
+
+    std::cout << "VisionNode: Initialisation ..." << std::endl;
+    camera_ = std::make_unique<fsai::vision::SimCamera>();
+    detector_ = std::make_unique<fsai::vision::ConeDetector>(PATH_TO_MODEL);
+    std::cout << "VisionNode: Initialisation complete" << std::endl;
+}
+
+VisionNode::~VisionNode(){
+    std::cout << "VisionNode: Shutting down ..." << std::endl;
+    stop();
+}
+
+void VisionNode::start(){
+    if(running_){
+        return;
+    }
+    running_ = true;
+
+    processing_thread_ = std::thread(&VisionNode::runProcessingLoop, this);
+    std::cout << "VisionNode: Processing thread started" << std::endl;
+}
+
+void VisionNode::stop(){
+    running_ = false;
+    if(processing_thread_.joinable()){
+        processing_thread_.join();
+        std::cout << "VisionNode: Processing thread joined" << std::endl;
+    }
+}
+
+std::optional<fsai::types::Detections> VisionNode::makeDetections(){
+    std::lock_guard<std::mutex> lock(detection_mutex_); 
+    return latest_detections_;
+}
+
+cv::Mat VisionNode::frameToMat(const fsai::types::Frame& frame){
+    if(!frame.data||frame.w <=0 || frame.h <=0){
+        return cv::Mat();
+    }
+
+    switch(frame.fmt){
+        case FSAI_PIXEL_RGB888:{
+            cv::Mat rgb_wrapper(frame.h,frame.w, CV_8UC3, frame.data,
+                                static_cast<size_t>(frame.stride));
+            cv::Mat bgr_mat;
+            cv::cvtColor(rgb_wrapper,bgr_mat,cv::COLOR_RGB2BGR);
+            return bgr_mat;
+        }
+        case FSAI_PIXEL_NV12:{
+            int raw_height = frame.h * 3 / 2;
+            cv::Mat nv12_wrapper(raw_height, frame.w, CV_8UC1,frame.data,
+                    static_cast<size_t>(frame.stride));
+            cv::Mat bgr_mat;
+            cv::cvtColor(nv12_wrapper,bgr_mat,cv::COLOR_YUV2BGR_NV12);
+            return bgr_mat;
+            }
+        default:
+            // Unsupported format
+            std::cerr << "Warning: Unsupported FsaiPixelFormat: " << frame.fmt << std::endl;
+            return cv::Mat();
+    }
+}
 
 
-/*
-TODO:
-Join up rest of pipeline
-For now ZED camera will handle rectification, we will abstract
-*/
+void VisionNode::runProcessingLoop(){
+    
+    // FIX 2: Add the main "while(running_)" loop
+    while(running_){
+
+        // FIX 3: Grab the frame from the camera_ member
+        // We use tryGetLatestFrame() for a non-blocking loop.
+        std::optional<fsai::vision::FrameRingBuffer::FrameHandle> handle_opt =
+            camera_->tryGetLatestFrame();
+
+        // FIX 4: Check if we actually got a frame
+        if (!handle_opt) {
+            // No frame was available, so we sleep and try again
+            std::this_thread::sleep_for(kIdleSleep);
+            continue; // Go to the start of the while loop
+        }
+        // --- Frame is available! ---
+        const uint64_t t_now = handle_opt->frame.t_sync_ns;
+        // 1. Convert to Mat (local variable only for now)
+        cv::Mat left_mat = frameToMat(handle_opt->frame.left);
+        cv::Mat right_mat = frameToMat(handle_opt->frame.right);
+       
+        fsai::types::Detections new_detections{};
+        new_detections.t_ns = handle_opt->frame.t_sync_ns;
+        new_detections.n = 0; // Number of cones found
+    
+        // 1. Object detection logic
+
+        std::vector<BoxBound> detections = detector_->detectCones(left_mat);
+        {
+            std::lock_guard<std::mutex> lock(render_mutex_);
+            latest_renderable_frame_.image = left_mat; // cv::Mat is ref-counted, this is fast
+            latest_renderable_frame_.boxes = detections;
+            latest_renderable_frame_.timestamp_ns = t_now;
+            latest_renderable_frame_.valid = true;
+        }
+
+        // 2. Loop through the vector and copy into the C-style array
+        // 2. Feature matching
+
+        // 3. Stereo triangulation
+
+        // 4. Recovering centre of the cone
+
+        // 5. Recovering global position
+    
+        // threading fix recommended by Gemini 
+        {
+            std::lock_guard<std::mutex> lock(detection_mutex_);
+            latest_detections_ = new_detections;
+        }
+    }
+}
+RenderableFrame VisionNode::getRenderableFrame(){
+            std::lock_guard<std::mutex> lock(render_mutex_);
+            // Return a deep copy to ensure thread safety when the render thread uses it
+            RenderableFrame ret;
+            ret.image = latest_renderable_frame_.image.clone();
+            ret.boxes = latest_renderable_frame_.boxes;
+            ret.timestamp_ns = latest_renderable_frame_.timestamp_ns;
+            ret.valid = latest_renderable_frame_.valid;
+            return ret;
+}
+
+
+}
+}//vision

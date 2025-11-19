@@ -5,21 +5,6 @@
 #include "triangulate.hpp"
 // #include "common/include/common/types.h"
 
-
-struct Point2D{
-    double x,y;
-};
-
-struct Point3D{
-    double X,Y,Z;
-};
-
-struct StereoParams{
-    double fLength;
-    double bLine;
-    double cx;
-    double cy;
-};
 /**
  * Calculates the 3D coordinates of a point given its 2D projections
  * from two rectified stereo cameras.
@@ -30,58 +15,36 @@ struct StereoParams{
  * @return A Point3D struct containing the (X, Y, Z) coordinates.
  */
 // }
-inline bool triangulate(const Point2D& p1, Point2D& p2,
-                    const StereoParams& params,
-                    Point3D& result){
-    const double disparity = p1.x - p2.x;
-    
-    if(std::abs(disparity)< 1e-6){
-        result = {
-            std::numeric_limits<double>::infinity(),
-            std::numeric_limits<double>::infinity(),
-            std::numeric_limits<double>::infinity()
+namespace fsai{
+namespace vision{
+    StereoTriangulation::StereoTriangulation(){};
+    StereoTriangulation::~StereoTriangulation() = default;
 
-        };
+    inline bool StereoTriangulation::triangulatePoint(const Point2D& p1, const Point2D& p2,Point3D&result){
+    const double disparity = p1.x - p2.x;
+
+    if (std::abs(disparity) < 1e-6) {
+        result = { /* ... return infinity ... */ };
         return false;
     }
 
-    const double inv_disparity = 1.0/disparity;
+    const double inv_disparity = 1.0 / disparity;
 
-    result.Z = params.bLine * params.fLength * inv_disparity;
+    // --- Use fx for Z calculation, as disparity is on the x-axis ---
+    // Z = (baseline * fx) / disparity
+    result.Z = BASE_LINE_ * cameraParams_.fx * inv_disparity;
 
-    const double x1_norm = p1.x - params.cx;
-    result.X = x1_norm * result.Z * inv_disparity;
+    // --- Use fx for X and fy for Y ---
     
-    const double y1_norm = p1.x - params.cy;
-    result.Y = y1_norm * result.Z * inv_disparity;
+    // X = (x - cx) * Z / fx
+    const double x1_norm = p1.x - cameraParams_.cx;
+    result.X = x1_norm * result.Z / cameraParams_.fx;
+    
+    // Y = (y - cy) * Z / fy
+    const double y1_norm = p1.y - cameraParams_.cy ;
+    result.Y = y1_norm * result.Z / cameraParams_.fy;
 
     return true;
-}
-
-int main(){
-    //some local checks for sanity 
-
-    StereoParams params = {
-        500.0,
-        0.12,
-        320.0,
-        240.0
-    };
-
-    Point2D cam1_point = {420.0, 250.0};
-    Point2D cam2_point = {370.0, 250.0};
-
-    Point3D coord_3d;
-
-    if(triangulate(cam1_point,cam2_point,params,coord_3d)){
-        std::cout << "Success in triangulating point" << std::endl;
-        std::cout << "X: " << coord_3d.X << " m" << std::endl;
-        std::cout << "Y: " << coord_3d.Y << " m" << std::endl;
-        std::cout << "Z: " << coord_3d.Z << " m (Depth)" << std::endl;
-    }else{
-        std::cout << "Disparity is zero, unable to recover depth!" << std ::endl;
     }
-
-    return 0; 
-
+}
 }

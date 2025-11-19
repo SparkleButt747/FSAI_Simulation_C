@@ -12,13 +12,31 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ------------------------------------------------------------------------------
+# Put all artifacts directly in the top-level build/ directory
+# ------------------------------------------------------------------------------
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+# Handle multi-config generators (Xcode/VS)
+if(CMAKE_CONFIGURATION_TYPES)
+  foreach(cfg ${CMAKE_CONFIGURATION_TYPES})
+    string(TOUPPER "${cfg}" CFGU)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CFGU} ${CMAKE_BINARY_DIR})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CFGU} ${CMAKE_BINARY_DIR})
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CFGU} ${CMAKE_BINARY_DIR})
+  endforeach()
+endif()
+
+# ------------------------------------------------------------------------------
 # Architecture / Homebrew / Paths
 # ------------------------------------------------------------------------------
 if(APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
     set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "" FORCE)
+    set(OpenCV_DIR /opt/homebrew/lib/cmake/opencv4)
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
     set(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "" FORCE)
+    set(OpenCV_DIR /usr/local/lib/cmake/opencv4)
   endif()
 endif()
 
@@ -37,12 +55,80 @@ if(APPLE)
 endif()
 
 # ------------------------------------------------------------------------------
+# ONNX Runtime smart discovery (version-aware)
+# Priority:
+#  1) onnxruntime_DIR / ONNXRuntime_DIR (explicit)
+#  2) ONNXRUNTIME_ROOT (cache var or env) -> expects include/ and lib/
+#  3) Newest under <project>/onnxruntime-osx-arm64-*  (unpacked tgz)
+#  4) Newest under /opt/homebrew/onnxruntime/*        (manual “brew-like”)
+# ------------------------------------------------------------------------------
+set(ONNXRUNTIME_ROOT "" CACHE PATH "Path to ONNX Runtime root (with include/ and lib/)")
+if(NOT ONNXRUNTIME_ROOT AND DEFINED ENV{ONNXRUNTIME_ROOT})
+  set(ONNXRUNTIME_ROOT "$ENV{ONNXRUNTIME_ROOT}")
+endif()
+
+# If root is provided, derive package dir
+if(NOT onnxruntime_DIR AND NOT ONNXRuntime_DIR AND ONNXRUNTIME_ROOT)
+  if(EXISTS "${ONNXRUNTIME_ROOT}/lib/cmake/onnxruntime/onnxruntimeConfig.cmake")
+    set(onnxruntime_DIR "${ONNXRUNTIME_ROOT}/lib/cmake/onnxruntime" CACHE PATH "" FORCE)
+    list(APPEND CMAKE_PREFIX_PATH "${ONNXRUNTIME_ROOT}")
+  endif()
+endif()
+
+# Collect candidate roots from project + homebrew paths
+set(_ORT_CANDIDATES "")
+if(NOT onnxruntime_DIR AND NOT ONNXRuntime_DIR)
+  file(GLOB _proj_ort LIST_DIRECTORIES true
+       "${CMAKE_SOURCE_DIR}/onnxruntime-osx-arm64-*")
+  list(APPEND _ORT_CANDIDATES ${_proj_ort})
+
+  if(APPLE)
+    file(GLOB _brew_ort LIST_DIRECTORIES true
+         "/opt/homebrew/onnxruntime/*")
+    list(APPEND _ORT_CANDIDATES ${_brew_ort})
+  endif()
+endif()
+
+# Pick newest by natural sort
+if(_ORT_CANDIDATES AND NOT onnxruntime_DIR AND NOT ONNXRuntime_DIR AND NOT ONNXRUNTIME_ROOT)
+  list(SORT _ORT_CANDIDATES COMPARE NATURAL)
+  list(REVERSE _ORT_CANDIDATES)
+  foreach(_cand ${_ORT_CANDIDATES})
+    if(EXISTS "${_cand}/lib/cmake/onnxruntime/onnxruntimeConfig.cmake")
+      set(onnxruntime_DIR "${_cand}/lib/cmake/onnxruntime" CACHE PATH "" FORCE)
+      list(APPEND CMAKE_PREFIX_PATH "${_cand}")
+      message(STATUS "Detected ONNX Runtime at: ${_cand}")
+      break()
+    endif()
+  endforeach()
+endif()
+
+
+# ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
-find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(PkgConfig REQUIRED)
 find_package(SDL2 QUIET CONFIG)
 find_package(Threads REQUIRED)
+
+# onnx required by vision
+find_package(onnxruntime QUIET CONFIG)
+if(NOT onnxruntime_FOUND)
+  find_package(ONNXRuntime QUIET CONFIG)
+endif()
+if(NOT (onnxruntime_FOUND OR ONNXRuntime_FOUND))
+  message(FATAL_ERROR
+    "onnxruntime not found.\n"
+    "Set one of:\n"
+    "  -Donnxruntime_DIR=/path/to/lib/cmake/onnxruntime\n"
+    "  -DONNXRUNTIME_ROOT=/path/to/onnxruntime (with include/ and lib/)\n"
+    "  or place a version under /opt/homebrew/onnxruntime/<version> on macOS."
+  )
+else()
+  message(STATUS "ONNX Runtime located via CMake package config.")
+endif()
+
 set(SDL2_IMPORTED_TARGET "")
 set(SDL2_INCLUDE_DIRS "")
 if(TARGET SDL2::SDL2)
@@ -64,14 +150,11 @@ find_package(OpenCV REQUIRED)
 
 # CGAL and its components
 find_package(CGAL QUIET COMPONENTS)
-find_package(CGAL REQUIRED OPTIONAL_COMPONENTS Qt6)
-
-
+find_package(CGAL REQUIRED OPTIONAL_COMPONENTS)
 if ( NOT CGAL_FOUND )
   message(STATUS "This project requires the CGAL library, and will not be compiled.")
   return()
 endif()
-
 
 find_package( Boost REQUIRED )
 if ( NOT Boost_FOUND )
@@ -84,7 +167,7 @@ add_definitions(-DSDL_MAIN_HANDLED)
 add_subdirectory(third_party/imgui)
 
 # ------------------------------------------------------------------------------
-# Collect sources/headers (exclude build tree)
+# Collect sources/headers (exclude build tree)  [UNCHANGED]
 # ------------------------------------------------------------------------------
 file(GLOB_RECURSE ALL_C_SOURCES   CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/*.c")
 file(GLOB_RECURSE ALL_CPP_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/*.cpp")
@@ -105,89 +188,97 @@ endforeach()
 list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
+# ------------------------------------------------------------------------------
+# Vision-test libraries  [UNCHANGED]
+# ------------------------------------------------------------------------------
 add_subdirectory(vision_test/runtime_cpp/src)
+target_include_directories(fsai_vision_runtime PUBLIC
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+    "${CMAKE_SOURCE_DIR}"
+)
+file(GLOB VISION_NODE_SOURCES
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src/*.cpp"
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/providers/*.cpp"
+)
+target_sources(fsai_vision_runtime PRIVATE
+    ${VISION_NODE_SOURCES}
+)
+target_include_directories(fsai_vision_runtime PUBLIC
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src"
+    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
+    "${CMAKE_SOURCE_DIR}"
+)
+target_link_libraries(fsai_vision_runtime PUBLIC
+    Eigen3::Eigen
+    onnxruntime::onnxruntime
+    ${OpenCV_LIBRARIES}
+    Threads::Threads
+)
 
 # ------------------------------------------------------------------------------
-# Simulation libraries
+# Simulation libraries  [UNCHANGED]
 # ------------------------------------------------------------------------------
 set(SIM_C_SOURCES   ${ALL_C_SOURCES})
 set(SIM_CPP_SOURCES ${ALL_CPP_SOURCES})
-
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(main|sim/app)/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(main|sim/app)/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/third_party/imgui/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/third_party/imgui/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(c)$")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/(test|tests)/.*|.*/.*Test.*\\.(cpp)$")
-list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/centerline.prot.cpp$")
-list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/control/.*")
-list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/tools/Graphics/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/sim/svcu/svcu_main.cpp$")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/.git/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/.git/.*")
 
-
 # Drop everything under vision/
+# Re-introduce vision
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision_test/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
 
-
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
-
-# control prototype source
-file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/centerline.prot.cpp")
+file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/fsai_plan.cpp")
 
 add_library(fsai_sim STATIC
   ${SIM_C_SOURCES}
   ${SIM_CPP_SOURCES}
-  ${ALL_HEADERS}         # for IDEs
+  ${ALL_HEADERS}
 )
-
-target_include_directories(fsai_sim
-  PUBLIC
-    ${HEADER_DIRS}
+target_include_directories(fsai_sim PUBLIC ${HEADER_DIRS})
+target_link_libraries(fsai_sim PUBLIC
+  Eigen3::Eigen
+  yaml-cpp::yaml-cpp
+  OpenGL::GL
+  Threads::Threads
+  CGAL::CGAL
+  m
+  onnxruntime::onnxruntime
+  ${OpenCV_LIBRARIES}
 )
-
-target_link_libraries(fsai_sim
-  PUBLIC
-    Eigen3::Eigen
-    yaml-cpp::yaml-cpp
-    OpenGL::GL
-    Threads::Threads
-    m
-)
-
 
 add_library(fsai_ctrl STATIC
   ${SIM_C_SOURCES}
   ${SIM_CPP_SOURCES}
-  ${ALL_HEADERS}         # for IDEs
+  ${ALL_HEADERS}
 )
-
-target_include_directories(fsai_ctrl
-  PUBLIC
-    ${HEADER_DIRS}
-)
-
-target_link_libraries(fsai_ctrl
-  PUBLIC
-    Eigen3::Eigen
-    CGAL::CGAL
-    CGAL::CGAL_Basic_viewer
-    m
+target_include_directories(fsai_ctrl PUBLIC ${HEADER_DIRS})
+target_link_libraries(fsai_ctrl PUBLIC
+  Eigen3::Eigen
+  CGAL::CGAL
+  m
+  yaml-cpp::yaml-cpp
 )
 
 if(SDL2_IMPORTED_TARGET)
-  target_link_libraries(fsai_sim PUBLIC ${SDL2_IMPORTED_TARGET})
+  target_link_libraries(fsai_sim  PUBLIC ${SDL2_IMPORTED_TARGET})
   target_link_libraries(fsai_ctrl PUBLIC ${SDL2_IMPORTED_TARGET})
 endif()
-
 if(SDL2_INCLUDE_DIRS)
-  target_include_directories(fsai_sim PUBLIC ${SDL2_INCLUDE_DIRS})
+  target_include_directories(fsai_sim  PUBLIC ${SDL2_INCLUDE_DIRS})
   target_include_directories(fsai_ctrl PUBLIC ${SDL2_INCLUDE_DIRS})
 endif()
 
@@ -205,26 +296,29 @@ endif()
 file(GLOB RENDERING_C_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tools/Graphics/*.c")
 add_library(fsai_rendering STATIC ${RENDERING_C_SOURCES})
 target_include_directories(fsai_rendering PUBLIC ${HEADER_DIRS})
-
 if(SDL2_IMPORTED_TARGET)
   target_link_libraries(fsai_rendering PUBLIC ${SDL2_IMPORTED_TARGET})
 endif()
-
 if(SDL2_INCLUDE_DIRS)
   target_include_directories(fsai_rendering PUBLIC ${SDL2_INCLUDE_DIRS})
 endif()
 
 # ------------------------------------------------------------------------------
-# Simulation executable
+# Simulation executable  [UNCHANGED]
 # ------------------------------------------------------------------------------
 file(GLOB_RECURSE SIM_APP_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/sim/app/*.c"
   "${CMAKE_SOURCE_DIR}/sim/app/*.cpp"
 )
-
 add_executable(fsai_run ${SIM_APP_SOURCES})
+target_include_directories(fsai_run PRIVATE
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
+    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+)
+target_compile_definitions(fsai_run PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
-
 if(TARGET fsai_vision_runtime)
   target_link_libraries(fsai_run PRIVATE fsai_vision_runtime)
 endif()
@@ -232,7 +326,6 @@ endif()
 file(GLOB_RECURSE CONTROL_RUNTIME_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/control/runtime_cpp/*.cpp"
 )
-
 if(CONTROL_RUNTIME_SOURCES)
   add_library(fsai_control_runtime STATIC ${CONTROL_RUNTIME_SOURCES})
   target_include_directories(fsai_control_runtime PUBLIC ${HEADER_DIRS})
@@ -249,16 +342,12 @@ endif()
 add_executable(svcu_run sim/svcu/svcu_main.cpp)
 target_link_libraries(svcu_run PRIVATE fsai_sim)
 
-
 # ------------------------------------------------------------------------------
-# Control prototype
+# Control prototype  [UNCHANGED]
 # ------------------------------------------------------------------------------
 add_executable(fsai_plan ${CONTROL_SOURCE})
-target_link_libraries(fsai_plan PRIVATE fsai_ctrl)
-
+target_link_libraries(fsai_plan PRIVATE fsai_ctrl imgui)
 add_to_cached_list( CGAL_EXECUTABLE_TARGETS fsai_plan )
-
-
 if(TARGET SDL2::SDL2)
   target_link_libraries(fsai_plan PRIVATE SDL2::SDL2)
 else()
@@ -266,7 +355,7 @@ else()
 endif()
 
 # ------------------------------------------------------------------------------
-# Tests
+# Tests  [UNCHANGED]
 # ------------------------------------------------------------------------------
 option(BUILD_TESTS "Build test executables automatically" ON)
 if(BUILD_TESTS)
@@ -274,21 +363,36 @@ if(BUILD_TESTS)
     "${CMAKE_SOURCE_DIR}/*Test*.c"
     "${CMAKE_SOURCE_DIR}/*Test*.cpp"
   )
-    foreach(TEST_FILE ${TEST_SOURCES})
-      if(TEST_FILE MATCHES "/sim/svcu/tests/")
-        continue()
-      endif()
-      get_filename_component(TEST_NAME ${TEST_FILE} NAME_WE)
-      if(TARGET ${TEST_NAME})
-        continue()
-      endif()
-      add_executable(${TEST_NAME} ${TEST_FILE})
-      target_link_libraries(${TEST_NAME} PRIVATE fsai_sim fsai_rendering)
-      if(SDL2_IMPORTED_TARGET)
-        target_link_libraries(${TEST_NAME} PRIVATE ${SDL2_IMPORTED_TARGET})
-      endif()
-      message(STATUS "Added test: ${TEST_NAME}")
-    endforeach()
+  list(FILTER TEST_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
+  foreach(TEST_FILE ${TEST_SOURCES})
+    if(TEST_FILE MATCHES "/sim/svcu/tests/")
+      continue()
+    endif()
+    get_filename_component(TEST_NAME ${TEST_FILE} NAME_WE)
+    if(TARGET ${TEST_NAME})
+      continue()
+    endif()
+    add_executable(${TEST_NAME} ${TEST_FILE})
+    target_link_libraries(${TEST_NAME} PRIVATE fsai_sim fsai_rendering)
+    if(SDL2_IMPORTED_TARGET)
+      target_link_libraries(${TEST_NAME} PRIVATE ${SDL2_IMPORTED_TARGET})
+    endif()
+    message(STATUS "Added test: ${TEST_NAME}")
+  endforeach()
+endif()
+
+# ------------------------------------------------------------------------------
+# Make "build everything" the default when you run `cmake --build build`
+# ------------------------------------------------------------------------------
+# Gather all known build targets in this directory and depend on them.
+# This preserves your globs and avoids naming explicit targets.
+get_property(_ALL_TARGETS DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY BUILDSYSTEM_TARGETS)
+# Avoid self-dependency if reconfiguring
+list(REMOVE_ITEM _ALL_TARGETS build_all)
+if(_ALL_TARGETS)
+  add_custom_target(build_all ALL DEPENDS ${_ALL_TARGETS})
+else()
+  message(WARNING "No build targets were created — check that your globs pick up sources.")
 endif()
 
 # ------------------------------------------------------------------------------

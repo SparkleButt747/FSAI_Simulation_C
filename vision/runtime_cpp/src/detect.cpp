@@ -1,35 +1,46 @@
+#include "common/include/common/types.h"
+#include "detect.hpp"
+
 #include <onnxruntime_cxx_api.h> 
 #include <opencv2/opencv.hpp> 
 #include <iostream>
 #include <vector>
-
-#include "common/include/common/types.h"
-#include "detect.hpp"
+#include <string>
 
 
 //{0: 'blue_cone', 1: 'orange_cone', 2: 'large_orange_cone', 3: 'yellow_cone'}
-
+namespace fsai{
+namespace vision{
 const int HEIGHT = 640;
 const int WIDTH = 640;
 const float THRESHOLD = 0.8f;
 const float IOU_OVERLAP = 0.5f;
 const int CONFIDENCE_STARTING_INDEX = 4;
 
+ConeDetector::ConeDetector(const std::string& path_to_model){
+    if(path_to_model.empty()){
+        std::cerr << "VisionNode: ConeDetector: path to model not supplied" << std::endl;
+        throw std::invalid_argument("Path to model was null");
+    }
+    try{
+        std::cout << "VisionNode: ConeDetector: Loading model" << std::endl;
 
-std::vector<BoxBound> detect_cones(cv::Mat image){
-    std::cout << "STARTING YOLO DETECTION" << std::endl;
+        Ort::SessionOptions session_options;
+        env_ = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "ConeDetector");
+        session_ = std::make_unique<Ort::Session>(*env_, path_to_model.c_str(), session_options);
 
+    }catch(const Ort::Exception& e){
+        std::cerr << "VisionNode: ConeDetector: Error whilst loading onnx model " << e.what() << std::endl;
+        throw std::invalid_argument("[Cone Detector]Path to model could not be loaded");
+    }
+}
 
-    //load model using onnx
-    Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "YOLO_DETECTOR");
-    Ort::SessionOptions session_options;
-    const char* model_path  =  "../../model/cone_model.onnx";
-    Ort::Session session(env,model_path,session_options);
+ConeDetector::~ConeDetector() = default;
 
-    std::cout << "--- ONNX model loaded ---" << std::endl;
-
+std::vector<BoxBound>ConeDetector::detectCones(const cv::Mat& left_frame){
+    // preprocess frames to be 640*640px
     cv::Mat resized_image;
-    cv::resize(image,resized_image, cv::Size(HEIGHT,WIDTH));
+    cv::resize(left_frame,resized_image, cv::Size(HEIGHT,WIDTH));
     std::vector<float> input_tensor_values(1*3*HEIGHT*WIDTH);
 
     float* data_ptr = input_tensor_values.data();
@@ -40,7 +51,7 @@ std::vector<BoxBound> detect_cones(cv::Mat image){
 
                 int channel_idx = (c == 0) ? 2 : ((c == 2) ? 0 : 1);
             
-                // Calculate the position in our flat CHW array
+                // Calculate the position in flat CHW array
                 int data_index = c * (640 * 640) + h * 640 + w;
                 
                 // Normalize and assign
@@ -50,7 +61,6 @@ std::vector<BoxBound> detect_cones(cv::Mat image){
         }
     }
 
-    std::cout << "Image preprocessing complete" << std::endl;
 
     //make detections using model
 
@@ -69,13 +79,10 @@ std::vector<BoxBound> detect_cones(cv::Mat image){
         4 // 4 dimensions
     );
 
-    auto output_tensors = session.Run(
-        Ort::RunOptions{nullptr},
+    auto output_tensors = session_->Run(Ort::RunOptions{nullptr},
         input_node_names, &input_tensor, 1,
         output_nodes_names, 1
     );
-
-    std::cout << "--- Detections made, starting post-proc ---" << std::endl;
 
     Ort::Value& output_tensor = output_tensors[0];
 
@@ -88,8 +95,8 @@ std::vector<BoxBound> detect_cones(cv::Mat image){
     std::vector<cv::Rect> boxes;
     std::vector<float> confidences;
     std::vector<int> class_ids;
-    float x_scale = (float)image.cols / 640.0f;
-    float y_scale = (float)image.rows / 640.0f;
+    float x_scale = (float)left_frame.cols / 640.0f;
+    float y_scale = (float)left_frame.rows / 640.0f;
 
     // Dynamically get the number of classes
     const int num_classes = (int)proposal_size - 4;
@@ -99,7 +106,6 @@ std::vector<BoxBound> detect_cones(cv::Mat image){
     const float* h_data = output_data + (3 * num_proposals);
     // Class data starts after the 4 box rows
     const float* class_data_start = output_data + (4 * num_proposals);
-    
     for(long i = 0; i < num_proposals; i++){
 
         // float* dectection_data = output_data + i * proposal_size;
@@ -135,8 +141,6 @@ std::vector<BoxBound> detect_cones(cv::Mat image){
             class_ids.push_back(class_id);
         }
     }
-
-    // clean up noise using NMS
     std::vector<int> nms_res;
     cv::dnn::NMSBoxes(
         boxes,
@@ -144,7 +148,7 @@ std::vector<BoxBound> detect_cones(cv::Mat image){
         THRESHOLD,
         IOU_OVERLAP,
         nms_res);
-    std::vector<BoxBound> bounds;
+    std::vector<BoxBound> detections;
     for (int index : nms_res){
 
         //create instances of detections
@@ -164,22 +168,24 @@ std::vector<BoxBound> detect_cones(cv::Mat image){
             confidences[index],
             side // Using this as a placeholder
         };
-        bounds.push_back(bound);
+        detections.push_back(bound);
     }
-
-    return bounds;
-    
+    return detections;
 }
 
-int main(){
-    char* path_to_image = "../../resources/image.jpeg";
-    cv::Mat image;
-    image = cv::imread(path_to_image);
+fsai::types::ConeDet ConeDetector::processDetection(const BoxBound& box_bound){
+    // create a new ConeDet
+    if(box_bound.w <= 0 || box_bound.h <= 0 || box_bound.x <= 0 || box_bound.y <= 0){
+        return FsaiConeDet();
+    }
+   
+    fsai::types::ConeDet cone = {
+        static_cast<float>(box_bound.x),static_cast<float>(box_bound.y),-1.0f,
+        box_bound.side,
+        box_bound.conf
+    };
+    return cone;
+}
 
-
-    std::vector<BoxBound> detect_cones(image);
-
-    return 0;
-
-
+}
 }

@@ -1,13 +1,16 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <limits>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
 #include "types.h"
+#include "sim/MissionRuntimeState.hpp"
 
 namespace fsai::sim::app {
 
@@ -65,6 +68,29 @@ struct RuntimeTelemetry {
     double total_distance_m{0.0};
     int completed_laps{0};
   } lap;
+
+  struct MissionData {
+    double mission_time_s{0.0};
+    double straight_progress_m{0.0};
+    std::size_t target_laps{0};
+    int completed_laps{0};
+    std::size_t segment_completed_laps{0};
+    std::size_t segment_target_laps{0};
+    fsai::sim::MissionRunStatus status{fsai::sim::MissionRunStatus::kRunning};
+    fsai::sim::MissionSegmentType segment{fsai::sim::MissionSegmentType::kTimed};
+    bool stop_commanded{false};
+    std::string mission_name;
+    std::string mission_short_name;
+    fsai::sim::MissionType mission_type{fsai::sim::MissionType::kAutocross};
+    struct SegmentInfo {
+      fsai::sim::MissionSegmentType type{fsai::sim::MissionSegmentType::kTimed};
+      std::size_t completed_laps{0};
+      std::size_t target_laps{0};
+      double elapsed_time_s{0.0};
+    };
+    std::vector<SegmentInfo> segments;
+    std::optional<std::size_t> active_segment_index{};
+  } mission;
 
   struct CanData {
     fsai::control::runtime::CanIface::Mode mode{fsai::control::runtime::CanIface::Mode::kSimulation};

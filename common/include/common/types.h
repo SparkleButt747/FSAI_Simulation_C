@@ -49,7 +49,8 @@ typedef enum FsaiConeSide {
 } FsaiConeSide;
 
 typedef struct FsaiConeDet {
-    float p_B[3];  // Body-frame (x,y,z) meters
+    float x,y,z;
+    //float p_B[3];  // Body-frame (x,y,z) meters
     FsaiConeSide side;
     float conf;    // [0,1]
     float cov[6];  // Optional covariance (xx,xy,xz,yy,yz,zz); zero if unused

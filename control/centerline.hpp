@@ -1,19 +1,58 @@
-#include "types.h"
+#ifndef FSAI_CENTERLINE_HPP
+#define FSAI_CENTERLINE_HPP
+
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Delaunay_triangulation_2.h>
+
+#include "PathGenerator.hpp"
+#include "TrackGenerator.hpp"
+#include "VehicleState.hpp"
 #include "Vector.h"
-#include <vector>
+#include "World.hpp"
+#include "Transform.h"
+#include "types.h"
+#include "centerline.hpp"
+
 #include <tuple>
+#include <typeinfo>
+#include <cmath>
+#include <chrono>
+#include <iostream>
+#include <vector>
+#include <deque>
+#include <map>
+#include <set>
+#include <cstring>
+#include <unordered_map>
+
+using K=CGAL::Exact_predicates_inexact_constructions_kernel;
+using Triangulation=CGAL::Delaunay_triangulation_2<K>;
+using Point=Triangulation::Point;
+using AllEdgeIterator=Triangulation::All_edges_iterator;
+using FiniteEdgeIterator=Triangulation::Finite_edges_iterator;
+using VertexHandle=Triangulation::Vertex_handle;
 
 /** This represents a node on the path with the code detections that correspond
  * to the two points of the edges being included for computing the cost of a
  * path. There is also a special case where the PathNode is the starting node
  * which is the car's position. In this case, left and right are null.
  */
-typedef struct {
+class PathNode {
+  public:
+    int id = -1;
     Vector2 midpoint;
-    FsaiConeDet left;
-    FsaiConeDet right;
-    std::vector<PathNode> children;
-} PathNode;
+    FsaiConeDet first;
+    FsaiConeDet second;
+    std::vector<PathNode*> children;
+
+    bool operator==(const PathNode& other) const {
+        return midpoint.x == other.midpoint.x && midpoint.y == other.midpoint.y && first.x == other.first.x && first.y == other.first.y;
+    }
+
+    bool operator<(const PathNode& other) const {
+        return midpoint.x < other.midpoint.x;
+    }
+};
 
 /**
  * Takes an unordered list of cone detections and returns a centerline
@@ -31,7 +70,6 @@ std::vector<Vector2> getCenterline(
     std::vector<FsaiConeDet> coneDetections,
     FsaiVehicleState vehicleState
 );
-
 
 /**
  * Cost is calculated as a combination of these factors:
@@ -52,8 +90,89 @@ std::vector<Vector2> getCenterline(
  *
  * see table 3 here: https://arxiv.org/pdf/1905.05150
  */
-float calculateCost(std::vector<PathNode> path);
+float calculateCost(const std::vector<PathNode>& path, std::size_t minLen);
 
+struct CostWeights {
+    float angleMax = 0.441f;
+    float widthStd = 1.6f;
+    float spacingStd = 0.0f;
+    float color = 10.0f;
+    float rangeSq = 5.0f;
+};
+
+CostWeights defaultCostWeights();
+CostWeights getCostWeights();
+void setCostWeights(const CostWeights& weights);
+
+// Build a PathNode graph from a visible triangulation
+std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
+    Triangulation& T,
+    Point carFront,
+    std::unordered_map<Point, FsaiConeSide> coneToSide
+);
+
+double getInitialTrackYaw(TrackResult track);
+
+// Gets the angle between two direction vectors using Point as the data structure
+double getAngle(Point a, Point b);
+
+// Returns the front of the car as a Point and modifies the triangulation in
+// place, representing the car visually as a triangle.
+Point generateVehicleTriangulation(
+  Triangulation& T,
+  const TrackResult& track,
+  double carLength = 4.0,
+  double carWidth = 1.5
+);
+
+Point getCarFront(
+  VehicleState carState,
+  double carLength = 4.0,
+  double carWidth = 1.5
+);
+
+// Modifies the triangulation of the cones visible from the car position assuming
+// a circular sector veiwing area
+std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
+  Triangulation& T,
+  Point carFront,
+  TrackResult fullTrack,
+  double sensorRange = 20.0,
+  double sensorFOV = 2 * M_PI / 3
+);
+
+
+std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
+  Point carFront,
+  double carYaw,
+  std::vector<Cone> leftConePositions,
+  std::vector<Cone> rightConePositions,
+  double sensorRange = 20.0,
+  double sensorFOV = 2 * M_PI / 3
+);
+
+std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
+  VehicleState carState,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions
+);
+
+// Returns a simple path (sequence of PathNode) with the lowest cost according to calculateCost.
+// Explores candidate paths up to maxLen nodes using a beam search whose width can be tuned.
+std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
+    const std::vector<std::vector<int>>& adj,
+    const std::vector<PathNode>& nodes,
+    const Point& carFront,
+    std::size_t maxLen,
+    std::size_t minLen,
+    std::size_t beamWidth
+);
+
+std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode>& path);
+
+Vector3* pathNodesToCheckpoints(std::vector<PathNode> path);
 
 // Ideas
 // Work out left and right cones relative to the car with cross product
+
+#endif // FSAI_CENTERLINE_HPP
