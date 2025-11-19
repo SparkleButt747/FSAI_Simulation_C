@@ -1,4 +1,3 @@
-#pragma once
 #include "asynch_logger.hpp"
 
 namespace fsai:vision
