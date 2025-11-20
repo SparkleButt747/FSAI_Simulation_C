@@ -2,7 +2,6 @@
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_2.h>
-#include <CGAL/draw_triangulation_2.h>
 
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
@@ -39,17 +38,17 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
 );
 
 // Convenience drawer for the PathNode adjacency
-void drawEdges(
-  std::map<PathNode, std::set<PathNode>>& adjacency,
-  CGAL::Graphics_scene& scene,
-  CGAL::Color color = CGAL::IO::Color(15, 15, 15)
-);
+// void drawEdges(
+//   std::map<PathNode, std::set<PathNode>>& adjacency,
+//   CGAL::Graphics_scene& scene,
+//   CGAL::Color color = CGAL::IO::Color(15, 15, 15)
+// );
 
 // Prints CGAL edges to standard out
-void printEdges(Triangulation& T);
+//void printEdges(Triangulation& T);
 
 // Draws CGAL edges to CGAL Basic viewer
-void drawEdges(Triangulation& T, CGAL::Graphics_scene& scene, CGAL::Color color = CGAL::IO::Color(15, 15, 15));
+// void drawEdges(Triangulation& T, CGAL::Graphics_scene& scene, CGAL::Color color = CGAL::IO::Color(15, 15, 15));
 
 double getInitialTrackYaw(TrackResult track);
 
@@ -73,7 +72,7 @@ Point getCarFront(
 
 // Modifies the triangulation of the cones visible from the car position assuming
 // a circular sector veiwing area
-std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
+std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
@@ -82,7 +81,7 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulation(
 );
 
 
-std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulation(
+std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
   Point carFront,
   double carYaw,
   std::vector<Cone> leftConePositions,
@@ -97,18 +96,19 @@ std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTri
   const std::vector<Cone>& rightConePositions
 );
 
+/*
 void drawVisibleTriangulationEdges(
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
   const std::vector<Cone>& rightConePositions
-);
+);*/
 
 // NEW: draw edges for an adjacency list indexed by node id
-void drawEdges(
-  const std::vector<std::vector<int>>& adjacency,
-  const std::vector<PathNode>& nodes,
-  CGAL::Graphics_scene& scene,
-  CGAL::Color color = CGAL::IO::Color(15, 15, 15));
+// void drawEdges(
+//   const std::vector<std::vector<int>>& adjacency,
+//   const std::vector<PathNode>& nodes,
+//   CGAL::Graphics_scene& scene,
+//   CGAL::Color color = CGAL::IO::Color(15, 15, 15));
 
 
 // Returns a simple path (sequence of PathNode) with the lowest cost according to calculateCost.
@@ -125,10 +125,10 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
 std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode>& path);
 
 // Draw a path (by connecting PathNode midpoints).
-void drawPathMidpoints(
-  const std::vector<PathNode>& path,
-  CGAL::Graphics_scene& scene,
-  CGAL::Color color = CGAL::IO::Color(255, 100, 30)
-);
+// void drawPathMidpoints(
+//   const std::vector<PathNode>& path,
+//   CGAL::Graphics_scene& scene,
+//   CGAL::Color color = CGAL::IO::Color(255, 100, 30)
+// );
 
 Vector3* pathNodesToCheckpoints(std::vector<PathNode> path);
