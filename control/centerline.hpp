@@ -3,7 +3,6 @@
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_2.h>
-#include <CGAL/draw_triangulation_2.h>
 
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
