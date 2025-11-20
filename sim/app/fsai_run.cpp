@@ -191,7 +191,7 @@ fsai::sim::MissionDescriptor ResolveMissionSelection(
 #ifndef FSAI_PROJECT_ROOT
 #define FSAI_PROJECT_ROOT "."
 #endif
- 
+
 std::filesystem::path MakeProjectRelativePath(const std::filesystem::path& path) {
   if (path.is_absolute()) {
     return path;
@@ -199,7 +199,7 @@ std::filesystem::path MakeProjectRelativePath(const std::filesystem::path& path)
 
   return std::filesystem::path(FSAI_PROJECT_ROOT) / path;
 }
- 
+
 std::filesystem::path MakeProjectRelativePath(const std::string& path) {
   return MakeProjectRelativePath(std::filesystem::path(path));
 }
@@ -1438,8 +1438,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
                    transform.yaw);
 
 
-  std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.getLeftCones(), world.getRightCones()).second;
-  for (auto edge: triangulationEdges) {
+  for (auto edge: world.triangulationEdges) {
     Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
   }
   for (auto edge: world.bestPathEdges) {

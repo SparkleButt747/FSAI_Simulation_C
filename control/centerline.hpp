@@ -8,10 +8,9 @@
 #include "TrackGenerator.hpp"
 #include "VehicleState.hpp"
 #include "Vector.h"
-#include "World.hpp"
 #include "Transform.h"
 #include "types.h"
-#include "centerline.hpp"
+#include "sim/cone_types.hpp"
 
 #include <tuple>
 #include <typeinfo>
@@ -25,6 +24,7 @@
 #include <cstring>
 #include <unordered_map>
 
+class World;
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
 using Point=Triangulation::Point;
@@ -142,16 +142,20 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
 );
 
 
-std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
+void updateVisibleTrackTriangulation(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
   Point carFront,
   double carYaw,
-  std::vector<Cone> leftConePositions,
-  std::vector<Cone> rightConePositions,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
   double sensorRange = 20.0,
   double sensorFOV = 2 * M_PI / 3
 );
 
-std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
+std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
+  Triangulation& triangulation,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
   const std::vector<Cone>& rightConePositions
@@ -166,6 +170,13 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     std::size_t maxLen,
     std::size_t minLen,
     std::size_t beamWidth
+);
+
+void removePassedCones(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw
 );
 
 std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode>& path);

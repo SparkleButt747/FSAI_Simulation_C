@@ -145,10 +145,15 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
                         static_cast<float>(carState.velocity.z())};
     const float carSpeed = Vector3_Magnitude(carVelocity);
 
-    auto triangulation = getVisibleTriangulationEdges(vehicleState(), getLeftCones(), getRightCones()).first;
-    auto coneToSide = getVisibleTrackTriangulationFromCones(getCarFront(vehicleState()), vehicleState().yaw, getLeftCones(), getRightCones()).second;
-    auto [nodes, adj] = generateGraph(triangulation, getCarFront(vehicleState()), coneToSide);
-    auto searchResult = beamSearch(adj, nodes, getCarFront(vehicleState()), 30, 2, 20);
+    Point carFront = getCarFront(vehicleState());
+    double carYaw = vehicleState().yaw;
+
+    removePassedCones(triangulation_, coneToSide_, carFront, carYaw);
+
+    triangulationEdges = getVisibleTriangulationEdges(triangulation_, coneToSide_, vehicleState(), getLeftCones(), getRightCones());
+
+    auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
+    auto searchResult = beamSearch(adj, nodes, carFront, 7, 2, 20);
     auto pathNodes = searchResult.first;
     bestPathEdges = searchResult.second;
     auto checkpoints = pathNodesToCheckpoints(pathNodes);
@@ -371,6 +376,8 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
     rightCones.clear();
     gateSegments_.clear();
     boundarySegments_.clear();
+    triangulation_.clear();
+    coneToSide_.clear();
 
     // Load checkpoints
     for (const auto& cp : track.checkpoints)
@@ -396,7 +403,7 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
     {
         // Keep existing orange cones (the 4 big ones at top)
         // Now ADD corridor cones (entrance/exit) as orange
-        
+
         // Circle centers based on your data:
         // Left circle: center around X=-9.25, Z=0
         // Right circle: center around X=9.25, Z=0
@@ -405,21 +412,21 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
         const double circleCenterZ = 0.0;
         const double circleRadius = 9.0; // Approximate radius from data
         const double corridorMargin = 2.5; // Distance outside circle to consider "corridor"
-        
+
         auto moveCorridorConesToOrange = [&](std::vector<Cone>& list) {
             std::vector<Cone> keep;
             for (auto& c : list) {
                 // Calculate distance from both circle centers
-                double distLeft = std::hypot(c.position.x - leftCircleCenterX, 
+                double distLeft = std::hypot(c.position.x - leftCircleCenterX,
                                             c.position.z - circleCenterZ);
-                double distRight = std::hypot(c.position.x - rightCircleCenterX, 
+                double distRight = std::hypot(c.position.x - rightCircleCenterX,
                                             c.position.z - circleCenterZ);
-                
+
                 // If cone is NOT part of either circle (too far from both centers)
                 // then it's a corridor cone
-                bool isCorridorCone = (distLeft > circleRadius + corridorMargin) && 
+                bool isCorridorCone = (distLeft > circleRadius + corridorMargin) &&
                                     (distRight > circleRadius + corridorMargin);
-                
+
                 if (isCorridorCone) {
                     c.type = ConeType::Start;  // Make it ORANGE
                     startCones.push_back(c);
@@ -429,18 +436,18 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
             }
             list = keep;
         };
-        
+
         moveCorridorConesToOrange(leftCones);
         moveCorridorConesToOrange(rightCones);
-        
+
         // Sort orange cones by Z so entrance (bottom) comes first
-        std::sort(startCones.begin(), startCones.end(), 
-                [](const Cone& a, const Cone& b) { 
-                    return a.position.z < b.position.z; 
+        std::sort(startCones.begin(), startCones.end(),
+                [](const Cone& a, const Cone& b) {
+                    return a.position.z < b.position.z;
                 });
-        
+
         std::printf("After processing: Total orange cones = %zu\n", startCones.size());
-        
+
         // Mirror the entire track along Z axis (flip upside down)
         // So entrance moves from top to bottom
         auto flipZ = [](std::vector<Cone>& cones) {
@@ -448,21 +455,21 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
                 c.position.z = -c.position.z;
             }
         };
-        
+
         flipZ(startCones);
         flipZ(leftCones);
         flipZ(rightCones);
-        
+
         // Also flip checkpoints
         for (auto& cp : checkpointPositions) {
             cp.z = -cp.z;
         }
-        
+
         std::printf("Track flipped: entrance now at bottom (negative Z)\n");
-        
+
         // Swap blue and yellow cones
         std::swap(leftCones, rightCones);
-        
+
         std::printf("Blue and yellow cones swapped\n");
     }
     // =========================================================================

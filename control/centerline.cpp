@@ -373,50 +373,45 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
     return coneToSide;
 }
 
-std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
+void updateVisibleTrackTriangulation(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
   Point carFront,
   double carYaw,
-  std::vector<Cone> leftConePositions,
-  std::vector<Cone> rightConePositions,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
   double sensorRange,
   double sensorFOV
 ) {
-    Triangulation visibleTrack;
     Point carVector = Point(std::cos(carYaw), std::sin(carYaw));
-    std::unordered_map<Point, FsaiConeSide> coneToSide;
 
-    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &visibleTrack, &coneToSide](std::vector<Cone> cones, FsaiConeSide side) {
-      for (Cone cone3d: cones) {
+    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &T, &coneToSide](const std::vector<Cone>& cones, FsaiConeSide side) {
+      for (const auto& cone3d : cones) {
         Point delta = Point(cone3d.position.x - carFront.x(), cone3d.position.z - carFront.y());
         Point cone = Point(cone3d.position.x, cone3d.position.z);
+        if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
+        if (getAngle(carVector, delta) > sensorFOV/2) continue;
         
-        if (std::hypot(delta.x(), delta.y()) > sensorRange) { 
-            continue;
+        if (coneToSide.find(cone) == coneToSide.end()) {
+            T.insert(cone);
+            coneToSide[cone] = side;
         }
-        if (getAngle(carVector, delta) > sensorFOV/2) {
-            continue;
-        }
-        
-        coneToSide[cone] = side;
-        visibleTrack.insert(cone);
       }
     };
 
     addCones(leftConePositions, FSAI_CONE_LEFT);
     addCones(rightConePositions, FSAI_CONE_RIGHT);
-
-    return {visibleTrack, coneToSide};
 }
 
-std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
+std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
+  Triangulation& triangulation,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
   const std::vector<Cone>& rightConePositions
 ) {
-
-    Point carFront = Point(carState.position.x(), carState.position.y());
-    auto triangulation_pair = getVisibleTrackTriangulationFromCones(carFront, carState.yaw, leftConePositions, rightConePositions);
-    auto triangulation = triangulation_pair.first;
+    Point carFront = getCarFront(carState);
+    updateVisibleTrackTriangulation(triangulation, coneToSide, carFront, carState.yaw, leftConePositions, rightConePositions);
 
     std::vector<std::pair<Vector2, Vector2>> edges {};
     for (auto it = triangulation.finite_edges_begin(); it != triangulation.finite_edges_end(); ++it) {
@@ -437,7 +432,7 @@ std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTri
         );
     }
 
-    return {triangulation, edges};
+    return edges;
 }
 
 std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
@@ -632,81 +627,35 @@ Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
     return checkpoints;
 }
 
-std::vector<Vector2> getCenterline(
-    std::vector<FsaiConeDet> coneDetections,
-    FsaiVehicleState vehicleState
+
+void removePassedCones(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw
 ) {
-    // 1. Build the car front point in 2D
-    const Point carFront(vehicleState.x, vehicleState.y);
+    double carForwardX = std::cos(carYaw);
+    double carForwardY = std::sin(carYaw);
 
-    // Orientation vector of the car
-    const double carYaw = vehicleState.yaw;
-    const Point carVector(std::cos(carYaw), std::sin(carYaw));
+    std::vector<VertexHandle> vertices_to_remove;
+    for (auto v_it = T.finite_vertices_begin(); v_it != T.finite_vertices_end(); ++v_it) {
+        Point p = v_it->point();
+        double cone_to_carX = p.x() - carFront.x();
+        double cone_to_carY = p.y() - carFront.y();
 
-    // 2. Create a triangulation and map from cone position -> side
-    Triangulation T;
-    T.insert(carFront);
+        double dot_product = carForwardX * cone_to_carX + carForwardY * cone_to_carY;
 
-    std::unordered_map<Point, FsaiConeSide> coneToSide;
-
-    // Tunable sensor model
-    const double sensorRange = 20.0;         // meters
-    const double sensorFOV   = 2.0 * M_PI/3; // 120 degrees
-
-    // 3. Insert cones into triangulation, filtering by FOV / range / confidence
-    // I am not sure how coneDetections are given to us so this might be wrong
-    // y might need to be changed to z
-    for(const FsaiConeDet& det : coneDetections) {
-        // Optional: ignore very low-confidence detections
-        if (det.conf < 0.3f) {
-            continue;
+        if (dot_product < 0) {
+            // Check if cone is far enough behind
+            if (std::hypot(cone_to_carX, cone_to_carY) > 1.0) { // 1m threshold
+                vertices_to_remove.push_back(v_it);
+            }
         }
-
-        const Point conePoint(det.x, det.y);
-        /*
-        // Project detection into 2D ground plane: (x,y)
-
-        // Relative vector from car to cone
-        const Point delta(conePoint.x() - carFront.x(),
-                          conePoint.y() - carFront.y());
-
-        // Range check
-        if (std::hypot(delta.x(), delta.y()) > sensorRange) {
-            continue;
-        }
-
-        // FOV check
-        if (getAngle(carVector, delta) > sensorFOV * 0.5) {
-            continue;
-        }
-        */
-        // ^ this part can be used for testing
-
-        // Insert into triangulation & side map
-        coneToSide[conePoint] = det.side;
-        T.insert(conePoint);
     }
 
-    // 4. Build graph of edges that cross from left to right
-    auto [nodes, adj] = generateGraph(T, carFront, coneToSide);
-
-    if (nodes.empty()) {
-        return {};  // Nothing reasonable to return
+    for (const auto& vh : vertices_to_remove) {
+        coneToSide.erase(vh->point());
+        T.remove(vh);
     }
-
-    // 5. Run beam search on the graph
-    const std::size_t maxLen    = 30;
-    const std::size_t minLen    = 8;
-    const std::size_t beamWidth = 12;
-
-    auto [bestPath, pathEdges] = beamSearch(adj, nodes, carFront, maxLen, minLen, beamWidth);
-
-    // 6. Convert best path to a simple list of midpoints
-    std::vector<Vector2> centerline;
-    centerline.reserve(bestPath.size());
-    for (const auto& node : bestPath) {
-        centerline.push_back(node.midpoint);
-    }
-
-    return centerline;
 }
+

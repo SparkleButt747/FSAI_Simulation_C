@@ -2,6 +2,9 @@
 
 #include <vector>
 #include <Eigen/Dense>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Delaunay_triangulation_2.h>
+#include <unordered_map>
 #include "DynamicBicycle.hpp"
 #include "VehicleState.hpp"
 #include "VehicleInput.hpp"
@@ -14,19 +17,14 @@
 #include "TrackGenerator.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/MissionRuntimeState.hpp"
+#include "sim/cone_types.hpp"
+#include "types.h"
 
-enum class ConeType {
-    Start,
-    Left,
-    Right,
-};
+using K=CGAL::Exact_predicates_inexact_constructions_kernel;
+using Triangulation=CGAL::Delaunay_triangulation_2<K>;
+using Point=Triangulation::Point;
 
-struct Cone {
-    Vector3 position{0.0f, 0.0f, 0.0f};
-    float radius{0.0f};
-    float mass{0.0f};
-    ConeType type{ConeType::Left};
-};
+
 
 struct CollisionSegment {
     Vector2 start{0.0f, 0.0f};
@@ -59,6 +57,7 @@ public:
     int useController{1};
     int regenTrack{1};
     std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
+    std::vector<std::pair<Vector2, Vector2>> triangulationEdges {};
 
 
     const VehicleState& vehicleState() const { return carState; }
@@ -69,7 +68,7 @@ public:
 
     const std::vector<Cone>& getStartCones() const { return startCones; }
     const std::vector<Cone>& getLeftCones() const { return leftCones; }
-    const std::vector<Cone>& getRightCones() const { return rightCones; }    
+    const std::vector<Cone>& getRightCones() const { return rightCones; }
     const std::vector<Vector3> getStartConePositions() const {
         std::vector<Vector3> positions;
         positions.reserve(startCones.size());
@@ -116,6 +115,7 @@ private:
     friend class WorldTestHelper;
     void moveNextCheckpointToLast();
     void reset();
+    void initializeTriangulation();
     void configureTrackState(const fsai::sim::TrackData& track);
     void initializeVehiclePose();
     fsai::sim::TrackData generateRandomTrack() const;
@@ -127,6 +127,9 @@ private:
     VehicleInput carInput{0.0, 0.0, 0.0};
     Transform carTransform{};
     Vector2 prevCarPos_{0.0f, 0.0f};
+
+    Triangulation triangulation_;
+    std::unordered_map<Point, FsaiConeSide> coneToSide_;
 
     std::vector<Vector3> checkpointPositions{};
     std::vector<Cone> startCones{};
