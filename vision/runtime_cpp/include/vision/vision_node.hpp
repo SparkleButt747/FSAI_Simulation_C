@@ -4,6 +4,8 @@
 
 #include "common/include/common/types.h"
 #include "detect.hpp"
+#include "features.hpp"
+#include "shared_ring_buffer.hpp"
 
 
 #include <atomic>
@@ -14,7 +16,7 @@
 #include <vector>
 
 #include <opencv2/opencv.hpp>
-
+#include <Eigen/Core>
 
 
 namespace fsai{
@@ -25,6 +27,15 @@ struct RenderableFrame {
     uint64_t timestamp_ns = 0;
     bool valid = false;
 };
+struct ConeCluster{
+    int coneId;
+    std::vector<Eigen::Vector3d> points;
+    FsaiConeSide side;
+    Eigen::Vector2d centre;
+};
+// struct Point3D{
+//     double X,Y,Z;
+// };
 class SimCamera;
 class ConeDetector;
 class VisionNode{
@@ -57,16 +68,25 @@ class VisionNode{
      * @brief stops the internal processing thread
     */
    void stop();
-
+   using PoseProvider = std::function<std::pair<Eigen::Vector2d, double>()>;
+   void setPoseProvider(PoseProvider provider){pose_provider_ = provider;}
    std::optional<fsai::types::Detections> makeDetections();
+   std::optional<fsai::types::Detections> getLatestDetections();
    RenderableFrame getRenderableFrame();
+   
 
    private:
 
     void runProcessingLoop();
-
+    // private helpers
+    inline bool triangulatePoint(const Feature& feat,Eigen::Vector3d& result);
     cv::Mat frameToMat(const fsai::types::Frame& frame);
 
+    // private members
+    PoseProvider pose_provider_;
+    bool intrinsics_set_ = false;
+    FsaiCameraIntrinsics cameraParams_;
+    const double BASE_LINE_ = 0.2;
     std::unique_ptr<fsai::vision::SimCamera> camera_;
     std::unique_ptr<fsai::vision::ConeDetector> detector_;
 
@@ -77,6 +97,10 @@ class VisionNode{
     std::optional<fsai::types::Detections> latest_detections_;
     std::mutex render_mutex_;
     RenderableFrame latest_renderable_frame_;
+
+    //Add ring buffer type 
+    using DetectionsRingBuffer = fsai::vision::GenericRingBuffer<fsai::types::Detections>;
+    std::shared_ptr<DetectionsRingBuffer> detection_buffer_;
 
 };
 }

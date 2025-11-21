@@ -783,4 +783,5 @@ void World::reset() {
     const float initDz = carTransform.position.z - lastCheckpoint.z;
     const float initDist = std::sqrt(initDx * initDx + initDz * initDz);
     insideLastCheckpoint_ = initDist < config.lapCompletionThreshold;
+    coneDetections.clear();
 }
