@@ -28,12 +28,12 @@ void WorldRuntime::NotifySpawnApplied(const Transform& transform) {
       distance < config_.lap_completion_threshold;
 }
 
-void WorldRuntime::BeginStep(double dt_seconds) {
+void WorldRuntime::BeginStep(double dt_seconds, const VehicleState& vehicle_state) {
   delta_time_s_ = dt_seconds;
   if (dt_seconds <= 0.0) {
     return;
   }
-  mission_state_.Update(dt_seconds);
+  mission_state_.Update(dt_seconds, vehicle_state);
   if (!mission_state_.mission_complete()) {
     lap_time_s_ += dt_seconds;
   }

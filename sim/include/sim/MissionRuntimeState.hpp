@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "sim/mission/MissionDefinition.hpp"
+#include "VehicleState.hpp"
 
 namespace fsai::sim {
 
@@ -15,6 +16,7 @@ enum class MissionSegmentType {
 
 enum class MissionRunStatus {
   kRunning,
+  kBraking,
   kCompleted,
 };
 
@@ -35,7 +37,7 @@ class MissionRuntimeState {
   explicit MissionRuntimeState(const MissionDefinition& definition);
 
   void Reset(const MissionDefinition& definition);
-  void Update(double dt_seconds);
+  void Update(double dt_seconds, const VehicleState& vehicle_state);
   void RegisterLap(double lap_time_s, double lap_distance_m);
   void SetStraightLineProgress(double progress_meters);
 
@@ -52,6 +54,7 @@ class MissionRuntimeState {
   bool mission_complete() const { return run_status_ == MissionRunStatus::kCompleted; }
   bool stop_commanded() const { return stop_commanded_; }
   void MarkStopCommanded();
+  void MarkCompleted();
 
  private:
   void ConfigureSegments();
