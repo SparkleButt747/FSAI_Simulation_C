@@ -2,13 +2,19 @@
 
 #include "can_link.hpp"
 
+#include <cstddef>
 #include <optional>
 #include <string>
 
 namespace fsai::sim::svcu {
 
 #if defined(__APPLE__)
-struct ShmRing;
+constexpr std::size_t kShmRingSize = 32;
+struct ShmRing {
+  std::size_t head{0};
+  std::size_t tail{0};
+  can_frame frames[kShmRingSize];
+};
 #endif
 
 class SocketCanLink : public ICanLink {

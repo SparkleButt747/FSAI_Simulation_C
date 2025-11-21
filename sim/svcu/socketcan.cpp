@@ -105,14 +105,6 @@ std::optional<can_frame> SocketCanLink::receive() {
 namespace fsai::sim::svcu {
 
 namespace {
-constexpr std::size_t kRingSize = 32;
-
-struct ShmRing {
-  size_t head{0};
-  size_t tail{0};
-  can_frame frames[kRingSize];
-};
-
 std::string make_shm_name(const std::string& iface) {
   std::string name = "/fsai_socketcan_" + iface;
   if (name.size() > 31) {
@@ -164,9 +156,9 @@ bool SocketCanLink::send(const can_frame& frame) {
     return false;
   }
   shared_->frames[shared_->head] = frame;
-  shared_->head = (shared_->head + 1) % kRingSize;
+  shared_->head = (shared_->head + 1) % kShmRingSize;
   if (shared_->head == shared_->tail) {
-    shared_->tail = (shared_->tail + 1) % kRingSize;
+    shared_->tail = (shared_->tail + 1) % kShmRingSize;
   }
   return true;
 }
@@ -176,7 +168,7 @@ std::optional<can_frame> SocketCanLink::receive() {
     return std::nullopt;
   }
   can_frame frame = shared_->frames[shared_->tail];
-  shared_->tail = (shared_->tail + 1) % kRingSize;
+  shared_->tail = (shared_->tail + 1) % kShmRingSize;
   return frame;
 }
 
