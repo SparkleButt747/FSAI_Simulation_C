@@ -1819,9 +1819,14 @@ int main(int argc, char* argv[]) {
       FSAI_BUDGET_SUBSYSTEM_CAN,
       "CAN transport not wired; pending hardware integration.");
 
-  World world;
   const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
-  world.init(vehicle_config_path.c_str(), mission_definition);
+  const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
+  VehicleDynamics vehicle_dynamics(vehicle_param);
+  World world;
+  world.init(vehicle_dynamics, mission_definition);
+  vehicle_dynamics.setState(world.vehicleSpawnState().state,
+                            world.vehicleSpawnState().transform);
+  world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
 
   Graphics graphics{};
   if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,
@@ -1947,9 +1952,6 @@ int main(int argc, char* argv[]) {
   std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
-
-  const VehicleParam& vehicle_param = world.model().param();
-
 
   fsai::control::runtime::CanIface::Config can_cfg{};
   can_cfg.endpoint = can_iface;
@@ -2178,9 +2180,17 @@ int main(int argc, char* argv[]) {
     world.brakeInput = appliedBrake;
     world.steeringAngle = appliedSteer;
 
+    vehicle_dynamics.setCommand(appliedThrottle, appliedBrake, appliedSteer);
+    vehicle_dynamics.step(step_seconds);
+
     {
       fsai::time::ControlStageTimer control_timer("world_update");
       world.update(step_seconds);
+    }
+    if (world.vehicleResetPending()) {
+      vehicle_dynamics.setState(world.vehicleSpawnState().state,
+                                world.vehicleSpawnState().transform);
+      world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
     }
     const double sim_time_s = fsai_clock_to_seconds(now_ns);
 

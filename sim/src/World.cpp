@@ -140,12 +140,12 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
         return false;
     }
 
-    const VehicleState& state = vehicleDynamics_.state();
+    const VehicleState& state = vehicleDynamics().state();
     Vector3 carVelocity{static_cast<float>(state.velocity.x()),
                         static_cast<float>(state.velocity.y()),
                         static_cast<float>(state.velocity.z())};
     const float carSpeed = Vector3_Magnitude(carVelocity);
-    const Transform& carTransform = vehicleDynamics_.transform();
+    const Transform& carTransform = vehicleDynamics().transform();
 
     auto triangulation = getVisibleTriangulationEdges(vehicleState(), getLeftCones(), getRightCones()).first;
     auto coneToSide = getVisibleTrackTriangulationFromCones(getCarFront(vehicleState()), vehicleState().yaw, getLeftCones(), getRightCones()).second;
@@ -172,7 +172,17 @@ void World::setSvcuCommand(float throttle, float brake, float steer) {
     hasSvcuCommand_ = true;
 }
 
-void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission) {
+void World::setVehicleDynamics(const VehicleDynamics& vehicleDynamics) {
+    vehicleDynamics_ = &vehicleDynamics;
+}
+
+void World::acknowledgeVehicleReset(const Transform& appliedTransform) {
+    vehicleResetPending_ = false;
+    prevCarPos_ = {appliedTransform.position.x, appliedTransform.position.z};
+}
+
+void World::init(const VehicleDynamics& vehicleDynamics, fsai::sim::MissionDefinition mission) {
+    setVehicleDynamics(vehicleDynamics);
     mission_ = std::move(mission);
 
     if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
@@ -203,10 +213,8 @@ void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission)
     racingConfig.steeringLookAheadSensitivity = 0;
     racingConfig.accelerationFactor = 0.0019f;
 
-    VehicleParam vp = VehicleParam::loadFromFile(yamlFilePath);
-    vehicleDynamics_ = VehicleDynamics(vp);
-
     initializeVehiclePose();
+    vehicleResetPending_ = true;
 
     hasSvcuCommand_ = false;
     lastSvcuThrottle_ = 0.0f;
@@ -215,7 +223,12 @@ void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission)
 }
 
 void World::update(double dt) {
+    const auto& dynamics = vehicleDynamics();
     deltaTime = dt;
+
+    if (vehicleResetPending_) {
+        return;
+    }
 
     if (!missionState_.mission_complete()) {
         missionState_.Update(dt);
@@ -238,16 +251,13 @@ void World::update(double dt) {
 
     handleMissionCompletion();
 
-    vehicleDynamics_.setCommand(throttleInput, brakeInput, steeringAngle);
-    vehicleDynamics_.step(dt);
-
-    const auto& carTransform = vehicleDynamics_.transform();
+    const auto& carTransform = dynamics.transform();
 
     const Vector2 currentPos{carTransform.position.x, carTransform.position.z};
     const bool crossedGate = crossesCurrentGate(prevCarPos_, currentPos);
 
-    const Eigen::Vector2d velocity2d(vehicleDynamics_.state().velocity.x(),
-                                     vehicleDynamics_.state().velocity.y());
+    const Eigen::Vector2d velocity2d(dynamics.state().velocity.x(),
+                                     dynamics.state().velocity.y());
     if (!missionState_.mission_complete()) {
         totalDistance += velocity2d.norm() * dt;
     }
@@ -265,7 +275,7 @@ void World::update(double dt) {
 }
 
 bool World::detectCollisions(bool crossedGate) {
-    const Transform& carTransform = vehicleDynamics_.transform();
+    const Transform& carTransform = vehicleDynamics().transform();
 
     if (crossedGate && !checkpointPositions.empty()) {
         moveNextCheckpointToLast();
@@ -352,7 +362,7 @@ bool World::detectCollisions(bool crossedGate) {
 }
 
 void World::telemetry() const {
-    Telemetry_Update(vehicleDynamics_.state(), vehicleDynamics_.transform(),
+    Telemetry_Update(vehicleDynamics().state(), vehicleDynamics().transform(),
                      fsai_clock_now(), totalTime, totalDistance, lapCount,
                      missionState_);
 }
@@ -523,51 +533,47 @@ void World::configureMissionRuntime() {
 }
 
 void World::initializeVehiclePose() {
+    spawnState_ = {};
     if (checkpointPositions.empty()) {
-        VehicleState carState(Eigen::Vector3d::Zero(), 0.0,
-                              Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                              Eigen::Vector3d::Zero());
-        Transform carTransform{};
-        carTransform.position.x = 0.0f;
-        carTransform.position.y = 0.5f;
-        carTransform.position.z = 0.0f;
-        carTransform.yaw = 0.0f;
-        vehicleDynamics_.setState(carState, carTransform);
-        prevCarPos_ = {carTransform.position.x, carTransform.position.z};
-        return;
+        spawnState_.state = VehicleState(Eigen::Vector3d::Zero(), 0.0,
+                                         Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+                                         Eigen::Vector3d::Zero());
+        spawnState_.transform.position.x = 0.0f;
+        spawnState_.transform.position.y = 0.5f;
+        spawnState_.transform.position.z = 0.0f;
+        spawnState_.transform.yaw = 0.0f;
+    } else {
+        const Vector3& start = checkpointPositions.front();
+        const std::size_t lookaheadIndex = checkpointPositions.size() > 1
+                                               ? std::min<std::size_t>(2, checkpointPositions.size() - 1)
+                                               : 0;
+        const Vector3& next = checkpointPositions[lookaheadIndex];
+        Vector2 startVector{next.x - start.x, next.z - start.z};
+
+        float startYaw = 0.0f;
+        if (checkpointPositions.size() > 1) {
+            Vector2 zeroVector{0.0f, 0.0f};
+            startYaw = Vector2_SignedAngle(zeroVector, startVector) *
+                       (std::numbers::pi_v<float> / 180.0f);
+        }
+
+        spawnState_.state = VehicleState(
+            Eigen::Vector3d(static_cast<double>(start.x), static_cast<double>(start.z), 0.0),
+            startYaw, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+        spawnState_.transform.position.x = static_cast<float>(spawnState_.state.position.x());
+        spawnState_.transform.position.y = 0.5f;
+        spawnState_.transform.position.z = static_cast<float>(spawnState_.state.position.y());
+        spawnState_.transform.yaw = static_cast<float>(spawnState_.state.yaw);
     }
 
-    const Vector3& start = checkpointPositions.front();
-    const std::size_t lookaheadIndex = checkpointPositions.size() > 1
-                                           ? std::min<std::size_t>(2, checkpointPositions.size() - 1)
-                                           : 0;
-    const Vector3& next = checkpointPositions[lookaheadIndex];
-    Vector2 startVector{next.x - start.x, next.z - start.z};
-
-    float startYaw = 0.0f;
-    if (checkpointPositions.size() > 1) {
-        Vector2 zeroVector{0.0f, 0.0f};
-        startYaw = Vector2_SignedAngle(zeroVector, startVector) *
-                   (std::numbers::pi_v<float> / 180.0f);
-    }
-
-    VehicleState carState(
-        Eigen::Vector3d(static_cast<double>(start.x), static_cast<double>(start.z), 0.0),
-        startYaw, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
-    Transform carTransform{};
-    carTransform.position.x = static_cast<float>(carState.position.x());
-    carTransform.position.y = 0.5f;
-    carTransform.position.z = static_cast<float>(carState.position.y());
-    carTransform.yaw = static_cast<float>(carState.yaw);
-    vehicleDynamics_.setState(carState, carTransform);
-    prevCarPos_ = {carTransform.position.x, carTransform.position.z};
+    prevCarPos_ = {spawnState_.transform.position.x, spawnState_.transform.position.z};
 }
 
 void World::updateStraightLineProgress() {
     if (!straightTracker_.valid) {
         return;
     }
-    const Transform& carTransform = vehicleDynamics_.transform();
+    const Transform& carTransform = vehicleDynamics().transform();
     const Eigen::Vector2d position(static_cast<double>(carTransform.position.x),
                                    static_cast<double>(carTransform.position.z));
     const Eigen::Vector2d offset = position - straightTracker_.origin;
@@ -658,6 +664,13 @@ bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) 
     return false;
 }
 
+const VehicleDynamics& World::vehicleDynamics() const {
+    if (!vehicleDynamics_) {
+        throw std::runtime_error("VehicleDynamics not set for World");
+    }
+    return *vehicleDynamics_;
+}
+
 fsai::sim::TrackData World::generateRandomTrack() const {
     PathConfig pathConfig;
     int nPoints = pathConfig.resolution;
@@ -684,7 +697,6 @@ void World::moveNextCheckpointToLast() {
 }
 
 void World::reset() {
-    vehicleDynamics_.resetInput();
     totalTime = 0.0;
     totalDistance = 0.0;
     lapCount = 0;
@@ -704,10 +716,10 @@ void World::reset() {
 
     initializeVehiclePose();
 
-    const Transform& carTransform = vehicleDynamics_.transform();
-    const float initDx = carTransform.position.x - lastCheckpoint.x;
-    const float initDz = carTransform.position.z - lastCheckpoint.z;
+    const float initDx = spawnState_.transform.position.x - lastCheckpoint.x;
+    const float initDz = spawnState_.transform.position.z - lastCheckpoint.z;
     const float initDist = std::sqrt(initDx * initDx + initDz * initDz);
     insideLastCheckpoint_ = initDist < config.lapCompletionThreshold;
     coneDetections.clear();
+    vehicleResetPending_ = true;
 }
