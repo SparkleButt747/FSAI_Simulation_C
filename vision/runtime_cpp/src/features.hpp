@@ -1,40 +1,23 @@
 #pragma once
-#include <vector>
+#include <vector> 
 #include <opencv2/opencv.hpp>
-#include <opencv2/features2d.hpp>
 #include "detect.hpp"
-
-// Structure for a matched pair of features across stereo frames
-struct Feature
+struct feature
 {
-    double x_1, y_1; // Coordinates in left frame
-    double x_2, y_2; // Coordinates in right frame
+    /* data */
+    double x_1,y_1;
+    double x_2,y_2;
 };
 
-// Structure for an unmatched feature in a single frame
-struct PseudoFeature{
-    double x, y;
-    cv::Mat descriptors;
+struct pseudofeature{
+    double x,y; 
+    cv::Mat descriptors; 
 };
 
-// NEW: Structure to group matched features by their originating cone (bounding box)
-struct ConeMatches {
-    int cone_index;                 // Index matching the input vector of BoxBounds
-    fsai::vision::BoxBound bound;   // The bounding box these matches belong to
-    std::vector<Feature> matches;   // The list of stereo matched features for this specific cone
-    FsaiConeSide side;
-};
+cv::Mat extract_boundimg(cv::Mat left_frame, fsai::vision::BoxBound box_bound);
+std::vector<pseudofeature> extract_feature(fsai::vision::BoxBound box_bound);
+std::vector<pseudofeature> extract_right_features(cv::Mat right_frame);
+std::vector<std::tuple<pseudofeature>> pair_features(std::vector<feature> left_features, std::vector<feature> right_feature);
+std::vector<feature> extract_coordinates(std::vector<std::tuple<feature>> pairs);
+std::vector<feature> match_features(cv::Mat left_frame, cv::Mat right_frame,std::vector<fsai::vision::BoxBound> box_bounds);
 
-// --- Function Declarations ---
-
-// Extracts ROI from a frame based on bounding box
-cv::Mat extract_boundimg(const cv::Mat& left_frame, const fsai::vision::BoxBound& box_bound);
-
-// Extracts ORB features from a given image fragment (or full frame)
-std::vector<PseudoFeature> extract_features(const cv::Mat& frame, cv::Ptr<cv::ORB> orb);
-
-// Finds stereo matches between two sets of features using epipolar constraint and descriptor matching
-std::vector<Feature> pair_features(const std::vector<PseudoFeature>& left_features, const std::vector<PseudoFeature>& right_features);
-
-// Main entry point: matching features for specific objects (cones)
-std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, const cv::Mat& right_frame, const std::vector<fsai::vision::BoxBound>& box_bounds);

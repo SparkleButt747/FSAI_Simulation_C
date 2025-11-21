@@ -36,7 +36,7 @@ macOS (Homebrew) example:
 brew install cmake sdl2 yaml-cpp eigen cgal
 ```
 
-To install ONNXRuntime and OpenCV, follow instructions online.
+
 
 ### Configure & build
 

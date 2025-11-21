@@ -5,7 +5,6 @@
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_2.h>
 #include <unordered_map>
-#include "types.h"
 #include "DynamicBicycle.hpp"
 #include "VehicleState.hpp"
 #include "VehicleInput.hpp"
@@ -19,11 +18,6 @@
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/MissionRuntimeState.hpp"
 #include "sim/cone_types.hpp"
-#include "vision/detection_buffer_registry.hpp" // NEW INCLUDE
-
-using K=CGAL::Exact_predicates_inexact_constructions_kernel;
-using Triangulation=CGAL::Delaunay_triangulation_2<K>;
-using Point=Triangulation::Point;
 #include "types.h"
 
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
@@ -64,7 +58,6 @@ public:
     int regenTrack{1};
     std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
     std::vector<std::pair<Vector2, Vector2>> triangulationEdges {};
-    std::vector<FsaiConeDet> coneDetections {};
 
 
     const VehicleState& vehicleState() const { return carState; }
