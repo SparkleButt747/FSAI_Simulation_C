@@ -3,6 +3,7 @@
 #include <utility>
 
 #include <glad/glad.h>
+#include <cstddef> // <-- ADD THIS LINE
 
 namespace fsai::io::camera::sim_stereo {
 

@@ -1,9 +1,16 @@
-BUGS AND NOTES SIMULATION SUB SYSTEM:
-    -Sometimes the car manages to take a wide line completely missing the checkpoint 
-    that is the middle of the track, we need to change the collision of the checkpoint from a 
-    circle to a straight line across the track (bridge) so no matter what line it takes it always hits the checkpoint
+BUGS AND NOTES SIMULATION/CONTROL SUB SYSTEM:
+    -Sometimes the car manages to take a wide line completely missing the checkpoint
+    that is the middle of the track, we need to change the collision of the checkpoint from a
+    circle to a straight line across the track (bridge/gate between the left and right cone) so no matter what line it takes it always hits the checkpoint/goes 
+    through the gate, we need to change the collision geometry of the checkpoint from a
+    circle to a straight line across the track so no matter what line it takes it always hits the checkpoint
 
-    -Sometimes the car manages to go through the gap between the cones, bridges need to setup connecting cones so we have a barrier of
+    -In addition to this, since we cannot guarantee the total number of left cones are equal to the right cones, we cannot just pair the left cone and right cone to calculate the checkpoint. 
+    This checkpoint we calculate from the pair of left and right cones therefore will not be guaranteed to be in the middle of track it will deviate towards the left or right depending density of cones on the left or right...
+    To solve this we need to pick either the left or right cone and then calculate the closest opposite cone and use that to calculate the checkpoint.. so if we choose to use the left cones, for each of the left cones we need to calculate the 
+    closest right cone and pair them up and then calculate the checkpoint to use for the Racing Algorithm... 
+
+    -Sometimes the car manages to go through the gap between the cones ending up outside the track defined by the left and right cones; bridges need to setup connecting cones so we have a barrier of
     sorts to prevent the car leaving the track, (considering this as a collision)
 
     -I think the car is supposed to go anti-clockwise around the track, because from the track generator (as per EUFS)
@@ -12,15 +19,28 @@ BUGS AND NOTES SIMULATION SUB SYSTEM:
     colors but we need to swap them back around and make sure the car goes anti clockwise to keep everything consistent...
 
     -When the controller gets aggressive into braking or under throttle, and the car slips/slides , since relaxing
-    dynamics are not implemented to allow drifting, the car model breaks down and everything explodes... something to implemented
-    later down the line
+    dynamics are not implemented to allow drifting, the car model breaks down and everything explodes... In addition to this, I have also noticed when the car is coming to a stop
+    and there is any steering command (i.e steering is not 0) and the car comes to a complete halt and brakes are still applied with steering, the car starts spinning erractically and reaches velocties of greater than 100 m/s 
 
-    -The car controller needs interpolation -> more checkpoints then the available ones (no. of checkpoint = 
+    -The car controller needs interpolation -> more checkpoints then the available ones (no. of checkpoint =
     max(leftcones, rightcones)) to allow smoother driving. Ends up crashing more often than not...
 
-    -The collision boxes are greatly simplified in this simulation, everything is either a square or a circle; so Vision 
+    -The collision boxes are greatly simplified in this simulation, everything is either a square or a circle; so Vision
     (which is in charge of collision detection) cannot reliably use the simulation as a backbone to ground truth. actual cone
     models and cars models need to be made/downloaded from the official repo or made in blender for better realism (this also
     helps with rendering more realistic lighting effects)...
-    
-    
+
+---Vision---
+* Object detection and stereo triangulation have been moved into ConeDetector and StereoTriangulation concrete classes respectively
+* VisionNode will be the main class for the vision pipeline. Documentation pending on how to access
+* SimCamera deprecates the vision_test library. FrameBuffer taken verbatem from the vision_test/
+* shared_ring_buffer created which implements the same ring buffer logic but by using template for generic types
+* to try and 
+
+TO-DO:
+    - Connect feature matching and centroid recovery into the pipeline [Paritally complete]
+    - Verify E2E constraint of 20ms
+BUGS:
+    - CMakeLists.txt needs to be updated to build the full system
+    - Current E2E exceeds constraint of 20ms
+

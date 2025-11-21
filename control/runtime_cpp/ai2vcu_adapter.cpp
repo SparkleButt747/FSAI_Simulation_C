@@ -2,10 +2,26 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace fsai::control::runtime {
 namespace {
 constexpr float kEpsilon = 1e-6f;
+
+uint8_t MissionTypeToId(fsai::sim::MissionType type) {
+  switch (type) {
+    case fsai::sim::MissionType::kAcceleration:
+      return 1u;
+    case fsai::sim::MissionType::kSkidpad:
+      return 2u;
+    case fsai::sim::MissionType::kAutocross:
+      return 3u;
+    case fsai::sim::MissionType::kTrackdrive:
+      return 4u;
+    default:
+      return 0u;
+  }
+}
 }
 
 Ai2VcuAdapter::Ai2VcuAdapter(const Ai2VcuAdapterConfig& config)
@@ -37,6 +53,11 @@ Ai2VcuAdapter::Ai2VcuAdapter(const Ai2VcuAdapterConfig& config)
   status_.direction_request = fsai::sim::svcu::dbc::DirectionRequest::kNeutral;
   status_.veh_speed_actual_kph = 0.0f;
   status_.veh_speed_demand_kph = 0.0f;
+
+  mission_id_ = ComputeMissionId(config_.mission_descriptor);
+  if (mission_id_.has_value()) {
+    status_.mission_id = *mission_id_;
+  }
 }
 
 void Ai2VcuAdapter::ToggleHandshake() {
@@ -56,6 +77,16 @@ void Ai2VcuAdapter::UpdateTelemetry(const AdapterTelemetry& telemetry) {
   if (telemetry.cones_count_all.has_value()) {
     status_.cones_count_all = *telemetry.cones_count_all;
   }
+  if (telemetry.mission_laps_completed.has_value()) {
+    status_.cones_count_actual = static_cast<uint8_t>(
+        std::min<uint16_t>(*telemetry.mission_laps_completed, std::numeric_limits<uint8_t>::max()));
+  }
+  if (telemetry.mission_laps_target.has_value()) {
+    status_.cones_count_all = *telemetry.mission_laps_target;
+  }
+
+  UpdateMissionId(telemetry);
+  UpdateMissionStatus(telemetry);
 }
 
 bool Ai2VcuAdapter::ShouldEnterSafeStop(
@@ -100,32 +131,6 @@ void Ai2VcuAdapter::UpdateState(const fsai::sim::svcu::dbc::Vcu2AiStatus& feedba
   }
 }
 
-void Ai2VcuAdapter::UpdateStatusFlags(
-    const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback,
-    bool allow_motion) {
-  switch (state_) {
-    case State::kIdle:
-      status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kNotSelected;
-      break;
-    case State::kArmed:
-      status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kSelected;
-      break;
-    case State::kRunning:
-      status_.mission_status = allow_motion
-                                   ? fsai::sim::svcu::dbc::MissionStatus::kRunning
-                                   : fsai::sim::svcu::dbc::MissionStatus::kSelected;
-      break;
-    case State::kSafeStop:
-      status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kFinished;
-      break;
-  }
-
-  status_.estop_request = !allow_motion;
-  status_.direction_request =
-      allow_motion ? fsai::sim::svcu::dbc::DirectionRequest::kForward
-                   : fsai::sim::svcu::dbc::DirectionRequest::kNeutral;
-}
-
 Ai2VcuCommandSet Ai2VcuAdapter::Adapt(
     const fsai::types::ControlCmd& cmd,
     const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback) {
@@ -140,7 +145,8 @@ Ai2VcuCommandSet Ai2VcuAdapter::Adapt(
   UpdateTelemetry(telemetry);
   UpdateState(feedback);
 
-  const bool allow_motion = state_ == State::kRunning && feedback.go_signal;
+  const bool request_forward = mission_running_ && state_ != State::kSafeStop && !mission_finished_;
+  const bool allow_motion = request_forward && feedback.go_signal && !mission_finished_;
 
   float requested_throttle =
       allow_motion ? std::clamp(cmd.throttle, 0.0f, 1.0f) : 0.0f;
@@ -157,7 +163,7 @@ Ai2VcuCommandSet Ai2VcuAdapter::Adapt(
   status_.veh_speed_demand_kph = allow_motion
                                      ? std::clamp(config_.max_speed_kph * throttle, 0.0f, 255.0f)
                                      : 0.0f;
-  UpdateStatusFlags(feedback, allow_motion);
+  UpdateStatusFlags(allow_motion, request_forward);
 
   Ai2VcuCommandSet out{};
   out.throttle_clamped = throttle;
@@ -210,6 +216,85 @@ Ai2VcuCommandSet Ai2VcuAdapter::Adapt(
 
   out.status = status_;
   return out;
+}
+
+uint8_t Ai2VcuAdapter::ComputeMissionId(
+    const std::optional<fsai::sim::MissionDescriptor>& descriptor) {
+  if (!descriptor.has_value()) {
+    return 0u;
+  }
+  return MissionTypeToId(descriptor->type);
+}
+
+void Ai2VcuAdapter::UpdateMissionId(const AdapterTelemetry& telemetry) {
+  if (telemetry.mission_id.has_value()) {
+    mission_id_ = static_cast<uint8_t>(
+        std::min<uint8_t>(*telemetry.mission_id, static_cast<uint8_t>(15u)));
+  } else if (!mission_id_.has_value()) {
+    const uint8_t computed = ComputeMissionId(config_.mission_descriptor);
+    if (computed != 0u) {
+      mission_id_ = computed;
+    }
+  }
+
+  if (mission_id_.has_value()) {
+    status_.mission_id = *mission_id_;
+  } else {
+    status_.mission_id = 0u;
+  }
+}
+
+void Ai2VcuAdapter::UpdateMissionStatus(const AdapterTelemetry& telemetry) {
+  if (telemetry.mission_selected.has_value()) {
+    mission_selected_ = *telemetry.mission_selected;
+  }
+  if (telemetry.mission_running.has_value()) {
+    mission_running_ = *telemetry.mission_running;
+  }
+  if (telemetry.mission_finished.has_value()) {
+    mission_finished_ = *telemetry.mission_finished;
+  }
+
+  if (!mission_selected_) {
+    mission_running_ = false;
+    mission_finished_ = false;
+  }
+  if (mission_finished_) {
+    mission_running_ = false;
+  }
+
+  if (mission_finished_) {
+    mission_status_ = fsai::sim::svcu::dbc::MissionStatus::kFinished;
+  } else if (mission_running_) {
+    mission_status_ = fsai::sim::svcu::dbc::MissionStatus::kRunning;
+  } else if (mission_selected_) {
+    mission_status_ = fsai::sim::svcu::dbc::MissionStatus::kSelected;
+  } else {
+    mission_status_ = fsai::sim::svcu::dbc::MissionStatus::kNotSelected;
+  }
+
+  status_.mission_status = mission_status_;
+  status_.mission_complete = mission_finished_;
+}
+
+void Ai2VcuAdapter::UpdateStatusFlags(bool allow_motion, bool request_forward) {
+  if (state_ == State::kSafeStop) {
+    mission_status_ = fsai::sim::svcu::dbc::MissionStatus::kFinished;
+    mission_finished_ = true;
+    status_.mission_complete = true;
+  }
+
+  status_.mission_status = mission_status_;
+
+  status_.estop_request = (state_ == State::kSafeStop);
+  if (!allow_motion) {
+    status_.veh_speed_demand_kph = 0.0f;
+  }
+
+  const bool neutral = !request_forward || state_ == State::kSafeStop;
+  status_.direction_request =
+      neutral ? fsai::sim::svcu::dbc::DirectionRequest::kNeutral
+              : fsai::sim::svcu::dbc::DirectionRequest::kForward;
 }
 
 }  // namespace fsai::control::runtime
