@@ -21,6 +21,8 @@ Install the build toolchain and runtime libraries before configuring the project
 - **Graphics:** SDL2, OpenGL development headers.
 - **Computer Vision:** ONNXRuntime, OpenCV
 - **Config/data:** yaml.
+- **Computer Vision:** ONNXRuntime, OpenCV
+- **Config/data:** yaml.
 
 Ubuntu/Debian example:
 
@@ -36,7 +38,7 @@ macOS (Homebrew) example:
 brew install cmake sdl2 yaml-cpp eigen cgal
 ```
 
-
+To install ONNXRuntime and OpenCV, follow instructions online.
 
 ### Configure & build
 
