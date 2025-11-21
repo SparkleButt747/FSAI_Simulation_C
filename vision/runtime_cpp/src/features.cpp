@@ -88,7 +88,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         }
 
         if (!cone_features.empty()) {
-            all_cone_matches.push_back({(int)i, box, cone_features});
+            all_cone_matches.push_back({(int)i, box, cone_features,box.side});
         }
     }
 

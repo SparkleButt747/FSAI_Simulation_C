@@ -30,6 +30,8 @@ struct RenderableFrame {
 struct ConeCluster{
     int coneId;
     std::vector<Eigen::Vector3d> points;
+    FsaiConeSide side;
+    Eigen::Vector2d centre;
 };
 // struct Point3D{
 //     double X,Y,Z;
@@ -99,7 +101,6 @@ class VisionNode{
     //Add ring buffer type 
     using DetectionsRingBuffer = fsai::vision::GenericRingBuffer<fsai::types::Detections>;
     std::shared_ptr<DetectionsRingBuffer> detection_buffer_;
-
 
 };
 }
