@@ -6,7 +6,7 @@
 #include "detect.hpp"
 #include "features.hpp"
 #include "shared_ring_buffer.hpp"
-
+#include "bayesian_mapper.hpp"
 
 #include <atomic>
 #include <memory>
@@ -107,6 +107,8 @@ class VisionNode{
     using DetectionsRingBuffer = fsai::vision::GenericRingBuffer<fsai::types::Detections>;
     std::shared_ptr<DetectionsRingBuffer> detection_buffer_;
 
+    //Bayesian mapping
+    BayesianMapper mapper_;
 };
 }
 }

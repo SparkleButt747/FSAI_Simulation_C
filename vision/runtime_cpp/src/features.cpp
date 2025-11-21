@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <limits> 
 #include <iostream>
+#include "common/types.h"
 
 // TUNING: Epipolar search margin (pixels up/down to look in right image)
 static const int kEpipolarMargin = 2;
