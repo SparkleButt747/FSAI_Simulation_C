@@ -5,6 +5,6 @@
 build/
 build-linux/
 venv/
-merge_into_main.sh
+git_scripts/
 __pycache__/
 vision/CMakeLists.txt

@@ -5,6 +5,7 @@
 
 #include "adsdv_dbc.hpp"
 #include "types.h"
+#include "sim/mission_descriptor.hpp"
 
 namespace fsai::control::runtime {
 
@@ -17,6 +18,7 @@ struct Ai2VcuAdapterConfig {
   float brake_rear_bias{0.5f};
   float max_speed_kph{120.0f};
   float motor_speed_max_rpm{4000.0f};
+  std::optional<fsai::sim::MissionDescriptor> mission_descriptor;
 };
 
 struct Ai2VcuCommandSet {
@@ -36,6 +38,12 @@ class Ai2VcuAdapter {
     std::optional<uint8_t> lap_counter;
     std::optional<uint8_t> cones_count_actual;
     std::optional<uint16_t> cones_count_all;
+    std::optional<uint16_t> mission_laps_completed;
+    std::optional<uint16_t> mission_laps_target;
+    std::optional<bool> mission_selected;
+    std::optional<bool> mission_running;
+    std::optional<bool> mission_finished;
+    std::optional<uint8_t> mission_id;
   };
 
   explicit Ai2VcuAdapter(const Ai2VcuAdapterConfig& config);
@@ -58,13 +66,20 @@ class Ai2VcuAdapter {
   void UpdateTelemetry(const AdapterTelemetry& telemetry);
   void UpdateState(const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback);
   bool ShouldEnterSafeStop(const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback) const;
-  void UpdateStatusFlags(const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback,
-                         bool allow_motion);
+  void UpdateStatusFlags(bool allow_motion, bool request_forward);
+  void UpdateMissionStatus(const AdapterTelemetry& telemetry);
+  void UpdateMissionId(const AdapterTelemetry& telemetry);
+  static uint8_t ComputeMissionId(const std::optional<fsai::sim::MissionDescriptor>& descriptor);
 
   Ai2VcuAdapterConfig config_;
   fsai::sim::svcu::dbc::Ai2VcuStatus status_{};
   State state_{State::kIdle};
   bool handshake_level_{true};
+  std::optional<uint8_t> mission_id_{};
+  fsai::sim::svcu::dbc::MissionStatus mission_status_{fsai::sim::svcu::dbc::MissionStatus::kNotSelected};
+  bool mission_selected_{false};
+  bool mission_running_{false};
+  bool mission_finished_{false};
 };
 
 }  // namespace fsai::control::runtime

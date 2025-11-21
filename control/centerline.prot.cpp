@@ -1,8 +1,12 @@
 #define _USE_MATH_DEFINES
 
-#include "centerline.prot.hpp"
+//#include "centerline.prot.hpp"
 #include "centerline.hpp"
-#include "types.h"   
+#include "types.h"
+
+#include <algorithm>
+#include <unordered_map>
+#include <cmath>
 
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
@@ -13,30 +17,11 @@ using VertexHandle=Triangulation::Vertex_handle;
 
 using namespace std;
 
-
-// Debug method, leaving this here because iterating triangulation edges is weird in CGAL
-void printEdges(Triangulation& T) {
-  for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
-        auto face_handle = it->first;
-        int edge_index = it->second;
-
-        // Get the two vertices of the edge
-        auto v1 = face_handle->vertex((edge_index + 1) % 3);
-        auto v2 = face_handle->vertex((edge_index + 2) % 3);
-
-        // Get coordinates
-        auto p1 = v1->point();
-        auto p2 = v2->point();
-
-        std::cout << "Edge: (" << p1.x() << "," << p1.y() << ") -> "
-                  << "(" << p2.x() << "," << p2.y() << ")" << '\n';
-    }
-    std::cout << std::endl;
-  }
-
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
-    Triangulation& T, CGAL::Graphics_scene& scene, Point carFront)
-{
+    Triangulation& T,
+    Point carFront,
+    std::unordered_map<Point, FsaiConeSide> coneToSide
+) {
     std::vector<PathNode> nodes;
     // map each triangulation vertex to all node-ids that touch it
     std::map<Point, std::vector<int>> vertex_to_node_ids;
@@ -57,9 +42,13 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
 
         // endpoints as “detections” (set what you actually need)
         FsaiConeDet d1{}; d1.x = static_cast<float>(p1.x()); d1.y = static_cast<float>(p1.y());
-        d1.side = FSAI_CONE_UNKNOWN;
+        auto it1 = coneToSide.find(p1);
+        d1.side = (it1!=coneToSide.end()) ? it1->second : FSAI_CONE_UNKNOWN;
         FsaiConeDet d2{}; d2.x = static_cast<float>(p2.x()); d2.y = static_cast<float>(p2.y());
-        d2.side = FSAI_CONE_UNKNOWN;
+        auto it2 = coneToSide.find(p2);
+        d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
+
+        if (d1.side == d2.side) continue;
 
         node.first  = d1;
         node.second = d2;
@@ -94,49 +83,49 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         if (d2 < best) { best = d2; start_id = n.id; }
     }
 
-    scene.add_segment(Point(nodes[start_id].first.x,  nodes[start_id].first.y),
-                      Point(nodes[start_id].second.x, nodes[start_id].second.y),
-                      CGAL::IO::Color(250,15,15));
+    // scene.add_segment(Point(nodes[start_id].first.x,  nodes[start_id].first.y),
+    //                   Point(nodes[start_id].second.x, nodes[start_id].second.y),
+    //                   CGAL::IO::Color(250,15,15));
 
     return {nodes, adj};
 }
 
 
-void drawEdges(
-    const std::vector<std::vector<int>>& adjacency,
-    const std::vector<PathNode>& nodes,
-    CGAL::Graphics_scene& scene,
-    CGAL::Color color)
-{
-    // Avoid double-drawing: only draw i->j when i < j
-    for (std::size_t i = 0; i < adjacency.size(); ++i) {
-        for (int j : adjacency[i]) {
-            if (static_cast<std::size_t>(j) <= i) continue;
-            const auto& a = nodes[i].midpoint;
-            const auto& b = nodes[j].midpoint;
-            scene.add_segment(Point(a.x, a.y), Point(b.x, b.y), color);
-        }
-    }
-}
+// void drawEdges(
+//     const std::vector<std::vector<int>>& adjacency,
+//     const std::vector<PathNode>& nodes,
+//     CGAL::Graphics_scene& scene,
+//     CGAL::Color color)
+// {
+//     // Avoid double-drawing: only draw i->j when i < j
+//     for (std::size_t i = 0; i < adjacency.size(); ++i) {
+//         for (int j : adjacency[i]) {
+//             if (static_cast<std::size_t>(j) <= i) continue;
+//             const auto& a = nodes[i].midpoint;
+//             const auto& b = nodes[j].midpoint;
+//             scene.add_segment(Point(a.x, a.y), Point(b.x, b.y), color);
+//         }
+//     }
+// }
 
-void drawEdges(std::map<PathNode, std::set<PathNode>>& adjacency, CGAL::Graphics_scene& scene, CGAL::Color color) {
-  for (auto & [node, adj_nodes]: adjacency) {
-    for (auto adj_node: adj_nodes) {
-      scene.add_segment(
-        Point(node.midpoint.x,    node.midpoint.y),
-        Point(adj_node.midpoint.x, adj_node.midpoint.y),
-        color
-      );
-    }
-  }
-}
+// void drawEdges(std::map<PathNode, std::set<PathNode>>& adjacency, CGAL::Graphics_scene& scene, CGAL::Color color) {
+//   for (auto & [node, adj_nodes]: adjacency) {
+//     for (auto adj_node: adj_nodes) {
+//       scene.add_segment(
+//         Point(node.midpoint.x,    node.midpoint.y),
+//         Point(adj_node.midpoint.x, adj_node.midpoint.y),
+//         color
+//       );
+//     }
+//   }
+// }
 
-void drawEdges(Triangulation& T, CGAL::Graphics_scene& scene, CGAL::Color color) {
-  for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
-    auto segment = T.segment(*it);
-    scene.add_segment(segment.source(), segment.target(), color);
-  }
-}
+// void drawEdges(Triangulation& T, CGAL::Graphics_scene& scene, CGAL::Color color) {
+//   for (auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
+//     auto segment = T.segment(*it);
+//     scene.add_segment(segment.source(), segment.target(), color);
+//   }
+// }
 
 double getInitialTrackYaw(TrackResult track) {
   return std::atan2(
@@ -150,13 +139,6 @@ double getAngle(Point a, Point b) {
   double dot = a.x()*b.x() + a.y()*b.y();
   // std::cout << "angle: " << std::acos(dot / (hypot(a.x(), a.y()) * hypot(b.x(), b.y())));
   return std::acos(dot / (hypot(a.x(), a.y()) * hypot(b.x(), b.y())));
-}
-
-
-// Gets the angle between two direction vectors using Vector2 as the data structure
-double getAngle(Vector2 a, Vector2 b) {
-  double dot = a.x*b.x + a.y*b.y;
-  return std::acos(dot / (hypot(a.x, a.y) * hypot(b.x, b.y)));
 }
 
 // Returns the front of the car as a Point and modifies the triangulation in place
@@ -204,8 +186,7 @@ Point getCarFront(
       return carFront;
 };
 
-
-void getVisibleTrackTriangulation(
+std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
   Triangulation& T,
   Point carFront,
   TrackResult fullTrack,
@@ -214,24 +195,26 @@ void getVisibleTrackTriangulation(
 ) {
     double carYaw = getInitialTrackYaw(fullTrack);
     Point carVector = Point(std::cos(carYaw), std::sin(carYaw));
-
+    std::unordered_map<Point, FsaiConeSide> coneToSide;
     // It can be assumed that leftCones.size() == rightCones.size() == checkpoints.size()
-    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &T](std::vector<Transform> cones) {
+    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &T, &coneToSide](std::vector<Transform> cones, FsaiConeSide side) {
       for (int i = 0; i < cones.size(); i++) {
         Point delta = Point(cones[i].position.x - carFront.x(), cones[i].position.z - carFront.y());
         Point cone = Point(cones[i].position.x, cones[i].position.z);
-        if (hypot(delta.x(), delta.y()) > sensorRange) continue;
+        if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
         if (getAngle(carVector, delta) > sensorFOV/2) continue;
+        coneToSide[cone] = side;
         T.insert(cone);
       }
     };
 
-    addCones(fullTrack.startCones);
-    addCones(fullTrack.leftCones);
-    addCones(fullTrack.rightCones);
+    addCones(fullTrack.startCones, FSAI_CONE_UNKNOWN);
+    addCones(fullTrack.leftCones, FSAI_CONE_LEFT);
+    addCones(fullTrack.rightCones, FSAI_CONE_RIGHT);
+    return coneToSide;
 }
 
-Triangulation getVisibleTrackTriangulation(
+std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
   Point carFront,
   double carYaw,
   std::vector<Cone> leftConePositions,
@@ -241,43 +224,47 @@ Triangulation getVisibleTrackTriangulation(
 ) {
     Triangulation visibleTrack;
     Point carVector = Point(std::cos(carYaw), std::sin(carYaw));
+    std::unordered_map<Point, FsaiConeSide> coneToSide;
 
-    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &visibleTrack](std::vector<Cone> cones) {
+    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &visibleTrack, &coneToSide](std::vector<Cone> cones, FsaiConeSide side) {
       for (Cone cone3d: cones) {
         Point delta = Point(cone3d.position.x - carFront.x(), cone3d.position.z - carFront.y());
         Point cone = Point(cone3d.position.x, cone3d.position.z);
         if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
         if (getAngle(carVector, delta) > sensorFOV/2) continue;
+        coneToSide[cone] = side;
         visibleTrack.insert(cone);
       }
     };
 
-    addCones(leftConePositions);
-    addCones(rightConePositions);
+    addCones(leftConePositions, FSAI_CONE_LEFT);
+    addCones(rightConePositions, FSAI_CONE_RIGHT);
 
-    return visibleTrack;
+    return {visibleTrack, coneToSide};
 }
 
 
-void drawVisibleTriangulationEdges(
+// void drawVisibleTriangulationEdges(
+//   VehicleState carState,
+//   const std::vector<Cone>& leftConePositions,
+//   const std::vector<Cone>& rightConePositions
+// ) {
+//     CGAL::Graphics_scene scene;
+//     Point carFront = Point(carState.position.x(), carState.position.y());
+//     auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw, leftConePositions, rightConePositions).first;
+//     CGAL::draw(triangulation);
+// }
+
+std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
   const std::vector<Cone>& rightConePositions
 ) {
-    CGAL::Graphics_scene scene;
-    Point carFront = Point(carState.position.x(), carState.position.y());
-    auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw, leftConePositions, rightConePositions);
-    CGAL::draw(triangulation);
-}
-
-std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
-  VehicleState carState,
-  const std::vector<Cone>& leftConePositions,
-  const std::vector<Cone>& rightConePositions
-) {
 
     Point carFront = Point(carState.position.x(), carState.position.y());
-    auto triangulation = getVisibleTrackTriangulation(carFront, carState.yaw , leftConePositions, rightConePositions);
+    auto triangulation_pair = getVisibleTrackTriangulationFromCones(carFront, carState.yaw, leftConePositions, rightConePositions);
+    auto triangulation = triangulation_pair.first;
+
 
     std::vector<std::pair<Vector2, Vector2>> edges {};
     for (auto it = triangulation.finite_edges_begin(); it != triangulation.finite_edges_end(); ++it) {
@@ -292,92 +279,247 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
         auto p1 = v1->point();
         auto p2 = v2->point();
 
-        edges.push_back({
-          {
-            static_cast<float>(p1.x()),
-            static_cast<float>(p1.y())
-          }, {
-            static_cast<float>(p2.x()),
-            static_cast<float>(p2.y())
-          }});
+        edges.emplace_back(
+            Vector2{ static_cast<float>(p1.x()), static_cast<float>(p1.y()) },
+            Vector2{ static_cast<float>(p2.x()), static_cast<float>(p2.y()) }
+        );
     }
 
+    return {triangulation, edges};
+}
+
+std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
+    const std::vector<std::vector<int>>& adj,
+    const std::vector<PathNode>& nodes,
+    const Point& carFront,
+    std::size_t maxLen,
+    std::size_t minLen,
+    std::size_t beamWidth
+)
+{
+    if (nodes.empty() || adj.empty() || maxLen == 0 || beamWidth == 0)
+    {
+        return {};
+    }
+
+    auto buildPathFromIds = [&](const std::vector<int>& ids) {
+        std::vector<PathNode> path;
+        path.reserve(ids.size());
+        for (int id : ids)
+        {
+            if (id < 0 || static_cast<std::size_t>(id) >= nodes.size())
+            {
+                continue;
+            }
+            path.push_back(nodes[static_cast<std::size_t>(id)]);
+        }
+        return path;
+    };
+
+    auto evaluate = [&](const std::vector<int>& ids) {
+        if (ids.size() < 2)
+        {
+            return 0.0f;
+        }
+        const auto path = buildPathFromIds(ids);
+        return calculateCost(path, minLen);
+    };
+
+    // pick start = node closest to carFront (simple, deterministic)
+    int start = 0;
+    double bestD2 = std::numeric_limits<double>::infinity();
+    for (std::size_t i = 0; i < nodes.size(); ++i)
+    {
+        const double dx = nodes[i].midpoint.x - carFront.x();
+        const double dy = nodes[i].midpoint.y - carFront.y();
+        const double d2 = dx * dx + dy * dy;
+        if (d2 < bestD2)
+        {
+            bestD2 = d2;
+            start = static_cast<int>(i);
+        }
+    }
+
+    struct Candidate
+    {
+        std::vector<int> indices;
+        float cost;
+
+        Candidate() = default;
+        Candidate(std::vector<int> idx, float c) : indices(std::move(idx)), cost(c) {}
+    };
+
+    std::vector<Candidate> beam;
+    beam.emplace_back(std::vector<int>{start}, 0.0f);
+
+    Candidate bestCandidate = beam.front();
+    float bestCost = std::numeric_limits<float>::infinity();
+
+    auto updateBest = [&](const Candidate& candidate) {
+        if (candidate.indices.size() < 2)
+        {
+            return;
+        }
+        if (!std::isfinite(candidate.cost))
+        {
+            return;
+        }
+        if (candidate.cost < bestCost ||
+            (candidate.cost == bestCost && candidate.indices.size() > bestCandidate.indices.size()))
+        {
+            bestCost = candidate.cost;
+            bestCandidate = candidate;
+        }
+    };
+
+    for (std::size_t depth = 0; depth < maxLen && !beam.empty(); ++depth)
+    {
+        std::vector<Candidate> next;
+        bool extendedAny = false;
+
+        for (Candidate& candidate : beam)
+        {
+            if (candidate.indices.size() >= maxLen)
+            {
+                updateBest(candidate);
+                next.push_back(std::move(candidate));
+                continue;
+            }
+
+            const int last = candidate.indices.back();
+            bool extendedCurrent = false;
+
+            if (last >= 0 && static_cast<std::size_t>(last) < adj.size())
+            {
+                for (int nb : adj[static_cast<std::size_t>(last)])
+                {
+                    if (nb < 0 || static_cast<std::size_t>(nb) >= nodes.size())
+                    {
+                        continue;
+                    }
+
+                    // avoid loops by preventing revisiting a node already on the path
+                    if (std::find(candidate.indices.begin(), candidate.indices.end(), nb) != candidate.indices.end())
+                    {
+                        continue;
+                    }
+
+                    std::vector<int> indices = candidate.indices;
+                    indices.push_back(nb);
+                    const float score = evaluate(indices);
+
+                    Candidate expanded{std::move(indices), score};
+                    updateBest(expanded);
+                    next.push_back(std::move(expanded));
+                    extendedCurrent = true;
+                    extendedAny = true;
+                }
+            }
+
+            if (!extendedCurrent)
+            {
+                updateBest(candidate);
+                next.push_back(std::move(candidate));
+            }
+        }
+
+        if (!extendedAny)
+        {
+            break;
+        }
+
+        std::sort(next.begin(), next.end(), [](const Candidate& a, const Candidate& b) {
+            const bool aFinite = std::isfinite(a.cost);
+            const bool bFinite = std::isfinite(b.cost);
+            if (aFinite != bFinite)
+            {
+                return aFinite;
+            }
+            if (a.cost == b.cost)
+            {
+                return a.indices.size() > b.indices.size();
+            }
+            return a.cost < b.cost;
+        });
+
+        if (next.size() > beamWidth)
+        {
+            next.resize(beamWidth);
+        }
+
+        beam = std::move(next);
+    }
+
+    if (bestCandidate.indices.size() < 2)
+    {
+        for (const Candidate& candidate : beam)
+        {
+            if (candidate.indices.size() < 2)
+            {
+                continue;
+            }
+            if (!std::isfinite(candidate.cost))
+            {
+                continue;
+            }
+            if (candidate.cost < bestCost ||
+                (candidate.cost == bestCost && candidate.indices.size() > bestCandidate.indices.size()))
+            {
+                bestCost = candidate.cost;
+                bestCandidate = candidate;
+            }
+        }
+    }
+
+    if (bestCandidate.indices.size() < 2)
+    {
+        return {};
+    }
+
+    return {buildPathFromIds(bestCandidate.indices), getPathEdges(buildPathFromIds(bestCandidate.indices))};
+}
+
+std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode>& path) {
+    std::vector<std::pair<Vector2, Vector2>> edges;
+    for (std::size_t i = 1; i < path.size(); i++) {
+        edges.emplace_back(
+            Vector2{path[i-1].midpoint.x, path[i-1].midpoint.y},
+            Vector2{path[i].midpoint.x, path[i].midpoint.y}
+        );
+    }
     return edges;
 }
 
 
-// --- Lowest-cost BFS-style enumerator over midpoint graph ---
-// We enumerate simple paths (no repeated nodes) up to maxLen.
-// For each partial path with >= 2 nodes we compute calculateCost(path)
-// and keep the best one seen. Start node is chosen as the node whose
-// midpoint is closest to carFront.
-// centerline.prot.cpp
-std::vector<PathNode> bfsLowestCost(
-    const std::vector<std::vector<int>>& adj,
-    const std::vector<PathNode>& nodes,
-    const Point& carFront,
-    std::size_t maxLen
-)
-{
-    if (nodes.empty()) return {};
-
-    // pick start (same logic as above)
-    int start = 0; double best = std::numeric_limits<double>::infinity();
-    for (auto& n : nodes) {
-        double d = std::hypot(n.midpoint.x - carFront.x(), n.midpoint.y - carFront.y());
-        if (d < best) { best = d; start = n.id; }
-    }
-
-    struct State { std::vector<int> path; };
-    std::queue<State> q; q.push({{start}});
-    std::vector<int> bestPathIdx = {start};
-    float bestCost = std::numeric_limits<float>::infinity();
-
-    auto eval = [&](const std::vector<int>& pathIdx){
-        if (pathIdx.size() < 2) return;
-        std::vector<PathNode> path; path.reserve(pathIdx.size());
-        for (int id : pathIdx) path.push_back(nodes[id]);
-        float c = calculateCost(path);  // your cost fn :contentReference[oaicite:2]{index=2}
-        if (c < bestCost) { bestCost = c; bestPathIdx = pathIdx; }
-    };
-
-    while (!q.empty()) {
-        auto s = std::move(q.front()); q.pop();
-        eval(s.path);
-        if (s.path.size() >= maxLen) continue;
-
-        int last = s.path.back();
-        for (int nxt : adj[last]) {
-            if (std::find(s.path.begin(), s.path.end(), nxt) != s.path.end()) continue;
-            auto t = s; t.path.push_back(nxt);
-            q.push(std::move(t));
-        }
-    }
-
-    std::vector<PathNode> out; out.reserve(bestPathIdx.size());
-    for (int id : bestPathIdx) out.push_back(nodes[id]);
-    return out;
-}
-
-
-
 // Draws segments between consecutive midpoints in a path.
-void drawPathMidpoints(
-    const std::vector<PathNode>& path,
-    CGAL::Graphics_scene& scene,
-    CGAL::Color color)
-{
-    if(path.size() < 2)
-    {
-      return;
-    }
+// void drawPathMidpoints(
+//     const std::vector<PathNode>& path,
+//     CGAL::Graphics_scene& scene,
+//     CGAL::Color color)
+// {
+//     if(path.size() < 2)
+//     {
+//       return;
+//     }
 
-    for(std::size_t i = 1; i < path.size(); i++)
-    {
-        scene.add_segment(
-            Point(path[i-1].midpoint.x, path[i-1].midpoint.y),
-            Point(path[i].midpoint.x,   path[i].midpoint.y),
-            color
-        );
+//     for(std::size_t i = 1; i < path.size(); i++)
+//     {
+//         scene.add_segment(
+//             Point(path[i-1].midpoint.x, path[i-1].midpoint.y),
+//             Point(path[i].midpoint.x,   path[i].midpoint.y),
+//             color
+//         );
+//     }
+// }
+
+Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
+    Vector3* checkpoints = new Vector3[path.size()];
+    for (int i = 0; i < path.size(); i++) {
+        checkpoints[i] = Vector3{
+            path[i].midpoint.x,
+            0,
+            path[i].midpoint.y
+        };
     }
+    return checkpoints;
 }
