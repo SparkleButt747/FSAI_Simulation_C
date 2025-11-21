@@ -44,6 +44,7 @@
 #include "vision/vision_node.hpp"
 #include "vision/detection_preview.hpp"
 #include "vision/shared_ring_buffer.hpp"
+#include "io_bus.hpp"
 #include "vision/detection_buffer_registry.hpp"
 #include "types.h"
 #include "World.hpp"
@@ -1762,6 +1763,19 @@ int main(int argc, char* argv[]) {
     return dist(noise_rng);
   };
 
+  auto io_bus = std::make_shared<fsai::io::InProcessIoBus>();
+  fsai::io::TelemetryNoiseConfig bus_noise{};
+  constexpr double kDegToRad = std::numbers::pi / 180.0;
+  bus_noise.steer_rad_stddev = sensor_cfg.steering_deg.noise_std * kDegToRad;
+  bus_noise.axle_torque_stddev =
+      std::max(sensor_cfg.drive_torque.front_noise_std_nm,
+               sensor_cfg.drive_torque.rear_noise_std_nm);
+  bus_noise.wheel_rpm_stddev = sensor_cfg.wheel_rpm.noise_std;
+  bus_noise.brake_bar_stddev = sensor_cfg.brake_pct.noise_std * 0.01;
+  bus_noise.imu_stddev = sensor_cfg.imu.accel_longitudinal_std;
+  bus_noise.gps_speed_stddev = sensor_cfg.gps.speed_std_mps;
+  io_bus->set_noise_config(bus_noise);
+
   fsai_clock_config clock_cfg{};
   clock_cfg.mode = FSAI_CLOCK_MODE_SIMULATED;
   clock_cfg.start_time_ns = 0;
@@ -1908,6 +1922,19 @@ int main(int argc, char* argv[]) {
     }
   }
 
+  io_bus->set_stereo_sink([stereo_frame_buffer, &stereo_display](const FsaiStereoFrame& frame) {
+    if (stereo_frame_buffer) {
+      while (!stereo_frame_buffer->tryPush(frame)) {
+        if (!stereo_frame_buffer->tryPop().has_value()) {
+          break;
+        }
+      }
+    }
+    if (stereo_display) {
+      stereo_display->present(frame);
+    }
+  });
+
 
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Starting VisionNode...");
   ThreadSafeTelemetry shared_telemetry;
@@ -2001,6 +2028,10 @@ int main(int argc, char* argv[]) {
     Graphics_Cleanup(&graphics);
     return EXIT_FAILURE;
   }
+  io_bus->set_telemetry_sink(
+      [&telemetry_tx](const fsai::sim::svcu::TelemetryPacket& pkt) {
+        telemetry_tx.send(&pkt, sizeof(pkt));
+      });
 
   float tmp_brake_front_bias = static_cast<float>(vehicle_param.brakes.front_bias);
   float tmp_brake_rear_bias = static_cast<float>(vehicle_param.brakes.rear_bias);
@@ -2032,7 +2063,6 @@ int main(int argc, char* argv[]) {
   fsai::control::runtime::Ai2VcuCommandSet last_ai2vcu_commands{};
   bool has_last_ai_command = false;
 
-  std::optional<fsai::sim::svcu::CommandPacket> latest_command;
   const uint64_t stale_threshold_ns =
       fsai_clock_from_seconds(kCommandStaleSeconds);
 
@@ -2087,7 +2117,7 @@ int main(int argc, char* argv[]) {
     fsai::sim::svcu::CommandPacket command_packet{};
     while (auto bytes = command_rx.receive(&command_packet, sizeof(command_packet))) {
       if (*bytes == sizeof(command_packet)) {
-        latest_command = command_packet;
+        io_bus->push_command(command_packet);
       }
     }
 
@@ -2104,6 +2134,7 @@ int main(int argc, char* argv[]) {
     float appliedBrake = autopBrake;
     float appliedSteer = autopSteer;
     bool ai_command_applied = false;
+    auto latest_command = io_bus->latest_command();
     const bool ai_command_enabled = latest_command && latest_command->enabled != 0;
     if (latest_command) {
       if (latest_command->t_ns <= now_ns &&
@@ -2607,7 +2638,7 @@ int main(int argc, char* argv[]) {
         std::sqrt(vehicle_state.velocity.x() * vehicle_state.velocity.x() +
                   vehicle_state.velocity.y() * vehicle_state.velocity.y()));
     telemetry.status_flags = static_cast<uint8_t>(world.useController ? 0x3 : 0x1);
-    telemetry_tx.send(&telemetry, sizeof(telemetry));
+    io_bus->publish_telemetry(telemetry);
 
     logger.logState(sim_time_s, world.vehicleState());
     logger.logControl(sim_time_s, world.throttleInput, world.steeringAngle);
@@ -2676,16 +2707,7 @@ int main(int argc, char* argv[]) {
       }
       stereo_source->setCones(cone_positions);
       const FsaiStereoFrame& frame = stereo_source->capture(now_ns);
-      if (stereo_frame_buffer) {
-        while (!stereo_frame_buffer->tryPush(frame)) {
-          if (!stereo_frame_buffer->tryPop().has_value()) {
-            break;
-          }
-        }
-      }
-      if (stereo_display) {
-        stereo_display->present(frame);
-      }
+      io_bus->publish_stereo_frame(frame);
     }
 
     std::shared_ptr<fsai::vision::DetectionRingBuffer> detection_buffer = fsai::vision::getActiveDetectionBuffer();
