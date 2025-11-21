@@ -602,32 +602,6 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     return {buildPathFromIds(bestCandidate.indices), getPathEdges(buildPathFromIds(bestCandidate.indices))};
 }
 
-std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode>& path) {
-    std::vector<std::pair<Vector2, Vector2>> edges;
-    for (std::size_t i = 1; i < path.size(); i++) {
-        edges.emplace_back(
-            Vector2{path[i-1].midpoint.x, path[i-1].midpoint.y},
-            Vector2{path[i].midpoint.x, path[i].midpoint.y}
-        );
-    }
-
-    return edges;
-}
-
-Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
-    Vector3* checkpoints = new Vector3[path.size()];
-    for (int i = 0; i < path.size(); i++) {
-        checkpoints[i] = Vector3{
-            path[i].midpoint.x,
-            0,
-            path[i].midpoint.y
-        };
-    }
-    
-    return checkpoints;
-}
-
-
 void removePassedCones(
   Triangulation& T,
   std::unordered_map<Point, FsaiConeSide>& coneToSide,
@@ -658,4 +632,31 @@ void removePassedCones(
         T.remove(vh);
     }
 }
+
+std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode>& path) {
+    std::vector<std::pair<Vector2, Vector2>> edges;
+    for (std::size_t i = 1; i < path.size(); i++) {
+        edges.emplace_back(
+            Vector2{path[i-1].midpoint.x, path[i-1].midpoint.y},
+            Vector2{path[i].midpoint.x, path[i].midpoint.y}
+        );
+    }
+
+    return edges;
+}
+
+Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
+    Vector3* checkpoints = new Vector3[path.size()];
+    for (int i = 0; i < path.size(); i++) {
+        checkpoints[i] = Vector3{
+            path[i].midpoint.x,
+            0,
+            path[i].midpoint.y
+        };
+    }
+    
+    return checkpoints;
+}
+
+
 

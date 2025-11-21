@@ -82,6 +82,7 @@ Cone makeCone(const Transform& t, ConeType type) {
             cone.radius = kLargeConeRadiusMeters;
             cone.mass = kLargeConeMassKg;
             break;
+        case ConeType::Orange:
         case ConeType::Left:
         case ConeType::Right:
             cone.radius = kSmallConeRadiusMeters;
@@ -266,11 +267,6 @@ void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission)
 void World::update(double dt) {
     deltaTime = dt;
 
-    if (!missionState_.mission_complete()) {
-        missionState_.Update(dt);
-        totalTime += dt;
-    }
-
     if (checkpointPositions.empty()) {
         std::printf("No checkpoints available. Resetting simulation.\n");
         reset();
@@ -281,6 +277,14 @@ void World::update(double dt) {
         throttleInput = lastSvcuThrottle_;
         brakeInput = lastSvcuBrake_;
         steeringAngle = lastSvcuSteer_;
+    }
+
+    if (missionState_.run_status() == fsai::sim::MissionRunStatus::kBraking) {
+        throttleInput = 0.0f;
+        brakeInput = 1.0f;
+        if (carState.velocity.norm() < 0.1) {
+            missionState_.MarkCompleted();
+        }
     }
 
     hasSvcuCommand_ = false;
@@ -314,6 +318,11 @@ void World::update(double dt) {
     prevCarPos_ = currentPos;
 
     updateStraightLineProgress();
+    if (!missionState_.mission_complete()) {
+        missionState_.Update(dt);
+        totalTime += dt;
+    }
+
     handleMissionCompletion();
 
     telemetry();
@@ -328,7 +337,7 @@ bool World::detectCollisions(bool crossedGate) {
     float dz = carTransform.position.z - lastCheckpoint.z;
     float distToLast = std::sqrt(dx * dx + dz * dz);
     const bool insideNow = distToLast < config.lapCompletionThreshold;
-    if (insideNow && !insideLastCheckpoint_ && !missionState_.mission_complete()) {
+    if (mission_.descriptor.type != fsai::sim::MissionType::kAcceleration && insideNow && !insideLastCheckpoint_ && !missionState_.mission_complete()) {
         missionState_.RegisterLap(totalTime, totalDistance);
         lapCount = static_cast<int>(missionState_.completed_laps());
         if (lapCount > 0) {
@@ -430,6 +439,9 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
     // Load cones
     for (const auto& sc : track.startCones)
         startCones.push_back(makeCone(sc, ConeType::Start));
+
+    for (const auto& sc : track.smallOrangeCones)
+        startCones.push_back(makeCone(sc, ConeType::Orange));
 
     for (const auto& lc : track.leftCones)
         leftCones.push_back(makeCone(lc, ConeType::Left));
@@ -557,13 +569,23 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
 }
 
 void World::configureMissionRuntime() {
-    missionState_.Reset(mission_);
-    straightTracker_ = {};
-    straightTracker_.valid = false;
 
+    const Vector3& start = checkpointPositions.front();
+    const Vector3& finish = checkpointPositions.back();
     if (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration && checkpointPositions.size() >= 2) {
+        straightTracker_ = {};
+        straightTracker_.valid = false;
+        mission_.track_length_m = 75.0; // Hardcode acceleration track length to 75m
+        straightTracker_.valid = true;
         const Vector3& start = checkpointPositions.front();
-        const Vector3& finish = checkpointPositions.back();
+        const Eigen::Vector2d start2(static_cast<double>(start.x), static_cast<double>(start.z));
+        straightTracker_.origin = start2;
+        straightTracker_.direction = Eigen::Vector2d::UnitX(); // Assuming acceleration is along X-axis
+        straightTracker_.length = mission_.track_length_m;
+        std::printf("ConfigureMissionRuntime: Hardcoded Acceleration Track Length=%.2f\n", mission_.track_length_m);
+    } else if (checkpointPositions.size() < 2) {
+        std::printf("ConfigureMissionRuntime: too few checkpoints (%zu)\n", checkpointPositions.size());
+    } else {
         const Eigen::Vector2d start2(static_cast<double>(start.x), static_cast<double>(start.z));
         const Eigen::Vector2d finish2(static_cast<double>(finish.x), static_cast<double>(finish.z));
         const Eigen::Vector2d delta = finish2 - start2;
@@ -575,6 +597,7 @@ void World::configureMissionRuntime() {
             straightTracker_.length = length;
         }
     }
+    missionState_.Reset(mission_);
 }
 
 void World::initializeVehiclePose() {
@@ -624,6 +647,8 @@ void World::updateStraightLineProgress() {
     const double projection = offset.dot(straightTracker_.direction);
     const double clamped = std::clamp(projection, 0.0, straightTracker_.length);
     missionState_.SetStraightLineProgress(clamped);
+    std::printf("UpdateStraightLineProgress: Progress=%.2f, Track Length=%.2f\n",
+                clamped, mission_.track_length_m);
 }
 
 void World::handleMissionCompletion() {

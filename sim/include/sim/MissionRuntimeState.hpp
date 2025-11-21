@@ -15,6 +15,7 @@ enum class MissionSegmentType {
 
 enum class MissionRunStatus {
   kRunning,
+  kBraking,
   kCompleted,
 };
 
@@ -52,6 +53,7 @@ class MissionRuntimeState {
   bool mission_complete() const { return run_status_ == MissionRunStatus::kCompleted; }
   bool stop_commanded() const { return stop_commanded_; }
   void MarkStopCommanded();
+  void MarkCompleted();
 
  private:
   void ConfigureSegments();

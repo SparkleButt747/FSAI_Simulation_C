@@ -414,6 +414,8 @@ std::string MissionRunStatusLabel(fsai::sim::MissionRunStatus status, bool stop_
         return "Stop Commanded";
       }
       return "Running";
+    case fsai::sim::MissionRunStatus::kBraking:
+      return "Braking";
     case fsai::sim::MissionRunStatus::kCompleted:
       return stop_commanded ? "Completed (Stop Commanded)" : "Completed";
   }
@@ -441,6 +443,8 @@ ImVec4 MissionStatusColor(fsai::sim::MissionRunStatus status, bool stop_commande
         return Rgba255(239, 108, 0);
       }
       return Rgba255(255, 213, 79);
+    case fsai::sim::MissionRunStatus::kBraking:
+      return Rgba255(239, 108, 0);
     case fsai::sim::MissionRunStatus::kCompleted:
       return stop_commanded ? Rgba255(102, 187, 106) : Rgba255(76, 175, 80);
   }
@@ -2611,6 +2615,11 @@ int main(int argc, char* argv[]) {
           case ConeType::Right:
             instance.body_color = right_body;
             instance.stripe_color = right_stripe;
+            instance.stripe_count = 1;
+            break;
+          case ConeType::Orange: // Added for small orange cones
+            instance.body_color = start_body; // Reusing orange from start cones
+            instance.stripe_color = start_stripe; // White stripe
             instance.stripe_count = 1;
             break;
         }
