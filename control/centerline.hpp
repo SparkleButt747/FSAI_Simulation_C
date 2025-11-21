@@ -93,11 +93,11 @@ std::vector<Vector2> getCenterline(
 float calculateCost(const std::vector<PathNode>& path, std::size_t minLen);
 
 struct CostWeights {
-    float angleMax = 0.441f;
-    float widthStd = 1.6f;
-    float spacingStd = 0.0f;
+    float angleMax = 5.3f;
+    float widthStd = 2.1f;
+    float spacingStd = 10.0f;
     float color = 10.0f;
-    float rangeSq = 5.0f;
+    float rangeSq = 0.15f;
 };
 
 CostWeights defaultCostWeights();

@@ -174,7 +174,7 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
 
     float colorPenalty = 0.0f;
     if(considered>0) {
-        colorPenalty = static_cast<float>(sameSide)/static_cast<float>(considered);
+        colorPenalty = static_cast<float>(considered - sameSide)/static_cast<float>(considered);
     }
 
     // 5) Squared difference between path length and sensor range

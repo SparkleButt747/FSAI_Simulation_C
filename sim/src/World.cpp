@@ -152,8 +152,52 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
 
     triangulationEdges = getVisibleTriangulationEdges(triangulation_, coneToSide_, vehicleState(), getLeftCones(), getRightCones());
 
+    
+    // --- NEW: cache path; only recompute when we reach a new checkpoint ---
+    static bool hasCachedPath = false;
+    static std::vector<PathNode> cachedPathNodes;
+    static Vector3* cachedCheckpoints = nullptr;
+    static Vector3 lastPathCheckpoint{};  // checkpoint the cached path was planned from
+
+    const Vector3& currentCheckpoint = checkpointPositions.front();
+    const bool needNewPath =
+        !hasCachedPath ||
+        currentCheckpoint.x != lastPathCheckpoint.x ||
+        currentCheckpoint.y != lastPathCheckpoint.y ||
+        currentCheckpoint.z != lastPathCheckpoint.z;
+
+    if (needNewPath) {
+        std::cout<<'\n'<<'\n'<<'\n'<<"COMPUTING!!!!"<<'\n'<<'\n'<<'\n';
+        auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
+        auto searchResult = beamSearch(adj, nodes, carFront, 7, 2, 20);
+
+        cachedPathNodes = std::move(searchResult.first);
+        bestPathEdges   = std::move(searchResult.second);  // still used for visualisation
+
+        cachedCheckpoints   = pathNodesToCheckpoints(cachedPathNodes);
+        lastPathCheckpoint  = currentCheckpoint;
+        hasCachedPath       = !cachedPathNodes.empty();
+    }
+
+    if (!hasCachedPath || cachedPathNodes.empty() || cachedCheckpoints == nullptr) {
+        // No valid path available => do not override control this frame
+        return false;
+    }
+
+    lookaheadIndices = Controller_GetLookaheadIndices(
+        static_cast<int>(cachedPathNodes.size()), carSpeed, &racingConfig);
+    throttle_out = Controller_GetThrottleInput(
+        cachedCheckpoints, static_cast<int>(cachedPathNodes.size()),
+        carSpeed, &carTransform, &racingConfig, dt);
+    steering_out = Controller_GetSteeringInput(
+        cachedCheckpoints, static_cast<int>(cachedPathNodes.size()),
+        carSpeed, &carTransform, &racingConfig, dt);
+
+    return true;
+    
+    /*
     auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
-    auto searchResult = beamSearch(adj, nodes, carFront, 7, 2, 20);
+    auto searchResult = beamSearch(adj, nodes, carFront, 7, 4, 64);
     auto pathNodes = searchResult.first;
     bestPathEdges = searchResult.second;
     auto checkpoints = pathNodesToCheckpoints(pathNodes);
@@ -165,7 +209,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     steering_out = Controller_GetSteeringInput(
         checkpoints, static_cast<int>(pathNodes.size()),
         carSpeed, &carTransform, &racingConfig, dt);
-    return true;
+    return true;*/
 }
 
 void World::setSvcuCommand(float throttle, float brake, float steer) {

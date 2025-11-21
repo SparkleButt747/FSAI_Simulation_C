@@ -217,7 +217,7 @@ int main(int argc, char* argv[]) {
 
     constexpr std::size_t kMaxPathLength = 30;
     constexpr std::size_t kMinPathLength = 2;
-    int beamWidthSetting = 12;
+    int beamWidthSetting = 64;
 
     t1 = Clock::now();
     auto recomputePath = [&]() {
@@ -338,7 +338,7 @@ int main(int argc, char* argv[]) {
         }
 
         bool weightsChanged = false;
-        weightsChanged |= ImGui::SliderFloat("Curvature weight", &weights.angleMax, 0.0f, 1.0f, "%.3f");
+        weightsChanged |= ImGui::SliderFloat("Curvature weight", &weights.angleMax, 0.0f, 10.0f, "%.3f");
         weightsChanged |= ImGui::SliderFloat("Width consistency", &weights.widthStd, 0.0f, 10.0f, "%.2f");
         weightsChanged |= ImGui::SliderFloat("Spacing consistency", &weights.spacingStd, 0.0f, 10.0f, "%.2f");
         weightsChanged |= ImGui::SliderFloat("Color penalty", &weights.color, 0.0f, 10.0f, "%.2f");
