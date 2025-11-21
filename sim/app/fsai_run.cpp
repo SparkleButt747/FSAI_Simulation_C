@@ -1441,7 +1441,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
                    transform.yaw);
 
     for (auto cone : world.coneDetections) {
-          printf("\n\n cone conf %f \n\n", cone.conf);
+          // printf("\n\n cone conf %f \n\n", cone.conf);
           int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
           int cone_y = static_cast<int>(cone.y * K_RENDER_SCALE +

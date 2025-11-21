@@ -111,6 +111,7 @@ RenderableFrame VisionNode::getRenderableFrame(){
  * @param Feature point the matched feature
  */
 inline bool VisionNode::triangulatePoint(const Feature& feat, Eigen::Vector3d& result){
+    const double max_depth = 10.0f;
     const double disparity = feat.x_1 - feat.x_2;
 
     // Check for near-zero disparity to avoid division by zero
@@ -124,11 +125,12 @@ inline bool VisionNode::triangulatePoint(const Feature& feat, Eigen::Vector3d& r
     // Precompute common factor Q = Baseline / Disparity
     // This saves multiple multiplications and divisions later.
     const double Q = BASE_LINE_ / disparity;
-
+    result.z() = cameraParams_.fx * Q;
+    if(result.z() > max_depth){
+        result.z() =-1;
+    }
     // Calculate coordinates directly into the result vector
     result.x() = (feat.x_1 - cameraParams_.cx) * Q;
-
-    result.z() = cameraParams_.fx * Q;
 
     result.y() = (feat.y_1 - cameraParams_.cy) * result.z() / cameraParams_.fy;
 
@@ -219,6 +221,7 @@ void VisionNode::runProcessingLoop(){
                 //determine depth for each match and update cone cluster
                 Eigen::Vector3d res;
                 if(triangulatePoint(feat,res)){
+                    if(res.z() != -1)
                     cluster.points.push_back(res);
                 }
             }
