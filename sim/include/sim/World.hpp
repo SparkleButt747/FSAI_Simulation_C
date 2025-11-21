@@ -3,9 +3,8 @@
 #include <vector>
 #include <Eigen/Dense>
 #include "types.h"
-#include "DynamicBicycle.hpp"
 #include "VehicleState.hpp"
-#include "VehicleInput.hpp"
+#include "sim/vehicle/VehicleDynamics.hpp"
 #include "Telemetry.hpp"
 #include "controller.prot.h"
 #include "Transform.h"
@@ -63,8 +62,8 @@ public:
     std::vector<FsaiConeDet> coneDetections {};
 
 
-    const VehicleState& vehicleState() const { return carState; }
-    const Transform& vehicleTransform() const { return carTransform; }
+    const VehicleState& vehicleState() const { return vehicleDynamics_.state(); }
+    const Transform& vehicleTransform() const { return vehicleDynamics_.transform(); }
     const std::vector<Vector3>& checkpointPositionsWorld() const {
         return checkpointPositions;
     }
@@ -97,7 +96,7 @@ public:
         return positions;
     }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
-    const WheelsInfo& wheelsInfo() const { return wheelsInfo_; }
+    const WheelsInfo& wheelsInfo() const { return vehicleDynamics_.wheelsInfo(); }
     double lapTimeSeconds() const { return totalTime; }
     double totalDistanceMeters() const { return totalDistance; }
     double timeStepSeconds() const { return deltaTime; }
@@ -110,7 +109,7 @@ public:
     bool computeRacingControl(double dt, float& throttle_out, float& steering_out);
     void setSvcuCommand(float throttle, float brake, float steer);
     bool hasSvcuCommand() const { return hasSvcuCommand_; }
-    const DynamicBicycle& model() const { return carModel; }
+    const DynamicBicycle& model() const { return vehicleDynamics_.model(); }
 
     const fsai::sim::MissionDefinition& mission() const { return mission_; }
 
@@ -122,12 +121,7 @@ private:
     void initializeVehiclePose();
     fsai::sim::TrackData generateRandomTrack() const;
 
-    DynamicBicycle carModel{VehicleParam()};
-    VehicleState carState{Eigen::Vector3d::Zero(), 0.0,
-                          Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                          Eigen::Vector3d::Zero()};
-    VehicleInput carInput{0.0, 0.0, 0.0};
-    Transform carTransform{};
+    VehicleDynamics vehicleDynamics_{VehicleParam()};
     Vector2 prevCarPos_{0.0f, 0.0f};
 
     std::vector<Vector3> checkpointPositions{};
@@ -138,7 +132,6 @@ private:
     std::vector<CollisionSegment> boundarySegments_{};
     Vector3 lastCheckpoint{0.0f, 0.0f, 0.0f};
 
-    WheelsInfo wheelsInfo_{WheelsInfo_default()};
     bool hasSvcuCommand_{false};
     float lastSvcuThrottle_{0.0f};
     float lastSvcuBrake_{0.0f};
