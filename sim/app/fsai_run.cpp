@@ -1278,10 +1278,10 @@ void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
 
 void DrawDetectionPreviewPanel(fsai::vision::DetectionPreview& preview, uint64_t now_ns) {
   // Force position and size every frame to guarantee visibility
-  ImGui::SetNextWindowPos(ImVec2(100, 400), ImGuiCond_Always);
+  // ImGui::SetNextWindowPos(ImVec2(100, 400), ImGuiCond_Always);
   // ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_Always);
 
-  if (ImGui::Begin("Cone detection", nullptr, ImGuiWindowFlags_NoCollapse)) {
+  if (ImGui::Begin("Cone detection", nullptr)) {
       ImGui::Text("Model used: Yolov8 ");
       ImGui::Separator();
 
