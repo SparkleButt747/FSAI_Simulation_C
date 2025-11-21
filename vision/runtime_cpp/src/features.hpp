@@ -20,7 +20,7 @@ struct PseudoFeature{
 // NEW: Structure to group matched features by their originating cone (bounding box)
 struct ConeMatches {
     int cone_index;                 // Index matching the input vector of BoxBounds
-    fsai::vision::BoxBound bound;   // The bounding box these matches belong to
+    fsai::types::BoxBound bound;   // The bounding box these matches belong to
     std::vector<Feature> matches;   // The list of stereo matched features for this specific cone
     FsaiConeSide side;
 };
@@ -28,7 +28,7 @@ struct ConeMatches {
 // --- Function Declarations ---
 
 // Extracts ROI from a frame based on bounding box
-cv::Mat extract_boundimg(const cv::Mat& left_frame, const fsai::vision::BoxBound& box_bound);
+cv::Mat extract_boundimg(const cv::Mat& left_frame, const fsai::types::BoxBound& box_bound);
 
 // Extracts ORB features from a given image fragment (or full frame)
 std::vector<PseudoFeature> extract_features(const cv::Mat& frame, cv::Ptr<cv::ORB> orb);
@@ -37,4 +37,4 @@ std::vector<PseudoFeature> extract_features(const cv::Mat& frame, cv::Ptr<cv::OR
 std::vector<Feature> pair_features(const std::vector<PseudoFeature>& left_features, const std::vector<PseudoFeature>& right_features);
 
 // Main entry point: matching features for specific objects (cones)
-std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, const cv::Mat& right_frame, const std::vector<fsai::vision::BoxBound>& box_bounds);
+std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, const cv::Mat& right_frame, const std::vector<fsai::types::BoxBound>& box_bounds);

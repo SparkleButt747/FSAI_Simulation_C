@@ -1,5 +1,6 @@
 #pragma once
 #include "common/include/common/types.h"
+#include "cone_tracker.hpp"
 #include <vector>
 #include <string>
 #include <onnxruntime_cxx_api.h>
@@ -7,12 +8,6 @@
 
 namespace fsai{
 namespace vision{
-struct BoxBound{
-    int x,y;
-    float w,h;
-    float conf;
-    fsai::types::ConeSide side;
-};
 class ConeDetector{
     public:
 
@@ -27,11 +22,11 @@ class ConeDetector{
 
     
 
-    std::vector<BoxBound>detectCones(const cv::Mat& left_frame);
+    std::vector<types::BoxBound>detectCones(const cv::Mat& left_frame);
 
     private:
+    ConeTracker tracker_;
 
-    fsai::types::ConeDet processDetection(const BoxBound& box_bound);
     //members
     std::unique_ptr<Ort::Env> env_;
     std::unique_ptr<Ort::Session> session_; //this is the "model"

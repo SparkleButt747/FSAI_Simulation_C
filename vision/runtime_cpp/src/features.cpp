@@ -22,7 +22,7 @@ bool is_safe_roi(const cv::Mat& frame, cv::Rect roi) {
 
 std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, 
                                                  const cv::Mat& right_frame, 
-                                                 const std::vector<fsai::vision::BoxBound>& box_bounds) {
+                                                 const std::vector<fsai::types::BoxBound>& box_bounds) {
     std::vector<ConeMatches> all_cone_matches;
     all_cone_matches.reserve(box_bounds.size());
 
