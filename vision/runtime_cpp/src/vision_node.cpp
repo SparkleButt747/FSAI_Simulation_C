@@ -58,6 +58,9 @@ void VisionNode::stop(){
     running_ = false;
     if(processing_thread_.joinable()){
         processing_thread_.join();
+        std::cout << "VisionNode: " << invalid_dets_ << " were pruned from output" << std::endl;
+        std::cout << "VisionNode: found max bbound :" << max_area_ << std::endl;
+        std::cout << "VisionNode: found min bbound :" << min_area_ << std::endl;
         std::cout << "VisionNode: Processing thread joined" << std::endl;
     }
 }
@@ -111,6 +114,7 @@ RenderableFrame VisionNode::getRenderableFrame(){
  * @param Feature point the matched feature
  */
 inline bool VisionNode::triangulatePoint(const Feature& feat, Eigen::Vector3d& result){
+    const double max_depth = 10.0f;
     const double disparity = feat.x_1 - feat.x_2;
 
     // Check for near-zero disparity to avoid division by zero
@@ -124,7 +128,11 @@ inline bool VisionNode::triangulatePoint(const Feature& feat, Eigen::Vector3d& r
     // Precompute common factor Q = Baseline / Disparity
     // This saves multiple multiplications and divisions later.
     const double Q = BASE_LINE_ / disparity;
-
+    result.z() = cameraParams_.fx * Q;
+    if(result.z() >= max_depth){
+        invalid_dets_ ++;
+        return false;
+    }
     // Calculate coordinates directly into the result vector
     result.x() = (feat.x_1 - cameraParams_.cx) * Q;
     
@@ -175,7 +183,15 @@ void VisionNode::runProcessingLoop(){
     
         // 1. Object detection logic
         auto t2 = std::chrono::high_resolution_clock::now();
-        std::vector<BoxBound> detections = detector_->detectCones(left_mat);
+        std::vector<types::BoxBound> detections = detector_->detectCones(left_mat);
+        for(const auto& det: detections){
+            float area = det.w * det.h;
+            if(area > max_area_){
+                max_area_ = area;
+            }else if(area < min_area_){
+                min_area_ = area;
+            }
+        }
         {
             std::lock_guard<std::mutex> lock(render_mutex_);
             latest_renderable_frame_.image = left_mat; // cv::Mat is ref-counted, this is fast

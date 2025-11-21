@@ -14,6 +14,7 @@
 #include <optional>
 #include <thread>
 #include <vector>
+#include <limits>
 
 #include <opencv2/opencv.hpp>
 #include <Eigen/Core>
@@ -23,7 +24,7 @@ namespace fsai{
 namespace vision{
 struct RenderableFrame {
     cv::Mat image;
-    std::vector<BoxBound> boxes;
+    std::vector<types::BoxBound> boxes;
     uint64_t timestamp_ns = 0;
     bool valid = false;
 };
@@ -97,6 +98,10 @@ class VisionNode{
     std::optional<fsai::types::Detections> latest_detections_;
     std::mutex render_mutex_;
     RenderableFrame latest_renderable_frame_;
+
+    int invalid_dets_ = 0;
+    float max_area_ = std::numeric_limits<float>::min();
+    float min_area_ = std::numeric_limits<float>::max();
 
     //Add ring buffer type 
     using DetectionsRingBuffer = fsai::vision::GenericRingBuffer<fsai::types::Detections>;
