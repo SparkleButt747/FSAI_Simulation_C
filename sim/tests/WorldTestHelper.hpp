@@ -44,13 +44,13 @@ public:
         world.prevCarPos_ = prev;
     }
 
-    static void SetCarPosition(World& world, float x, float z) {
-        SetVehiclePose(world, x, world.vehicleDynamics_.transform().position.y, z);
+    static void SetCarPosition(World& world, VehicleDynamics& dynamics, float x, float z) {
+        SetVehiclePose(world, dynamics, x, world.vehicleTransform().position.y, z);
     }
 
-    static void SetCarHeight(World& world, float y) {
-        const Transform& carTransform = world.vehicleDynamics_.transform();
-        SetVehiclePose(world, carTransform.position.x, y, carTransform.position.z);
+    static void SetCarHeight(World& world, VehicleDynamics& dynamics, float y) {
+        const Transform& carTransform = world.vehicleTransform();
+        SetVehiclePose(world, dynamics, carTransform.position.x, y, carTransform.position.z);
     }
 
     static bool CrossesGate(World& world, Vector2 prev, Vector2 curr) {
@@ -70,16 +70,16 @@ public:
     }
 
 private:
-    static void SetVehiclePose(World& world, float x, float y, float z) {
-        VehicleState state = world.vehicleDynamics_.state();
+    static void SetVehiclePose(World& world, VehicleDynamics& dynamics, float x, float y, float z) {
+        VehicleState state = dynamics.state();
         state.position = Eigen::Vector3d(static_cast<double>(x), static_cast<double>(z), state.position.z());
 
-        Transform transform = world.vehicleDynamics_.transform();
+        Transform transform = world.vehicleTransform();
         transform.position.x = x;
         transform.position.y = y;
         transform.position.z = z;
 
-        world.vehicleDynamics_.setState(state, transform);
+        dynamics.setState(state, transform);
     }
 };
 
