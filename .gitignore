@@ -1,0 +1,10 @@
+.vscode/
+.idea/
+.DS_Store
+.history/
+build/
+build-linux/
+venv/
+git_scripts/
+__pycache__/
+vision/CMakeLists.txt
