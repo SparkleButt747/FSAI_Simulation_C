@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Eigen/Dense>
+
 #include "World.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 
@@ -30,10 +32,7 @@ public:
         world.gateSegments_.clear();
         world.boundarySegments_.clear();
         world.lastCheckpoint = Vector3{1000.0f, 0.0f, 1000.0f};
-        world.prevCarPos_ = Vector2{0.0f, 0.0f};
-        world.carTransform.position.x = 0.0f;
-        world.carTransform.position.y = 0.5f;
-        world.carTransform.position.z = 0.0f;
+        world.initializeVehiclePose();
         world.insideLastCheckpoint_ = false;
     }
 
@@ -46,12 +45,12 @@ public:
     }
 
     static void SetCarPosition(World& world, float x, float z) {
-        world.carTransform.position.x = x;
-        world.carTransform.position.z = z;
+        SetVehiclePose(world, x, world.vehicleDynamics_.transform().position.y, z);
     }
 
     static void SetCarHeight(World& world, float y) {
-        world.carTransform.position.y = y;
+        const Transform& carTransform = world.vehicleDynamics_.transform();
+        SetVehiclePose(world, carTransform.position.x, y, carTransform.position.z);
     }
 
     static bool CrossesGate(World& world, Vector2 prev, Vector2 curr) {
@@ -68,6 +67,19 @@ public:
 
     static void SetInsideLastCheckpoint(World& world, bool inside) {
         world.insideLastCheckpoint_ = inside;
+    }
+
+private:
+    static void SetVehiclePose(World& world, float x, float y, float z) {
+        VehicleState state = world.vehicleDynamics_.state();
+        state.position = Eigen::Vector3d(static_cast<double>(x), static_cast<double>(z), state.position.z());
+
+        Transform transform = world.vehicleDynamics_.transform();
+        transform.position.x = x;
+        transform.position.y = y;
+        transform.position.z = z;
+
+        world.vehicleDynamics_.setState(state, transform);
     }
 };
 
