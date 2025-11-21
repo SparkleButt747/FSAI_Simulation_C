@@ -262,6 +262,7 @@ constexpr double kBaseLongitudeDeg = -122.1697;
 constexpr double kMetersPerDegreeLat = 111111.0;
 constexpr const char* kDefaultSensorConfig = "configs/sim/sensors.yaml";
 
+
 template <size_t Capacity>
 class RollingBuffer {
  public:

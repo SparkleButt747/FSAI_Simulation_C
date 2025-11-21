@@ -1,6 +1,4 @@
 #include "features.hpp"
-#include "detect.hpp"
-#include <vector>
 #include <opencv2/opencv.hpp>
 #include <opencv2/features2d.hpp>  // For SIFT and other feature detectors
 #include <opencv2/imgproc.hpp>
@@ -25,7 +23,7 @@ float L2_score(cv::Mat left_descriptor, cv::Mat right_descriptor){
 
 std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, 
                                                  const cv::Mat& right_frame, 
-                                                 const std::vector<fsai::types::BoxBound>& box_bounds) {
+                                                 const std::vector<fsai::vision::BoxBound>& box_bounds) {
     std::vector<ConeMatches> all_cone_matches;
     all_cone_matches.reserve(box_bounds.size());
     
@@ -129,11 +127,9 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     }
     
     for (const auto& pair: cone_map){
-        ConeMatches tempConeMatch;
-        
-        int cone_index = pair.first;  
+        ConeMatches tempConeMatch; 
     
-        tempConeMatch.cone_index = cone_index; 
+        tempConeMatch.cone_index = pair.first; 
         tempConeMatch.bound = box_bounds[cone_index];
         tempConeMatch.matches = pair.second; 
         
