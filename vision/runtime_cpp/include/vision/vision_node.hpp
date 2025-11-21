@@ -5,7 +5,7 @@
 #include "common/include/common/types.h"
 #include "detect.hpp"
 #include "features.hpp"
-#include "vision/detection_ring_buffer.hpp"
+#include "shared_ring_buffer.hpp"
 
 
 #include <atomic>
@@ -30,6 +30,8 @@ struct RenderableFrame {
 struct ConeCluster{
     int coneId;
     std::vector<Eigen::Vector3d> points;
+    FsaiConeSide side;
+    Eigen::Vector2d centre;
 };
 // struct Point3D{
 //     double X,Y,Z;
@@ -96,6 +98,9 @@ class VisionNode{
     std::mutex render_mutex_;
     RenderableFrame latest_renderable_frame_;
 
+    //Add ring buffer type 
+    using DetectionsRingBuffer = fsai::vision::GenericRingBuffer<fsai::types::Detections>;
+    std::shared_ptr<DetectionsRingBuffer> detection_buffer_;
 
 };
 }

@@ -14,6 +14,7 @@
 #include "features.hpp"
 #include "centroid.hpp"
 
+#include "vision/detection_buffer_registry.hpp"
 #include "common/include/common/types.h"
 #include "logging.hpp"
 #include <iostream>
@@ -30,6 +31,11 @@ VisionNode::VisionNode(){
     std::cout << "VisionNode: Initialisation ..." << std::endl;
     camera_ = std::make_unique<fsai::vision::SimCamera>();
     detector_ = std::make_unique<fsai::vision::ConeDetector>(PATH_TO_MODEL);
+    constexpr size_t DETECTION_BUFFER_CAPACITY = 10; // Choose a suitable size
+    detection_buffer_ = std::make_shared<DetectionsRingBuffer>(DETECTION_BUFFER_CAPACITY);
+
+    setActiveDetectionBuffer(detection_buffer_);
+
     std::cout << "VisionNode: Initialisation complete" << std::endl;
 }
 
@@ -178,7 +184,6 @@ void VisionNode::runProcessingLoop(){
             latest_renderable_frame_.valid = true;
         }
 
-        // 2. Loop through the vector and copy into the C-style array
         // 2. Feature matching
         auto t3 = std::chrono::high_resolution_clock::now();
         std::vector<ConeMatches> matched_features = match_features_per_cone(left_mat,right_mat,detections);
@@ -224,20 +229,45 @@ void VisionNode::runProcessingLoop(){
         car_to_global.translation() << vehicle_pos.x(), vehicle_pos.y();
         car_to_global.rotate(Eigen::Rotation2Dd(car_yaw_rad));
 
-        for(const auto& center : local_centres) {
-            FsaiConeDet glob_det;
-            // 3. CONVERT Camera Frame (Z-forward, X-right) to Vehicle Frame (X-forward, Y-left)
-            Eigen::Vector2d vehicle_pos;
-            vehicle_pos.x() = center.y();  // Forward
-            vehicle_pos.y() = -center.x(); // Left (negative right)
+        if(pose_provider_){
+            auto pose = pose_provider_();
+            vehicle_pos = pose.first;
+            car_yaw_rad = pose.second;
+        }
+        for(const auto& cone:matched_features){
+            //iterate over each feature for every cone
+            ConeCluster cluster;
+            cluster.coneId = cone.cone_index;
+            cluster.side = cone.side;
+            for(const auto& feat: cone.matches ){
+                //determine depth for each match and update cone cluster
+                Eigen::Vector3d res;
+                if(triangulatePoint(feat,res)){
+                    cluster.points.push_back(res);
+                }
+            }
+            if(!cluster.points.empty()){
+                // refactored to run the centroid recovery here to save space
+                // find 2d centre coord and add to intermittent vector
+                Eigen::Vector2d center = Centroid::centroid_linear(cluster.points);
+                if(!center.isZero()){
+                    cluster.centre = center;
+                    FsaiConeDet glob_det;
+                    // 3. CONVERT Camera Frame (Z-forward, X-right) to Vehicle Frame (X-forward, Y-left)
+                    Eigen::Vector2d vehicle_pos;
+                    vehicle_pos.x() = cluster.centre.y();  // Forward
+                    vehicle_pos.y() = -cluster.centre.x(); // Left (negative right)
 
-            // Apply Global Transform
-            Eigen::Vector2d global_pos = car_to_global * vehicle_pos;
-            glob_det.x = global_pos.x();
-            glob_det.y = global_pos.y();
-            glob_det.z = 0.0f;
-            new_detections.dets[new_detections.n] = glob_det;
-            new_detections.n++;
+                    // Apply Global Transform
+                    Eigen::Vector2d global_pos = car_to_global * vehicle_pos;
+                    glob_det.x = global_pos.x();
+                    glob_det.y = global_pos.y();
+                    glob_det.z = 0.0f;
+                    glob_det.side = cluster.side;
+                    new_detections.dets[new_detections.n] = glob_det;
+                    new_detections.n++;
+                }
+            }
         }
         auto t_end = std::chrono::high_resolution_clock::now();
         auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count();
@@ -255,10 +285,7 @@ void VisionNode::runProcessingLoop(){
             "Match: " + std::to_string(ms_match) + " | " +
             "Post: " + std::to_string(ms_rest)
         );
-        {
-            std::lock_guard<std::mutex> lock(detection_mutex_);
-            latest_detections_ = new_detections;
-        }
+        detection_buffer_->push(new_detections);
     }
 }
 }

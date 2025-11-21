@@ -267,6 +267,7 @@ target_include_directories(fsai_vision_runtime PUBLIC
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
+    "${CMAKE_SOURCE_DIR}/sim/include"
     "${CMAKE_SOURCE_DIR}"
 )
 target_link_libraries(fsai_vision_runtime PUBLIC
