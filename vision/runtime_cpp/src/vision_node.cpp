@@ -184,7 +184,7 @@ void VisionNode::runProcessingLoop(){
         // get car telem at start
         CarState car_state = {0.0, 0.0, 0.0};
         Eigen::Vector2d vehicle_pos {0.0, 0.0};
-        double car_yaw_rad = 0.0;
+        //double car_yaw_rad = 0.0;       - Ryan - why is this here
         double car_yaw_rad = 0.0f;
 
         if(pose_provider_){
@@ -249,8 +249,8 @@ void VisionNode::runProcessingLoop(){
         }
         // 5. Recovering global position
         //apply rigid body transformation and translation
-        Eigen::Vector2d vehicle_pos {0.0,0.0};
-        double car_yaw_rad = 0.0f;
+        vehicle_pos = {0.0,0.0};
+        car_yaw_rad = 0.0f;
         if(pose_provider_){
             auto pose = pose_provider_();
             vehicle_pos = pose.first;

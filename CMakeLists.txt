@@ -88,8 +88,8 @@ if(APPLE)
 
 else()
   # --- Linux Strategy: Custom GPU build path ---
-  set(ORT_ROOT "/home/v-admin/Documents/onnxTest/onnxruntime-linux-x64-gpu-1.23.2") # personal path lol
-  include_directories(${ORT_ROOT}/include)
+  set(ORT_ROOT "/usr/onnxruntime/") # personal path lol
+  include_directories(${ORT_ROOT}/include/onnxruntime)
   find_library(ORT_LIB_RAW NAMES onnxruntime PATHS ${ORT_ROOT}/lib NO_DEFAULT_PATH)
   
   if(ORT_LIB_RAW)

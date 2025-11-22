@@ -6,9 +6,8 @@
 #include <queue>
 #include <random>
 #include <utility>
-
-#include "common/types.h"
-#include "sim/svcu/link.hpp"
+#include "../../../common/include/common/types.h"
+#include "../../sim/svcu/link.hpp"
 
 namespace fsai::io {
 
