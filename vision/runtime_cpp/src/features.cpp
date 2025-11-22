@@ -77,7 +77,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         PseudoFeature right_feature; 
         right_feature.x = right_keypoints[i].pt.x;
         right_feature.y = right_keypoints[i].pt.y; 
-        right_feature.descriptor = right_descriptors.row(i); 
+        right_feature.descriptor = right_descriptors.row(i).clone(); 
         right_feature.cone_index = 0; 
         right_features.push_back(right_feature); 
         
