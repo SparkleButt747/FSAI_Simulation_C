@@ -1,4 +1,5 @@
 #include "features.hpp"
+#include "common/include/common/types.h"
 #include "detect.hpp"
 #include <vector>
 #include <opencv2/opencv.hpp>
@@ -37,15 +38,14 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     
     for (int i = 0; i < box_bounds.size(); ++i){
         // get information about the box 
-        fsai::vision::BoxBound box_i = box_bounds[i]; 
+        fsai::types::BoxBound box_i = box_bounds[i]; 
         int box_index = i; 
         
         // get roi 
         cv::Rect box_rect(box_i.x, box_i.y, box_i.w, box_i.h); 
         cv::Mat box_roi; 
-        box_roi = left_frame(box_rect); 
         if (!is_safe_roi(left_frame, box_rect)){continue;}
-        
+        box_roi = left_frame(box_rect); 
         std::vector<cv::KeyPoint> left_keypoints; 
         cv::Mat left_descriptors; 
         
@@ -137,6 +137,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         tempConeMatch.cone_index = cone_index; 
         tempConeMatch.bound = box_bounds[cone_index];
         tempConeMatch.matches = pair.second; 
+        tempConeMatch.side = box_bounds[cone_index].side;
         
         all_cone_matches.push_back(tempConeMatch);
     }
