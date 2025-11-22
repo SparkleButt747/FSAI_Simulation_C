@@ -180,7 +180,23 @@ void VisionNode::runProcessingLoop(){
         fsai::types::Detections new_detections{};
         new_detections.t_ns = handle_opt->frame.t_sync_ns;
         new_detections.n = 0; // Number of cones found
-    
+
+        // get car telem at start
+        CarState car_state = {0.0, 0.0, 0.0};
+        Eigen::Vector2d vehicle_pos {0.0, 0.0};
+        double car_yaw_rad = 0.0;
+        double car_yaw_rad = 0.0f;
+
+        if(pose_provider_){
+            std::pair<Eigen::Vector2d, double> pose = pose_provider_();
+            vehicle_pos = pose.first;
+            car_yaw_rad = pose.second;
+
+            // Map to Mapper struct
+            car_state.x = vehicle_pos.x();
+            car_state.y = vehicle_pos.y();
+            car_state.heading = car_yaw_rad;
+        }
         // 1. Object detection logic
         auto t2 = std::chrono::high_resolution_clock::now();
         std::vector<types::BoxBound> detections = detector_->detectCones(left_mat);
@@ -203,11 +219,12 @@ void VisionNode::runProcessingLoop(){
         // 2. Feature matching
         auto t3 = std::chrono::high_resolution_clock::now();
         std::vector<ConeMatches> matched_features = match_features_per_cone(left_mat,right_mat,detections);
+
         // 3. Stereo triangulation
-        // convert the features to 2D point struct
         auto t4 = std::chrono::high_resolution_clock::now();
+
         std::vector<ConeCluster> cone_cluster;
-        
+
         std::vector<Eigen::Vector2d> local_centres;
 
         for(const auto& cone:matched_features){
@@ -229,7 +246,7 @@ void VisionNode::runProcessingLoop(){
                     local_centres.push_back(center);
                 }
             }
-        } 
+        }
         // 5. Recovering global position
         //apply rigid body transformation and translation
         Eigen::Vector2d vehicle_pos {0.0,0.0};
@@ -245,11 +262,8 @@ void VisionNode::runProcessingLoop(){
         car_to_global.translation() << vehicle_pos.x(), vehicle_pos.y();
         car_to_global.rotate(Eigen::Rotation2Dd(car_yaw_rad));
 
-        if(pose_provider_){
-            auto pose = pose_provider_();
-            vehicle_pos = pose.first;
-            car_yaw_rad = pose.second;
-        }
+        std::vector<FsaiConeDet> raw_global_cones;
+
         for(const auto& cone:matched_features){
             //iterate over each feature for every cone
             ConeCluster cluster;
@@ -280,6 +294,7 @@ void VisionNode::runProcessingLoop(){
                     glob_det.y = global_pos.y();
                     glob_det.z = 0.0f;
                     glob_det.side = cluster.side;
+                    glob_det.conf =0.8f;
                     new_detections.dets[new_detections.n] = glob_det;
                     new_detections.n++;
                 }
