@@ -1464,9 +1464,22 @@ void DrawWorldScene(Graphics* graphics,
           Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 5);
       }
     }
+  auto to_cones = [](const std::vector<Vector3>& positions, ConeType type) {
+    std::vector<Cone> cones;
+    cones.reserve(positions.size());
+    for (const auto& pos : positions) {
+      Cone cone{};
+      cone.position = pos;
+      cone.type = type;
+      cones.push_back(cone);
+    }
+    return cones;
+  };
+
   std::vector<std::pair<Vector2, Vector2>> triangulationEdges =
-      getVisibleTriangulationEdges(world.vehicle_state, world.left_cones,
-                                   world.right_cones)
+      getVisibleTriangulationEdges(world.vehicle_state,
+                                   to_cones(world.left_cones, ConeType::Left),
+                                   to_cones(world.right_cones, ConeType::Right))
           .second;
   for (auto edge: triangulationEdges) {
     Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
