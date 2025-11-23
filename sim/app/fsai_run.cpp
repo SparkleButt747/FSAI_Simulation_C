@@ -1397,7 +1397,7 @@ void DrawWorldScene(Graphics* graphics,
     const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
     DrawConeMarker(graphics, cone_x, cone_y,
-                  kLargeConeRadiusMeters * 2.0f, start_color);
+                  fsai::sim::kLargeConeRadiusMeters * 2.0f, start_color);
   }
   // Blue 0, 102, 204, 255
   const SDL_Color left_base{255, 214, 0, 255};
@@ -1415,8 +1415,8 @@ void DrawWorldScene(Graphics* graphics,
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y, kSmallConeRadiusMeters * 2.0f,
-                  color);
+    DrawConeMarker(graphics, cone_x, cone_y,
+                  fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
   }
   // Yellow 255, 214, 0, 255
   const SDL_Color right_base{0, 102, 204, 255};
@@ -1434,11 +1434,11 @@ void DrawWorldScene(Graphics* graphics,
                                         graphics->width / 2.0f);
     const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y, kSmallConeRadiusMeters * 2.0f,
-                  color);
+    DrawConeMarker(graphics, cone_x, cone_y,
+                  fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
   }
 
-  const auto& transform = world.vehicleTransform();
+  const auto& transform = world.vehicle_transform;
   const float car_screen_x = transform.position.x * K_RENDER_SCALE +
                              graphics->width / 2.0f;
   const float car_screen_y = transform.position.z * K_RENDER_SCALE +
@@ -1447,7 +1447,8 @@ void DrawWorldScene(Graphics* graphics,
   Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
 
-    for (auto cone : world.coneDetections) {
+    if (world.detections != nullptr) {
+      for (const auto& cone : *world.detections) {
           // printf("\n\n cone conf %f \n\n", cone.conf);
           int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
@@ -1461,8 +1462,12 @@ void DrawWorldScene(Graphics* graphics,
             SDL_SetRenderDrawColor(graphics->renderer, 150, 150, 150, 250);
           }
           Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 5);
+      }
     }
-  std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.getLeftCones(), world.getRightCones()).second;
+  std::vector<std::pair<Vector2, Vector2>> triangulationEdges =
+      getVisibleTriangulationEdges(world.vehicle_state, world.left_cones,
+                                   world.right_cones)
+          .second;
   for (auto edge: triangulationEdges) {
     Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
   }

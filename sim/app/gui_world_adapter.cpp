@@ -10,6 +10,8 @@ GuiWorldSnapshot GuiWorldAdapter::snapshot() const {
   snap.checkpoints = world_.checkpoint_positions();
   snap.best_path_edges = world_.best_path_edges();
   snap.lookahead = world_.lookahead_indices();
+  snap.vehicle_transform = world_.vehicle_transform();
+  snap.vehicle_state = world_.vehicle_state();
   snap.mission_runtime = world_.mission_runtime();
   snap.lap_time_seconds = world_.lap_time_seconds();
   snap.total_distance_meters = world_.total_distance_meters();

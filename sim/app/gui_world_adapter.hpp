@@ -4,6 +4,8 @@
 #include <vector>
 
 #include "Vector.h"
+#include "Transform.h"
+#include "VehicleState.hpp"
 #include "sim/MissionRuntimeState.hpp"
 #include "sim/architecture/IWorldView.hpp"
 
@@ -16,6 +18,8 @@ struct GuiWorldSnapshot {
   std::vector<Vector3> checkpoints;
   std::vector<std::pair<Vector2, Vector2>> best_path_edges;
   LookaheadIndices lookahead{};
+  Transform vehicle_transform{};
+  VehicleState vehicle_state{};
   fsai::sim::MissionRuntimeState mission_runtime{};
   double lap_time_seconds{0.0};
   double total_distance_meters{0.0};
