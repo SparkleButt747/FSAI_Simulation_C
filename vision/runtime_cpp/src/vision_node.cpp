@@ -185,7 +185,6 @@ void VisionNode::runProcessingLoop(){
         CarState car_state = {0.0, 0.0, 0.0};
         Eigen::Vector2d vehicle_pos {0.0, 0.0};
         double car_yaw_rad = 0.0;
-        double car_yaw_rad = 0.0f;
 
         if(pose_provider_){
             std::pair<Eigen::Vector2d, double> pose = pose_provider_();
@@ -247,17 +246,6 @@ void VisionNode::runProcessingLoop(){
                 }
             }
         }
-        // 5. Recovering global position
-        //apply rigid body transformation and translation
-        Eigen::Vector2d vehicle_pos {0.0,0.0};
-        double car_yaw_rad = 0.0f;
-        if(pose_provider_){
-            auto pose = pose_provider_();
-            vehicle_pos = pose.first;
-            car_yaw_rad = pose.second;
-        }
-        // std::cout << "Vision Received Car Pos:" << vehicle_pos.x() << vehicle_pos.y() << std::endl;
-
         Eigen::Isometry2d car_to_global = Eigen::Isometry2d::Identity();
         car_to_global.translation() << vehicle_pos.x(), vehicle_pos.y();
         car_to_global.rotate(Eigen::Rotation2Dd(car_yaw_rad));

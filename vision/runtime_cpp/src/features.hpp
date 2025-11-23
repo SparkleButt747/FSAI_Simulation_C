@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/features2d.hpp>
 #include "detect.hpp"
+#include "common/types.h"
 
 // Structure for a matched pair of features across stereo frames
 struct Feature
@@ -22,11 +23,15 @@ struct PseudoFeature{
 // NEW: Structure to group matched features by their originating cone (bounding box)
 struct ConeMatches {
     int cone_index;                 // Index matching the input vector of BoxBounds
-    fsai::types::BoxBound bound;   // The bounding box these matches belong to
+    fsai::types::BoxBound bound;    // The bounding box these matches belong to
+    fsai::types::ConeSide side;     // Side classification for downstream clustering
     std::vector<Feature> matches;   // The list of stereo matched features for this specific cone
 };
 
 // --- Function Declarations ---
 
 // Main entry point: matching features for specific objects (cones)
-std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, const cv::Mat& right_frame, const std::vector<fsai::vision::BoxBound>& box_bounds);
+std::vector<ConeMatches> match_features_per_cone(
+    const cv::Mat& left_frame,
+    const cv::Mat& right_frame,
+    const std::vector<fsai::types::BoxBound>& box_bounds);

@@ -37,8 +37,8 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     
     for (int i = 0; i < box_bounds.size(); ++i){
         // get information about the box 
-        fsai::vision::BoxBound box_i = box_bounds[i]; 
-        int box_index = i; 
+        fsai::types::BoxBound box_i = box_bounds[i];
+        int box_index = i;
         
         // get roi 
         cv::Rect box_rect(box_i.x, box_i.y, box_i.w, box_i.h); 
@@ -131,12 +131,13 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     
     for (const auto& pair: cone_map){
         ConeMatches tempConeMatch;
-        
-        int cone_index = pair.first;  
-    
-        tempConeMatch.cone_index = cone_index; 
+
+        int cone_index = pair.first;
+
+        tempConeMatch.cone_index = cone_index;
         tempConeMatch.bound = box_bounds[cone_index];
-        tempConeMatch.matches = pair.second; 
+        tempConeMatch.side = box_bounds[cone_index].side;
+        tempConeMatch.matches = pair.second;
         
         all_cone_matches.push_back(tempConeMatch);
     }
