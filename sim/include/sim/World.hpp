@@ -47,7 +47,7 @@ public:
     World() = default;
 
     // Initialize the world with vehicle parameters and generate track.
-    void init(const VehicleDynamics& vehicleDynamics, const WorldConfig& config);
+    void init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worldConfig);
 
     // Update simulation by dt seconds.
     void update(double dt);
@@ -81,7 +81,7 @@ public:
     const std::vector<Vector3>& getLeftConePositions() const { return leftConePositions_; }
     const std::vector<Vector3>& getRightConePositions() const { return rightConePositions_; }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
-    const WheelsInfo& wheelsInfo() const { return vehicleDynamics().wheelsInfo(); }
+    const WheelsInfo& wheelsInfo() const { return vehicleDynamics().wheels_info(); }
     double lapTimeSeconds() const { return totalTime; }
     double totalDistanceMeters() const { return totalDistance; }
     double timeStepSeconds() const { return deltaTime; }
@@ -101,7 +101,7 @@ public:
     // IWorldView overrides
     const VehicleState& vehicle_state() const override { return vehicleDynamics().state(); }
     const Transform& vehicle_transform() const override { return vehicleDynamics().transform(); }
-    const WheelsInfo& wheels_info() const override { return vehicleDynamics().wheelsInfo(); }
+    const WheelsInfo& wheels_info() const override { return vehicleDynamics().wheels_info(); }
     const std::vector<Vector3>& checkpoint_positions() const override { return checkpointPositions; }
     const std::vector<Vector3>& start_cones() const override { return startConePositions_; }
     const std::vector<Vector3>& left_cones() const override { return leftConePositions_; }

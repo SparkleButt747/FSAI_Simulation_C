@@ -181,9 +181,9 @@ void World::acknowledgeVehicleReset(const Transform& appliedTransform) {
     prevCarPos_ = {appliedTransform.position.x, appliedTransform.position.z};
 }
 
-void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& config) {
+void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worldConfig) {
     setVehicleDynamics(vehicleDynamics);
-    mission_ = config.mission;
+    mission_ = worldConfig.mission;
 
     if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
         mission_.track.checkpoints.empty()) {
@@ -194,9 +194,9 @@ void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& conf
         throw std::runtime_error("MissionDefinition did not provide any checkpoints");
     }
 
-    config.collisionThreshold = 1.75f;
-    config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
-    config.lapCompletionThreshold = 0.2f;
+    this->config.collisionThreshold = 1.75f;
+    this->config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
+    this->config.lapCompletionThreshold = 0.2f;
 
     configureTrackState(mission_.track);
     configureMissionRuntime();
