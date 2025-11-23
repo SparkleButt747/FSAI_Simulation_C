@@ -36,6 +36,7 @@
 #include "fsai_clock.h"
 #include "csv_logger.hpp"
 #include "logging.hpp"
+#include "gui_world_adapter.hpp"
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
 #include "sim_stereo_source.hpp"
@@ -1321,15 +1322,16 @@ void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
 
 }  // namespace
 
-void DrawWorldScene(Graphics* graphics, const World& world,
+void DrawWorldScene(Graphics* graphics,
+                    const fsai::sim::app::GuiWorldSnapshot& world,
                     const fsai::sim::app::RuntimeTelemetry& telemetry) {
   (void)telemetry;
   fsai::time::SimulationStageTimer render_timer("renderer");
   Graphics_Clear(graphics);
   Graphics_DrawGrid(graphics, 50);
 
-  const auto& left_cones = world.getLeftCones();
-  const auto& right_cones = world.getRightCones();
+  const auto& left_cones = world.left_cones;
+  const auto& right_cones = world.right_cones;
   const std::size_t gate_count =
       std::min(left_cones.size(), right_cones.size());
 
@@ -1339,8 +1341,8 @@ void DrawWorldScene(Graphics* graphics, const World& world,
       const SDL_Color color = is_current_gate
                                   ? SDL_Color{200, 0, 200, 255}
                                   : SDL_Color{120, 120, 200, 180};
-      const auto& left = left_cones[i].position;
-      const auto& right = right_cones[i].position;
+      const auto& left = left_cones[i];
+      const auto& right = right_cones[i];
 
       const float left_x = left.x * K_RENDER_SCALE + graphics->width / 2.0f;
       const float left_y = left.z * K_RENDER_SCALE + graphics->height / 2.0f;
@@ -1372,7 +1374,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
       }
     }
   } else {
-    const auto& checkpoints = world.checkpointPositionsWorld();
+    const auto& checkpoints = world.checkpoints;
     if (!checkpoints.empty()) {
       SDL_SetRenderDrawColor(graphics->renderer, 200, 0, 200, 255);
       Graphics_DrawFilledCircle(
@@ -1385,20 +1387,21 @@ void DrawWorldScene(Graphics* graphics, const World& world,
     }
   }
 
-  const auto& lookahead = world.lookahead();
+  const auto& lookahead = world.lookahead;
 
-  const auto& start_cones = world.getStartCones();
+  const auto& start_cones = world.start_cones;
   const SDL_Color start_color{255, 140, 0, 255};
   for (const auto& cone : start_cones) {
-    const int cone_x = static_cast<int>(cone.position.x * K_RENDER_SCALE +
+    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.position.z * K_RENDER_SCALE +
+    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, start_color);
+    DrawConeMarker(graphics, cone_x, cone_y,
+                  kLargeConeRadiusMeters * 2.0f, start_color);
   }
   // Blue 0, 102, 204, 255
   const SDL_Color left_base{255, 214, 0, 255};
-  for (size_t i = 0; i < world.getLeftCones().size(); ++i) {
+  for (size_t i = 0; i < world.left_cones.size(); ++i) {
     SDL_Color color = left_base;
     if (i == 0) {
       color = SDL_Color{0, 255, 0, 255};
@@ -1407,16 +1410,17 @@ void DrawWorldScene(Graphics* graphics, const World& world,
     } else if (static_cast<int>(i) == lookahead.steer) {
       color = SDL_Color{255, 0, 255, 255};
     }
-    const auto& cone = world.getLeftCones()[i];
-    const int cone_x = static_cast<int>(cone.position.x * K_RENDER_SCALE +
+    const auto& cone = world.left_cones[i];
+    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.position.z * K_RENDER_SCALE +
+    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
+    DrawConeMarker(graphics, cone_x, cone_y, kSmallConeRadiusMeters * 2.0f,
+                  color);
   }
   // Yellow 255, 214, 0, 255
   const SDL_Color right_base{0, 102, 204, 255};
-  for (size_t i = 0; i < world.getRightCones().size(); ++i) {
+  for (size_t i = 0; i < world.right_cones.size(); ++i) {
     SDL_Color color = right_base;
     if (i == 0) {
       color = SDL_Color{0, 255, 0, 255};
@@ -1425,12 +1429,13 @@ void DrawWorldScene(Graphics* graphics, const World& world,
     } else if (static_cast<int>(i) == lookahead.steer) {
       color = SDL_Color{255, 0, 255, 255};
     }
-    const auto& cone = world.getRightCones()[i];
-    const int cone_x = static_cast<int>(cone.position.x * K_RENDER_SCALE +
+    const auto& cone = world.right_cones[i];
+    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.position.z * K_RENDER_SCALE +
+    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
+    DrawConeMarker(graphics, cone_x, cone_y, kSmallConeRadiusMeters * 2.0f,
+                  color);
   }
 
   const auto& transform = world.vehicleTransform();
@@ -1461,7 +1466,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   for (auto edge: triangulationEdges) {
     Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
   }
-  for (auto edge: world.bestPathEdges) {
+  for (auto edge: world.best_path_edges) {
     Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 255, 50, 50);
   }
 }
@@ -1838,7 +1843,8 @@ int main(int argc, char* argv[]) {
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
   VehicleDynamics vehicle_dynamics(vehicle_param);
   World world;
-  world.init(vehicle_dynamics, mission_definition);
+  WorldConfig world_config{mission_definition};
+  world.init(vehicle_dynamics, world_config);
   vehicle_dynamics.setState(world.vehicleSpawnState().state,
                             world.vehicleSpawnState().transform);
   world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
@@ -2723,7 +2729,9 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    DrawWorldScene(&graphics, world, runtime_telemetry);
+    fsai::sim::app::GuiWorldAdapter gui_adapter(world);
+    const auto world_snapshot = gui_adapter.snapshot();
+    DrawWorldScene(&graphics, world_snapshot, runtime_telemetry);
     ImGui::Render();
     ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), graphics.renderer);
     Graphics_Present(&graphics);

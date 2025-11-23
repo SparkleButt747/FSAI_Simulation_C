@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #include "MissionRuntimeState.hpp"
@@ -32,6 +33,7 @@ class IWorldView {
   virtual const std::vector<Vector3>& left_cones() const = 0;
   virtual const std::vector<Vector3>& right_cones() const = 0;
   virtual const LookaheadIndices& lookahead_indices() const = 0;
+  virtual const std::vector<std::pair<Vector2, Vector2>>& best_path_edges() const = 0;
 
   // --- Mission/runtime bookkeeping ---
   virtual const fsai::sim::MissionRuntimeState& mission_runtime() const = 0;
