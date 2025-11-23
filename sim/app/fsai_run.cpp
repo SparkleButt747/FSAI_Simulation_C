@@ -57,6 +57,7 @@
 #include "can_iface.hpp"
 #include "runtime_telemetry.hpp"
 #include "centerline.hpp"
+FsaiDetections glob_det; // NEW DECLARATION
 
 namespace {
 constexpr std::size_t kDefaultMissionIndex = 2;
@@ -2062,7 +2063,7 @@ int main(int argc, char* argv[]) {
     if (world.useController) {
       float raThrottle = 0.0f;
       float raSteer = 0.0f;
-      if (world.computeRacingControl(step_seconds, raThrottle, raSteer)) {
+      if (world.computeRacingControl(glob_det, step_seconds, raThrottle, raSteer)) {
         autopSteer = raSteer;
         if (raThrottle >= 0.0f) {
           autopThrottle = raThrottle;

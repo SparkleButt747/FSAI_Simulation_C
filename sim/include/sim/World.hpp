@@ -110,8 +110,8 @@ public:
     double straightLineProgressMeters() const { return missionState_.straight_line_progress_m(); }
     fsai::sim::MissionRunStatus missionRunStatus() const { return missionState_.run_status(); }
     const fsai::sim::MissionRuntimeState& missionRuntime() const { return missionState_; }
-
-    bool computeRacingControl(double dt, float& throttle_out, float& steering_out);
+    // Compute racing control inputs based on vision cone detections. 
+    bool computeRacingControl(const FsaiDetections& vision_cones, double dt, float& throttle_out, float& steering_out);
     void setSvcuCommand(float throttle, float brake, float steer);
     bool hasSvcuCommand() const { return hasSvcuCommand_; }
     const DynamicBicycle& model() const { return carModel; }

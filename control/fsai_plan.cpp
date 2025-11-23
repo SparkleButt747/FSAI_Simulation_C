@@ -5,7 +5,7 @@
 #include "imgui.h"
 #include "backends/imgui_impl_sdl2.h"
 #include "backends/imgui_impl_sdlrenderer2.h"
-
+#include "types.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -208,10 +208,45 @@ int main(int argc, char* argv[]) {
     const std::chrono::duration<double, std::milli> insertTime = t2 - t1;
     std::cout << "Triangulation insert: " << insertTime.count() << "ms\n";
 
-    Triangulation visibleT;
-    auto coneToSide = getVisibleTrackTriangulationFromTrack(visibleT, carFront, track);
+    // 1. Keep logic to find visible cones
+Triangulation visibleT;
+auto coneToSide = getVisibleTrackTriangulationFromTrack(visibleT, carFront, track);
 
-    auto [nodes, adjacency] = generateGraph(visibleT, carFront, coneToSide);
+// 2. [NEW] Convert Triangulation -> FsaiDetections
+FsaiDetections visionData;
+visionData.n = 0;
+visionData.t_ns = 0;
+
+// Iterate over the visible points in the triangulation
+for (auto vit = visibleT.finite_vertices_begin(); vit != visibleT.finite_vertices_end(); ++vit) {
+    if (visionData.n >= 512) break; // Safety limit
+
+    auto p = vit->point(); // Get the point
+    
+    // Fill the struct
+    visionData.dets[visionData.n].x = static_cast<float>(p.x());
+    visionData.dets[visionData.n].y = static_cast<float>(p.y());
+    
+    // Get the color from the map we calculated above
+    if (coneToSide.find(p) != coneToSide.end()) {
+        visionData.dets[visionData.n].side = coneToSide[p];
+    } else {
+        visionData.dets[visionData.n].side = FSAI_CONE_UNKNOWN;
+    }
+    
+    visionData.n++;
+}
+
+// 3. [NEW] Call generateGraph with the struct
+// Note: The 3rd argument is 0.0f because we handled 'coneToSide' inside the struct above
+// 1. Convert CGAL Point -> Vector3
+    Vector3 carFrontVec;
+    carFrontVec.x = static_cast<float>(carFront.x());
+    carFrontVec.y = static_cast<float>(carFront.y());
+    carFrontVec.z = 0.0f;
+
+    // 2. Call function with the new Vector
+    auto [nodes, adjacency] = generateGraph(visionData, carFrontVec, 0.0f);
 
     const Bounds baseBounds = computeTrackBounds(track, nodes, carFront);
 

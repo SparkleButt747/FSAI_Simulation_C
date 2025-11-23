@@ -135,8 +135,8 @@ bool pointWithinBounds(const Vector2& point, const CollisionSegment& segment) {
 }
 
 }  // namespace
-
-bool World::computeRacingControl(double dt, float& throttle_out, float& steering_out) {
+// UPDATE World::computeRacingControl to the following:
+bool World::computeRacingControl(const FsaiDetections& vision_cones, double dt, float& throttle_out, float& steering_out) {
     if (!useController || checkpointPositions.empty()) {
         return false;
     }
@@ -169,7 +169,18 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
 
     if (needNewPath) {
         std::cout<<'\n'<<'\n'<<'\n'<<"COMPUTING!!!!"<<'\n'<<'\n'<<'\n';
-        auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
+        // old way to generate
+        // auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
+        
+        // Vision Cone Detections to FsaiConeDets
+        // 1. Convert Point -> Vector3
+    Vector3 carFrontVec;
+    carFrontVec.x = static_cast<float>(carFront.x());
+    carFrontVec.y = static_cast<float>(carFront.y());
+    carFrontVec.z = 0.0f;
+
+    // 2. Call using the new Vector
+    auto [nodes, adj] = generateGraph(vision_cones, carFrontVec, 0.0f);
         auto searchResult = beamSearch(adj, nodes, carFront, 7, 2, 20);
 
         cachedPathNodes = std::move(searchResult.first);

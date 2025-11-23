@@ -104,11 +104,11 @@ CostWeights defaultCostWeights();
 CostWeights getCostWeights();
 void setCostWeights(const CostWeights& weights);
 
-// Build a PathNode graph from a visible triangulation
+// Update generateGraph signature
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
-    Triangulation& T,
-    Point carFront,
-    std::unordered_map<Point, FsaiConeSide> coneToSide
+    const FsaiDetections& cones,  // <-- NEW INPUT
+    const Vector3& carFront, 
+    float coneToSide
 );
 
 double getInitialTrackYaw(TrackResult track);
