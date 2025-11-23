@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "common/types.h"
-#include "sim/svcu/link.hpp"
+#include "link.hpp"
 
 namespace fsai::io {
 

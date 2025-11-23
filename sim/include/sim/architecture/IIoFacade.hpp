@@ -4,7 +4,7 @@
 #include <optional>
 
 #include "io_bus.hpp"
-#include "sim/svcu/link.hpp"
+#include "link.hpp"
 
 namespace fsai::world {
 class IWorldView;
