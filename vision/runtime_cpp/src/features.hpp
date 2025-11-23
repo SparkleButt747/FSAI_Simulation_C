@@ -23,9 +23,9 @@ struct PseudoFeature{
 // NEW: Structure to group matched features by their originating cone (bounding box)
 struct ConeMatches {
     int cone_index;                 // Index matching the input vector of BoxBounds
-    fsai::types::BoxBound bound;    // The bounding box these matches belong to
-    fsai::types::ConeSide side;     // Side classification for downstream clustering
-    std::vector<Feature> matches;   // The list of stereo matched features for this specific cone
+    fsai::types::BoxBound bound;   // The bounding box these matches belong to
+    std::vector<Feature> matches;
+    FsaiConeSide side;  // The list of stereo matched features for this specific cone
 };
 
 // --- Function Declarations ---

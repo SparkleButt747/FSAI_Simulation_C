@@ -134,7 +134,7 @@ find_package(yaml-cpp REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(OpenCV REQUIRED)
 
-# CGAL and its components
+# CGAL and its componentsx
 find_package(CGAL QUIET COMPONENTS)
 find_package(CGAL REQUIRED OPTIONAL_COMPONENTS)
 if ( NOT CGAL_FOUND )
@@ -315,6 +315,7 @@ target_include_directories(fsai_run PRIVATE
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+    "${CMAKE_SOURCE_DIR}/common/include"
 )
 target_compile_definitions(fsai_run PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
