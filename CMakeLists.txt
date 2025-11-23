@@ -41,71 +41,6 @@ if(APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
 endif()
 
 # ------------------------------------------------------------------------------
-# ONNX Runtime Detection Strategy (Fixed for both platforms)
-# ------------------------------------------------------------------------------
-if(APPLE)
-  # 1. Try standard find_package first (best practice on Mac)
-  find_package(ONNXRuntime QUIET)
-
-  if(TARGET onnxruntime::onnxruntime)
-     message(STATUS "Found ONNX Runtime via find_package on macOS")
-     set(ORT_LIB onnxruntime::onnxruntime)
-     # Note: The include dirs are handled automatically by the target
-  else()
-     # 2. Fallback: Manual Homebrew lookup if find_package failed
-     message(STATUS "find_package(ONNXRuntime) failed. Trying manual Homebrew search...")
-     find_program(BREW brew PATHS /opt/homebrew/bin /usr/local/bin NO_DEFAULT_PATH)
-     if(BREW)
-       execute_process(COMMAND "${BREW}" --prefix
-                       OUTPUT_VARIABLE HOMEBREW_PREFIX
-                       OUTPUT_STRIP_TRAILING_WHITESPACE)
-       
-       if(EXISTS "${HOMEBREW_PREFIX}")
-         message(STATUS "Found Homebrew at: ${HOMEBREW_PREFIX}")
-         
-         # --- CRITICAL FIX START ---
-         # Add the include directories manually
-         include_directories("${HOMEBREW_PREFIX}/include")
-         include_directories("${HOMEBREW_PREFIX}/include/onnxruntime") # Just in case
-
-         # Find the library manually
-         find_library(ORT_LIB_MANUAL NAMES onnxruntime PATHS "${HOMEBREW_PREFIX}/lib" NO_DEFAULT_PATH)
-         if(ORT_LIB_MANUAL)
-            set(ORT_LIB ${ORT_LIB_MANUAL})
-            message(STATUS "Manually found ONNX Runtime lib at: ${ORT_LIB}")
-         else()
-            message(FATAL_ERROR "Found Homebrew but could NOT find onnxruntime lib in ${HOMEBREW_PREFIX}/lib")
-         endif()
-         # --- CRITICAL FIX END ---
-         
-       else()
-         message(FATAL_ERROR "Homebrew prefix '${HOMEBREW_PREFIX}' does not exist.")
-       endif()
-     else()
-       message(FATAL_ERROR "Homebrew executable not found. Cannot find ONNX Runtime.")
-     endif()
-  endif()
-
-else()
-  # --- Linux Strategy: Custom GPU build path ---
-  set(ORT_ROOT "/home/v-admin/Documents/onnxTest/onnxruntime-linux-x64-gpu-1.23.2") # personal path lol
-  include_directories(${ORT_ROOT}/include)
-  find_library(ORT_LIB_RAW NAMES onnxruntime PATHS ${ORT_ROOT}/lib NO_DEFAULT_PATH)
-  
-  if(ORT_LIB_RAW)
-    set(ORT_LIB ${ORT_LIB_RAW})
-    message(STATUS "Found ONNX Runtime custom Linux build: ${ORT_LIB}")
-  else()
-    message(FATAL_ERROR "Could NOT find custom ONNX Runtime on Linux at ${ORT_ROOT}")
-  endif()
-endif()
-
-# Final check
-if(NOT ORT_LIB)
-  message(FATAL_ERROR "ONNX Runtime library variable (ORT_LIB) was not set!")
-endif()
-
-# ------------------------------------------------------------------------------
 # ONNX Runtime smart discovery (version-aware)
 # Priority:
 #  1) onnxruntime_DIR / ONNXRuntime_DIR (explicit)
@@ -158,12 +93,6 @@ endif()
 # ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
-include_directories(${ORT_ROOT}/include)
-find_library(ORT_LIB
-    NAMES onnxruntime
-    PATHS ${ORT_ROOT}/lib
-    NO_DEFAULT_PATH
-)
 find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(PkgConfig REQUIRED)
 find_package(SDL2 QUIET CONFIG)
@@ -243,6 +172,14 @@ foreach(h ${ALL_HEADERS})
   endif()
 endforeach()
 list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
+list(APPEND HEADER_DIRS
+  "${CMAKE_SOURCE_DIR}/common/include"
+  "${CMAKE_SOURCE_DIR}/control/include"
+  "${CMAKE_SOURCE_DIR}/io/include"
+  "${CMAKE_SOURCE_DIR}/sim/include"
+  "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+  "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+)
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
 # ------------------------------------------------------------------------------
@@ -272,7 +209,7 @@ target_include_directories(fsai_vision_runtime PUBLIC
 )
 target_link_libraries(fsai_vision_runtime PUBLIC
     Eigen3::Eigen
-    ${ORT_LIB}
+    onnxruntime::onnxruntime
     ${OpenCV_LIBRARIES}
     Threads::Threads
 )
@@ -319,18 +256,6 @@ target_link_libraries(fsai_sim PUBLIC
   m
   onnxruntime::onnxruntime
   ${OpenCV_LIBRARIES}
-)
-
-target_link_libraries(fsai_sim
-  PUBLIC
-    Eigen3::Eigen
-    yaml-cpp::yaml-cpp
-    OpenGL::GL
-    Threads::Threads
-    CGAL::CGAL
-    m
-    ${ORT_LIB}
-    ${OpenCV_LIBRARIES}
 )
 
 
