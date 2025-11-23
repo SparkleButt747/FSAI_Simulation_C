@@ -181,9 +181,9 @@ void World::acknowledgeVehicleReset(const Transform& appliedTransform) {
     prevCarPos_ = {appliedTransform.position.x, appliedTransform.position.z};
 }
 
-void World::init(const VehicleDynamics& vehicleDynamics, fsai::sim::MissionDefinition mission) {
+void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worldConfig) {
     setVehicleDynamics(vehicleDynamics);
-    mission_ = std::move(mission);
+    mission_ = worldConfig.mission;
 
     if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
         mission_.track.checkpoints.empty()) {
@@ -194,9 +194,9 @@ void World::init(const VehicleDynamics& vehicleDynamics, fsai::sim::MissionDefin
         throw std::runtime_error("MissionDefinition did not provide any checkpoints");
     }
 
-    config.collisionThreshold = 1.75f;
-    config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
-    config.lapCompletionThreshold = 0.2f;
+    this->config.collisionThreshold = 1.75f;
+    this->config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
+    this->config.lapCompletionThreshold = 0.2f;
 
     configureTrackState(mission_.track);
     configureMissionRuntime();
@@ -375,6 +375,9 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
     startCones.clear();
     leftCones.clear();
     rightCones.clear();
+    startConePositions_.clear();
+    leftConePositions_.clear();
+    rightConePositions_.clear();
     gateSegments_.clear();
     boundarySegments_.clear();
 
@@ -468,10 +471,30 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
         
         // Swap blue and yellow cones
         std::swap(leftCones, rightCones);
-        
+
         std::printf("Blue and yellow cones swapped\n");
     }
     // =========================================================================
+
+    auto rebuildConePositions = [&]() {
+        startConePositions_.clear();
+        leftConePositions_.clear();
+        rightConePositions_.clear();
+        startConePositions_.reserve(startCones.size());
+        leftConePositions_.reserve(leftCones.size());
+        rightConePositions_.reserve(rightCones.size());
+        for (const auto& cone : startCones) {
+            startConePositions_.push_back(cone.position);
+        }
+        for (const auto& cone : leftCones) {
+            leftConePositions_.push_back(cone.position);
+        }
+        for (const auto& cone : rightCones) {
+            rightConePositions_.push_back(cone.position);
+        }
+    };
+
+    rebuildConePositions();
 
     // Rest of your original code continues here...
     if (!leftCones.empty() && !rightCones.empty()) {

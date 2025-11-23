@@ -13,6 +13,7 @@
 #include "PathConfig.hpp"
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
+#include "sim/architecture/IWorldView.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/MissionRuntimeState.hpp"
 
@@ -37,12 +38,16 @@ struct CollisionSegment {
     Vector2 boundsMax{0.0f, 0.0f};
 };
 
-class World {
+struct WorldConfig {
+    fsai::sim::MissionDefinition mission;
+};
+
+class World : public fsai::world::IWorldView {
 public:
     World() = default;
 
     // Initialize the world with vehicle parameters and generate track.
-    void init(const VehicleDynamics& vehicleDynamics, fsai::sim::MissionDefinition mission);
+    void init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worldConfig);
 
     // Update simulation by dt seconds.
     void update(double dt);
@@ -71,33 +76,12 @@ public:
 
     const std::vector<Cone>& getStartCones() const { return startCones; }
     const std::vector<Cone>& getLeftCones() const { return leftCones; }
-    const std::vector<Cone>& getRightCones() const { return rightCones; }    
-    const std::vector<Vector3> getStartConePositions() const {
-        std::vector<Vector3> positions;
-        positions.reserve(startCones.size());
-        for (auto c: startCones) {
-            positions.push_back(c.position);
-        }
-        return positions;
-    }
-    const std::vector<Vector3> getLeftConePositions() const {
-        std::vector<Vector3> positions;
-        positions.reserve(leftCones.size());
-        for (auto c: leftCones) {
-            positions.push_back(c.position);
-        }
-        return positions;
-    }
-    const std::vector<Vector3> getRightConePositions() const {
-        std::vector<Vector3> positions;
-        positions.reserve(rightCones.size());
-        for (auto c: rightCones) {
-            positions.push_back(c.position);
-        }
-        return positions;
-    }
+    const std::vector<Cone>& getRightCones() const { return rightCones; }
+    const std::vector<Vector3>& getStartConePositions() const { return startConePositions_; }
+    const std::vector<Vector3>& getLeftConePositions() const { return leftConePositions_; }
+    const std::vector<Vector3>& getRightConePositions() const { return rightConePositions_; }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
-    const WheelsInfo& wheelsInfo() const { return vehicleDynamics().wheelsInfo(); }
+    const WheelsInfo& wheelsInfo() const { return vehicleDynamics().wheels_info(); }
     double lapTimeSeconds() const { return totalTime; }
     double totalDistanceMeters() const { return totalDistance; }
     double timeStepSeconds() const { return deltaTime; }
@@ -113,6 +97,27 @@ public:
     const DynamicBicycle& model() const { return vehicleDynamics().model(); }
 
     const fsai::sim::MissionDefinition& mission() const { return mission_; }
+
+    // IWorldView overrides
+    const VehicleState& vehicle_state() const override { return vehicleDynamics().state(); }
+    const Transform& vehicle_transform() const override { return vehicleDynamics().transform(); }
+    const WheelsInfo& wheels_info() const override { return vehicleDynamics().wheels_info(); }
+    const std::vector<Vector3>& checkpoint_positions() const override { return checkpointPositions; }
+    const std::vector<Vector3>& start_cones() const override { return startConePositions_; }
+    const std::vector<Vector3>& left_cones() const override { return leftConePositions_; }
+    const std::vector<Vector3>& right_cones() const override { return rightConePositions_; }
+    const LookaheadIndices& lookahead_indices() const override { return lookaheadIndices; }
+    const fsai::sim::MissionRuntimeState& mission_runtime() const override { return missionState_; }
+    double lap_time_seconds() const override { return totalTime; }
+    double total_distance_meters() const override { return totalDistance; }
+    double time_step_seconds() const override { return deltaTime; }
+    int lap_count() const override { return lapCount; }
+    const std::vector<std::pair<Vector2, Vector2>>& best_path_edges() const override { return bestPathEdges; }
+    const std::vector<FsaiConeDet>& ground_truth_detections() const override { return coneDetections; }
+    bool vehicle_reset_pending() const override { return vehicleResetPending_; }
+    void acknowledge_vehicle_reset(const Transform& appliedTransform) override {
+        acknowledgeVehicleReset(appliedTransform);
+    }
 
     void setVehicleDynamics(const VehicleDynamics& vehicleDynamics);
 
@@ -144,6 +149,9 @@ private:
     std::vector<Cone> startCones{};
     std::vector<Cone> leftCones{};
     std::vector<Cone> rightCones{};
+    std::vector<Vector3> startConePositions_{};
+    std::vector<Vector3> leftConePositions_{};
+    std::vector<Vector3> rightConePositions_{};
     std::vector<CollisionSegment> gateSegments_{};
     std::vector<CollisionSegment> boundarySegments_{};
     Vector3 lastCheckpoint{0.0f, 0.0f, 0.0f};

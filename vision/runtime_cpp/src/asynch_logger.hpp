@@ -3,11 +3,10 @@
  */
 
 #pragma once
+#include <fstream>
+#include <mutex>
 #include <string>
-#include <quill/Frontend.h>
-#include <quill/LogMacros.h>
-#include <quill/sinks/FileSink.h>
-#include <quill/Backend.h>
+#include <iostream>
 
 namespace fsai::vision {
     class Asynch_logger{
@@ -44,6 +43,10 @@ namespace fsai::vision {
         void debug(const std::string& msg);
 
     private:
-        quill::Logger* logger_;
+        void log(const char* level, const std::string& msg);
+
+        std::ofstream file_;
+        std::mutex mutex_;
+        std::string logger_name_;
     };
 }
