@@ -217,8 +217,17 @@ void VisionNode::runProcessingLoop(){
 
         // 2. Feature matching
         auto t3 = std::chrono::high_resolution_clock::now();
-        std::vector<ConeMatches> matched_features = match_features_per_cone(left_mat,right_mat,detections);
-
+        std::vector<ConeMatches> matched_features;
+        try {
+            // This is the line causing the crash
+            matched_features = match_features_per_cone(left_mat, right_mat, detections);
+        } 
+        catch (const cv::Exception& e) {
+            // If a crop fails, log it and skip this frame instead of killing the OS process
+            fsai::sim::log::LogInfo("[ERROR] OpenCV Exception in match_features: " + std::string(e.what()));
+            std::cerr << "Skipping frame due to ROI error." << std::endl;
+            continue; // Skip to the next iteration of the while(running_) loop
+        }
         // 3. Stereo triangulation
         auto t4 = std::chrono::high_resolution_clock::now();
 

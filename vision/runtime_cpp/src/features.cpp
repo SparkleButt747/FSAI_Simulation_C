@@ -43,8 +43,10 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         // get roi
         cv::Rect box_rect(box_i.x, box_i.y, box_i.w, box_i.h);
         cv::Mat box_roi;
+        // bug caused here due to not Look before you leap
+         if (!is_safe_roi(left_frame, box_rect)){continue;}
         box_roi = left_frame(box_rect);
-        if (!is_safe_roi(left_frame, box_rect)){continue;}
+       
 
         std::vector<cv::KeyPoint> left_keypoints;
         cv::Mat left_descriptors;
