@@ -13,6 +13,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <string>
@@ -59,6 +60,7 @@
 #include "can_iface.hpp"
 #include "runtime_telemetry.hpp"
 #include "centerline.hpp"
+#include "human/IUserInput.hpp"
 
 namespace {
 constexpr std::size_t kDefaultMissionIndex = 2;
@@ -144,9 +146,9 @@ bool StdinIsInteractive() {
 }
 
 fsai::sim::MissionDescriptor ResolveMissionSelection(
-    const std::optional<fsai::sim::MissionDescriptor>& cli_override) {
-  if (cli_override.has_value()) {
-    return *cli_override;
+    human::IUserInput& user_input) {
+  if (const auto override = user_input.ConsumeMissionOverride()) {
+    return *override;
   }
 
   const MissionOption& default_option = kMissionOptions[kDefaultMissionIndex];
@@ -1651,7 +1653,41 @@ struct ThreadSafeTelemetry {
     Eigen::Vector2d position{0.0, 0.0};
     double yaw_rad = 0.0;
 
-};}  // namespace
+};
+
+class LocalUserInput final : public human::IUserInput {
+ public:
+  void PublishEmergencyStop() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    emergency_stop_requested_ = true;
+  }
+
+  void PublishMissionOverride(
+      const fsai::sim::MissionDescriptor& mission) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    mission_override_ = mission;
+  }
+
+  bool ConsumeEmergencyStop() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const bool requested = emergency_stop_requested_;
+    emergency_stop_requested_ = false;
+    return requested;
+  }
+
+  std::optional<fsai::sim::MissionDescriptor> ConsumeMissionOverride() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto value = mission_override_;
+    mission_override_.reset();
+    return value;
+  }
+
+ private:
+  std::mutex mutex_{};
+  bool emergency_stop_requested_{false};
+  std::optional<fsai::sim::MissionDescriptor> mission_override_{};
+};
+}  // namespace
 
 int main(int argc, char* argv[]) {
   std::srand(static_cast<unsigned>(std::time(nullptr)));
@@ -1666,6 +1702,7 @@ int main(int argc, char* argv[]) {
     return static_cast<uint16_t>(value);
   };
 
+  LocalUserInput user_input;
   double dt = kDefaultDt;
   std::string can_iface = fsai::sim::svcu::default_can_endpoint();
   std::string mode = "sim";
@@ -1675,7 +1712,6 @@ int main(int argc, char* argv[]) {
   std::string sensor_config_path = kDefaultSensorConfig;
   std::optional<bool> edge_preview_override;
   std::optional<bool> detection_preview_override;
-  std::optional<fsai::sim::MissionDescriptor> mission_override;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -1708,7 +1744,7 @@ int main(int argc, char* argv[]) {
                              "Unrecognized mission '%s'", mission_value.c_str());
         return EXIT_FAILURE;
       }
-      mission_override = *parsed_mission;
+      user_input.PublishMissionOverride(*parsed_mission);
     } else if (arg == "--mission") {
       fsai::sim::log::Logf(fsai::sim::log::Level::kError,
                            "--mission flag requires an argument");
@@ -1750,7 +1786,7 @@ int main(int argc, char* argv[]) {
       command_port, telemetry_port);
 
   const fsai::sim::MissionDescriptor mission =
-      ResolveMissionSelection(mission_override);
+      ResolveMissionSelection(user_input);
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Mission: %s",
                        mission.name.c_str());
 
@@ -2097,9 +2133,39 @@ int main(int argc, char* argv[]) {
     while (SDL_PollEvent(&event)) {
       ImGui_ImplSDL2_ProcessEvent(&event);
       Graphics_HandleWindowEvent(&graphics, &event);
+      if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
+        switch (event.key.keysym.sym) {
+          case SDLK_ESCAPE:
+            user_input.PublishEmergencyStop();
+            break;
+          case SDLK_1:
+          case SDLK_KP_1:
+            user_input.PublishMissionOverride(kMissionOptions[0].descriptor);
+            break;
+          case SDLK_2:
+          case SDLK_KP_2:
+            user_input.PublishMissionOverride(kMissionOptions[1].descriptor);
+            break;
+          case SDLK_3:
+          case SDLK_KP_3:
+            user_input.PublishMissionOverride(kMissionOptions[2].descriptor);
+            break;
+          case SDLK_4:
+          case SDLK_KP_4:
+            user_input.PublishMissionOverride(kMissionOptions[3].descriptor);
+            break;
+          default:
+            break;
+        }
+      }
       if (event.type == SDL_QUIT) {
         running = false;
       }
+    }
+    if (user_input.ConsumeEmergencyStop()) {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                           "Emergency stop requested; shutting down simulator");
+      running = false;
     }
     if (!running) {
       break;
