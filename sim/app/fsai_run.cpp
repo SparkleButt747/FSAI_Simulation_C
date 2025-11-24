@@ -2311,7 +2311,7 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    const VehicleState& veh_state = world.vehicleState();
+    const VehicleState& veh_state = world.vehicle_state();
     const double vx = veh_state.velocity.x();
     const double vy = veh_state.velocity.y();
     const float speed_mps = static_cast<float>(std::sqrt(vx * vx + vy * vy));
@@ -2413,7 +2413,6 @@ int main(int argc, char* argv[]) {
 
     can_interface.Poll(now_ns);
 
-    world.setSvcuCommand(appliedThrottle, appliedBrake, appliedSteer);
     world.throttleInput = appliedThrottle;
     world.brakeInput = appliedBrake;
     world.steeringAngle = appliedSteer;
@@ -2423,20 +2422,15 @@ int main(int argc, char* argv[]) {
 
     {
       fsai::time::ControlStageTimer control_timer("world_update");
-      world.update(step_seconds);
-    }
-    if (world.vehicleResetPending()) {
-      vehicle_dynamics.setState(world.vehicleSpawnState().state,
-                                world.vehicleSpawnState().transform);
-      world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
+      world.update(step_seconds, control_cmd);
     }
     const double sim_time_s = fsai_clock_to_seconds(now_ns);
 
-    const auto& vehicle_state = world.vehicleState();
+    const auto& vehicle_state = world.vehicle_state();
     const auto& model = world.model();
     const auto& pt_status = model.lastPowertrainStatus();
     const auto& brake_status = model.lastBrakeStatus();
-    const WheelsInfo& wheel_info = world.wheelsInfo();
+    const WheelsInfo& wheel_info = world.wheels_info();
     const double wheel_radius = std::max(0.01, model.param().tire.radius);
     const double front_drive_force = pt_status.front_drive_force - pt_status.front_regen_force;
     const double rear_drive_force = pt_status.rear_drive_force - pt_status.rear_regen_force;
@@ -2847,11 +2841,11 @@ int main(int argc, char* argv[]) {
     telemetry.status_flags = static_cast<uint8_t>(world.useController ? 0x3 : 0x1);
     io_bus->publish_telemetry(telemetry);
 
-    logger.logState(sim_time_s, world.vehicleState());
+    logger.logState(sim_time_s, world.vehicle_state());
     logger.logControl(sim_time_s, world.throttleInput, world.steeringAngle);
 
     if (stereo_source) {
-      const auto& transform = world.vehicleTransform();
+      const auto& transform = world.vehicle_transform();
       stereo_source->setBodyPose(transform.position.x, transform.position.y,
                                  transform.position.z, transform.yaw);
 

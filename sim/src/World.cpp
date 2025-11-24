@@ -9,6 +9,7 @@
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
+#include "sim/vehicle/VehicleDynamics.hpp"
 #include "centerline.hpp"
 
 namespace {
@@ -124,15 +125,8 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     return true;
 }
 
-void World::setSvcuCommand(float throttle, float brake, float steer) {
-    lastSvcuThrottle_ = throttle;
-    lastSvcuBrake_ = brake;
-    lastSvcuSteer_ = steer;
-    hasSvcuCommand_ = true;
-}
-
-void World::setVehicleDynamics(const VehicleDynamics& vehicleDynamics) {
-    vehicleDynamics_ = &vehicleDynamics;
+const DynamicBicycle& World::model() const {
+    return vehicleModel();
 }
 
 void World::acknowledgeVehicleReset(const Transform& appliedTransform) {
@@ -140,8 +134,22 @@ void World::acknowledgeVehicleReset(const Transform& appliedTransform) {
     prevCarPos_ = {appliedTransform.position.x, appliedTransform.position.z};
 }
 
-void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worldConfig) {
-    setVehicleDynamics(vehicleDynamics);
+void World::setVehicleContext(const WorldVehicleContext& vehicleContext) {
+    if (!vehicleContext.dynamics) {
+        throw std::invalid_argument("WorldVehicleContext.dynamics is required");
+    }
+    vehicleDynamics_ = vehicleContext.dynamics;
+    dynamicsModel_ = vehicleContext.dynamics_model;
+    if (!dynamicsModel_) {
+        if (auto* concrete = dynamic_cast<VehicleDynamics*>(vehicleDynamics_)) {
+            dynamicsModel_ = &concrete->model();
+        }
+    }
+    resetVehicle_ = vehicleContext.reset_vehicle;
+}
+
+void World::init(const WorldVehicleContext& vehicleContext, const WorldConfig& worldConfig) {
+    setVehicleContext(vehicleContext);
     mission_ = worldConfig.mission;
     debugConfig_ = worldConfig.debug;
 
@@ -177,12 +185,7 @@ void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worl
     racingConfig.accelerationFactor = worldConfig.controller_defaults.accelerationFactor;
 
     initializeVehiclePose();
-    vehicleResetPending_ = true;
-
-    hasSvcuCommand_ = false;
-    lastSvcuThrottle_ = 0.0f;
-    lastSvcuBrake_ = 0.0f;
-    lastSvcuSteer_ = 0.0f;
+    applyVehicleSpawn();
 }
 
 const std::vector<FsaiConeDet>& World::ground_truth_detections() const {
@@ -196,6 +199,10 @@ const std::vector<FsaiConeDet>& World::ground_truth_detections() const {
 void World::update(double dt) {
     const auto& dynamics = vehicleDynamics();
     deltaTime = dt;
+
+    throttleInput = command.throttle;
+    brakeInput = command.brake;
+    steeringAngle = command.steer_rad;
 
     if (vehicleResetPending_) {
         return;
@@ -211,14 +218,6 @@ void World::update(double dt) {
         reset();
         return;
     }
-
-    if (hasSvcuCommand_ && missionState_.run_status() == fsai::sim::MissionRunStatus::kRunning) {
-        throttleInput = lastSvcuThrottle_;
-        brakeInput = lastSvcuBrake_;
-        steeringAngle = lastSvcuSteer_;
-    }
-
-    hasSvcuCommand_ = false;
 
     handleMissionCompletion();
 
@@ -409,6 +408,16 @@ void World::initializeVehiclePose() {
     prevCarPos_ = {spawnState_.transform.position.x, spawnState_.transform.position.z};
 }
 
+void World::applyVehicleSpawn() {
+    vehicleResetPending_ = true;
+    if (resetVehicle_) {
+        resetVehicle_(spawnState_);
+    } else {
+        vehicleDynamics().set_state(spawnState_.state, spawnState_.transform);
+    }
+    acknowledgeVehicleReset(spawnState_.transform);
+}
+
 void World::updateStraightLineProgress() {
     if (!straightTracker_.valid) {
         return;
@@ -504,7 +513,7 @@ bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) 
     return false;
 }
 
-const VehicleDynamics& World::vehicleDynamics() const {
+const fsai::vehicle::IVehicleDynamics& World::vehicleDynamics() const {
     if (!vehicleDynamics_) {
         throw std::runtime_error("VehicleDynamics not set for World");
     }
@@ -554,11 +563,11 @@ void World::reset() {
     configureMissionRuntime();
 
     initializeVehiclePose();
+    applyVehicleSpawn();
 
     const float initDx = spawnState_.transform.position.x - lastCheckpoint.x;
     const float initDz = spawnState_.transform.position.z - lastCheckpoint.z;
     const float initDist = std::sqrt(initDx * initDx + initDz * initDz);
     insideLastCheckpoint_ = initDist < config.lapCompletionThreshold;
     coneDetections.clear();
-    vehicleResetPending_ = true;
 }
