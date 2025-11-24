@@ -42,6 +42,7 @@
 #include "vision/detection_preview.hpp"
 #include "vision/shared_ring_buffer.hpp"
 #include "io_bus.hpp"
+#include "sim/architecture/WorldDebugPacket.hpp"
 #include "vision/detection_buffer_registry.hpp"
 #include "types.h"
 #include "World.hpp"
@@ -1297,6 +1298,194 @@ void DrawDetectionPreviewPanel(fsai::vision::DetectionPreview& preview, uint64_t
   }
   ImGui::End();
 }
+namespace {
+
+void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
+                    float base_width_m, const SDL_Color& color) {
+  if (graphics == nullptr || graphics->renderer == nullptr) {
+    return;
+  }
+
+  const float base_radius_px =
+      0.5f * base_width_m * K_RENDER_SCALE * kConeDisplayScale;
+  const int radius_px =
+      std::max(1, static_cast<int>(std::lround(base_radius_px)));
+
+  SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
+                         color.a);
+  Graphics_DrawFilledCircle(graphics, center_x, center_y, radius_px);
+}
+
+}  // namespace
+
+void DrawWorldScene(Graphics* graphics,
+                    const fsai::sim::app::GuiWorldSnapshot& world,
+                    const fsai::sim::app::RuntimeTelemetry& telemetry) {
+  (void)telemetry;
+  fsai::time::SimulationStageTimer render_timer("renderer");
+  Graphics_Clear(graphics);
+  Graphics_DrawGrid(graphics, 50);
+
+  const auto& left_cones = world.left_cones;
+  const auto& right_cones = world.right_cones;
+  const std::size_t gate_count =
+      std::min(left_cones.size(), right_cones.size());
+
+  if (gate_count > 0) {
+    for (std::size_t i = 0; i < gate_count; ++i) {
+      const bool is_current_gate = (i == 0);
+      const SDL_Color color = is_current_gate
+                                  ? SDL_Color{200, 0, 200, 255}
+                                  : SDL_Color{120, 120, 200, 180};
+      const auto& left = left_cones[i];
+      const auto& right = right_cones[i];
+
+      const float left_x = left.x * K_RENDER_SCALE + graphics->width / 2.0f;
+      const float left_y = left.z * K_RENDER_SCALE + graphics->height / 2.0f;
+      const float right_x = right.x * K_RENDER_SCALE + graphics->width / 2.0f;
+      const float right_y = right.z * K_RENDER_SCALE + graphics->height / 2.0f;
+
+      SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
+                             color.a);
+      SDL_RenderDrawLineF(graphics->renderer, left_x, left_y, right_x,
+                          right_y);
+
+      if (is_current_gate) {
+        const float thickness = std::max(1.5f, K_RENDER_SCALE * 0.15f);
+        const float dx = right_x - left_x;
+        const float dy = right_y - left_y;
+        const float length = std::hypot(dx, dy);
+        if (length > std::numeric_limits<float>::epsilon()) {
+          const float nx = -dy / length;
+          const float ny = dx / length;
+          const float offset_x = nx * thickness * 0.5f;
+          const float offset_y = ny * thickness * 0.5f;
+          SDL_RenderDrawLineF(graphics->renderer, left_x + offset_x,
+                              left_y + offset_y, right_x + offset_x,
+                              right_y + offset_y);
+          SDL_RenderDrawLineF(graphics->renderer, left_x - offset_x,
+                              left_y - offset_y, right_x - offset_x,
+                              right_y - offset_y);
+        }
+      }
+    }
+  } else {
+    const auto& checkpoints = world.checkpoints;
+    if (!checkpoints.empty()) {
+      SDL_SetRenderDrawColor(graphics->renderer, 200, 0, 200, 255);
+      Graphics_DrawFilledCircle(
+          graphics,
+          static_cast<int>(checkpoints.front().x * K_RENDER_SCALE +
+                           graphics->width / 2.0f),
+          static_cast<int>(checkpoints.front().z * K_RENDER_SCALE +
+                           graphics->height / 2.0f),
+          static_cast<int>(K_RENDER_SCALE));
+    }
+  }
+
+  const auto& lookahead = world.lookahead;
+
+  const auto& start_cones = world.start_cones;
+  const SDL_Color start_color{255, 140, 0, 255};
+  for (const auto& cone : start_cones) {
+    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
+                                        graphics->width / 2.0f);
+    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
+                                        graphics->height / 2.0f);
+    DrawConeMarker(graphics, cone_x, cone_y,
+                  fsai::sim::kLargeConeRadiusMeters * 2.0f, start_color);
+  }
+  // Blue 0, 102, 204, 255
+  const SDL_Color left_base{255, 214, 0, 255};
+  for (size_t i = 0; i < world.left_cones.size(); ++i) {
+    SDL_Color color = left_base;
+    if (i == 0) {
+      color = SDL_Color{0, 255, 0, 255};
+    } else if (static_cast<int>(i) == lookahead.speed) {
+      color = SDL_Color{255, 255, 0, 255};
+    } else if (static_cast<int>(i) == lookahead.steer) {
+      color = SDL_Color{255, 0, 255, 255};
+    }
+    const auto& cone = world.left_cones[i];
+    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
+                                        graphics->width / 2.0f);
+    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
+                                        graphics->height / 2.0f);
+    DrawConeMarker(graphics, cone_x, cone_y,
+                  fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
+  }
+  // Yellow 255, 214, 0, 255
+  const SDL_Color right_base{0, 102, 204, 255};
+  for (size_t i = 0; i < world.right_cones.size(); ++i) {
+    SDL_Color color = right_base;
+    if (i == 0) {
+      color = SDL_Color{0, 255, 0, 255};
+    } else if (static_cast<int>(i) == lookahead.speed) {
+      color = SDL_Color{255, 255, 0, 255};
+    } else if (static_cast<int>(i) == lookahead.steer) {
+      color = SDL_Color{255, 0, 255, 255};
+    }
+    const auto& cone = world.right_cones[i];
+    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
+                                        graphics->width / 2.0f);
+    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
+                                        graphics->height / 2.0f);
+    DrawConeMarker(graphics, cone_x, cone_y,
+                  fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
+  }
+
+  const auto& transform = world.vehicle_transform;
+  const float car_screen_x = transform.position.x * K_RENDER_SCALE +
+                             graphics->width / 2.0f;
+  const float car_screen_y = transform.position.z * K_RENDER_SCALE +
+                             graphics->height / 2.0f;
+  const float car_radius = 2.0f * K_RENDER_SCALE;
+  Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
+                   transform.yaw);
+
+    if (world.debug.has_value()) {
+      for (const auto& cone : world.debug->detections) {
+          // printf("\n\n cone conf %f \n\n", cone.conf);
+          int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
+                                        graphics->width / 2.0f);
+          int cone_y = static_cast<int>(cone.y * K_RENDER_SCALE +
+                                        graphics->height / 2.0f);
+          if (cone.side == FSAI_CONE_LEFT) {
+            SDL_SetRenderDrawColor(graphics->renderer, 5, 200, 5, 255);
+          } else if (cone.side == FSAI_CONE_RIGHT) {
+            SDL_SetRenderDrawColor(graphics->renderer, 200, 5, 5, 255);
+          } else if (cone.side == FSAI_CONE_UNKNOWN) {
+            SDL_SetRenderDrawColor(graphics->renderer, 150, 150, 150, 250);
+          }
+          Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 5);
+      }
+    }
+  auto to_cones = [](const std::vector<Vector3>& positions, ConeType type) {
+    std::vector<Cone> cones;
+    cones.reserve(positions.size());
+    for (const auto& pos : positions) {
+      Cone cone{};
+      cone.position = pos;
+      cone.type = type;
+      cones.push_back(cone);
+    }
+    return cones;
+  };
+
+  std::vector<std::pair<Vector2, Vector2>> triangulationEdges =
+      getVisibleTriangulationEdges(world.vehicle_state,
+                                   to_cones(world.left_cones, ConeType::Left),
+                                   to_cones(world.right_cones, ConeType::Right))
+          .second;
+  for (auto edge: triangulationEdges) {
+    Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
+  }
+  if (world.debug.has_value()) {
+    for (const auto& edge : world.debug->controller_path) {
+      Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 255, 50, 50);
+    }
+  }
+}
 
 struct ChannelNoiseConfig {
   double noise_std{0.0};
@@ -1817,7 +2006,11 @@ int main(int argc, char* argv[]) {
   const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
   VehicleDynamics vehicle_dynamics(vehicle_param);
+  fsai::world::InProcessWorldDebugPublisher debug_publisher;
+  debug_publisher.set_debug_mode(true);
   World world;
+  world.set_debug_publisher(&debug_publisher);
+  WorldConfig world_config{mission_definition};
   WorldConfig world_config{};
   world_config.mission = mission_definition;
   world_config.debug.debug_mode = world_runtime_config.debug_mode;
@@ -2693,11 +2886,17 @@ int main(int argc, char* argv[]) {
     }
     auto detections = detection_buffer->tryPop();
     if (detections != std::nullopt) {
-        for (int i = 0; i < detections->n; i++) {
-          world.coneDetections.push_back(detections->dets[i]);
-      }
+        std::vector<FsaiConeDet> dets(detections->dets,
+                                      detections->dets + detections->n);
+        world.update_debug_detections(dets);
     }
 
+    fsai::sim::app::GuiWorldAdapter gui_adapter(world, debug_publisher.latest_packet());
+    const auto world_snapshot = gui_adapter.snapshot();
+    DrawWorldScene(&graphics, world_snapshot, runtime_telemetry);
+    ImGui::Render();
+    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), graphics.renderer);
+    Graphics_Present(&graphics);
     render_adapter.Render(runtime_telemetry, now_ns);
 
     SDL_Delay(static_cast<Uint32>(step_seconds * 1000.0));

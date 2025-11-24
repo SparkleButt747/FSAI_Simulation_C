@@ -8,7 +8,6 @@ GuiWorldSnapshot GuiWorldAdapter::snapshot() const {
   snap.left_cones = world_.left_cones();
   snap.right_cones = world_.right_cones();
   snap.checkpoints = world_.checkpoint_positions();
-  snap.best_path_edges = world_.best_path_edges();
   snap.lookahead = world_.lookahead_indices();
   snap.vehicle_transform = world_.vehicle_transform();
   snap.vehicle_state = world_.vehicle_state();
@@ -17,7 +16,7 @@ GuiWorldSnapshot GuiWorldAdapter::snapshot() const {
   snap.total_distance_meters = world_.total_distance_meters();
   snap.time_step_seconds = world_.time_step_seconds();
   snap.lap_count = world_.lap_count();
-  snap.detections = &world_.ground_truth_detections();
+  snap.debug = debug_;
   return snap;
 }
 

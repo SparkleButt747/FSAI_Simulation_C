@@ -18,6 +18,7 @@
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
 #include "sim/architecture/IWorldView.hpp"
+#include "sim/architecture/WorldDebugPacket.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/MissionRuntimeState.hpp"
 #include "world/CollisionService.hpp"
@@ -104,6 +105,7 @@ public:
     float throttleInput{0.0f};
     float brakeInput{0.0f};
     int useController{1};
+    int regenTrack{1};
     std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
     std::vector<FsaiConeDet> coneDetections {};
 
@@ -159,6 +161,18 @@ public:
         acknowledgeVehicleReset(appliedTransform);
     }
 
+    void set_debug_publisher(fsai::world::IWorldDebugPublisher* publisher) { debugPublisher_ = publisher; }
+    void update_debug_detections(const std::vector<FsaiConeDet>& detections);
+
+    void setVehicleDynamics(const VehicleDynamics& vehicleDynamics);
+
+    struct VehicleSpawnState {
+        VehicleState state{Eigen::Vector3d::Zero(), 0.0,
+                           Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+                           Eigen::Vector3d::Zero()};
+        Transform transform{};
+    };
+
     const VehicleSpawnState& vehicleSpawnState() const { return spawnState_; }
     void acknowledgeVehicleReset(const Transform& appliedTransform);
 
@@ -200,6 +214,10 @@ private:
     ControllerConfig racingConfig{};
     LookaheadIndices lookaheadIndices{};
 
+    fsai::world::IWorldDebugPublisher* debugPublisher_{nullptr};
+    fsai::world::WorldDebugPacket debugPacket_{};
+
+    double totalTime{0.0};
     double deltaTime{0.0};
     int lapCount{0};
     TrackBuilder trackBuilder_{};
