@@ -106,8 +106,8 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     const float carSpeed = Vector3_Magnitude(carVelocity);
     const Transform& carTransform = vehicleDynamics().transform();
 
-    auto triangulation = getVisibleTriangulationEdges(vehicleState(), getLeftCones(), getRightCones()).first;
-    auto coneToSide = getVisibleTrackTriangulationFromCones(getCarFront(vehicleState()), vehicleState().yaw, getLeftCones(), getRightCones()).second;
+    auto triangulation = getVisibleTriangulationEdges(vehicleState(), leftCones, rightCones).first;
+    auto coneToSide = getVisibleTrackTriangulationFromCones(getCarFront(vehicleState()), vehicleState().yaw, leftCones, rightCones).second;
     auto [nodes, adj] = generateGraph(triangulation, getCarFront(vehicleState()), coneToSide);
     auto searchResult = beamSearch(adj, nodes, getCarFront(vehicleState()), 30, 2, 20);
     auto pathNodes = searchResult.first;
@@ -143,11 +143,20 @@ void World::acknowledgeVehicleReset(const Transform& appliedTransform) {
 void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worldConfig) {
     setVehicleDynamics(vehicleDynamics);
     mission_ = worldConfig.mission;
-    pathConfig_ = worldConfig.pathConfig;
+    debugConfig_ = worldConfig.debug;
 
-    this->config.collisionThreshold = 1.75f;
-    this->config.vehicleCollisionRadius = 0.5f - fsai::sim::kSmallConeRadiusMeters;
-    this->config.lapCompletionThreshold = 0.2f;
+    if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
+        mission_.track.checkpoints.empty()) {
+        mission_.track = generateRandomTrack();
+    }
+
+    if (mission_.track.checkpoints.empty()) {
+        throw std::runtime_error("MissionDefinition did not provide any checkpoints");
+    }
+
+    this->config.collisionThreshold = worldConfig.collision.collisionThreshold;
+    this->config.vehicleCollisionRadius = worldConfig.collision.vehicleCollisionRadius;
+    this->config.lapCompletionThreshold = worldConfig.collision.lapCompletionThreshold;
 
     trackState_ = trackBuilder_.Build(mission_, pathConfig_, this->config.vehicleCollisionRadius);
     mission_.track = trackState_->track;
@@ -163,9 +172,9 @@ void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worl
     useController = 1;
     regenTrack = mission_.allowRegeneration ? 1 : 0;
 
-    racingConfig.speedLookAheadSensitivity = 0.5f;
-    racingConfig.steeringLookAheadSensitivity = 0;
-    racingConfig.accelerationFactor = 0.0019f;
+    racingConfig.speedLookAheadSensitivity = worldConfig.controller_defaults.speedLookAheadSensitivity;
+    racingConfig.steeringLookAheadSensitivity = worldConfig.controller_defaults.steeringLookAheadSensitivity;
+    racingConfig.accelerationFactor = worldConfig.controller_defaults.accelerationFactor;
 
     initializeVehiclePose();
     vehicleResetPending_ = true;
@@ -174,6 +183,14 @@ void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worl
     lastSvcuThrottle_ = 0.0f;
     lastSvcuBrake_ = 0.0f;
     lastSvcuSteer_ = 0.0f;
+}
+
+const std::vector<FsaiConeDet>& World::ground_truth_detections() const {
+    if (!debugConfig_.public_ground_truth) {
+        static const std::vector<FsaiConeDet> kEmptyDetections;
+        return kEmptyDetections;
+    }
+    return coneDetections;
 }
 
 void World::update(double dt) {

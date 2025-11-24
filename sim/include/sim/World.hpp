@@ -7,6 +7,7 @@
 #include <Eigen/Dense>
 #include "types.h"
 #include "VehicleState.hpp"
+#include "sim/cone_constants.hpp"
 #include "sim/vehicle/VehicleDynamics.hpp"
 #include "Telemetry.hpp"
 #include "controller.prot.h"
@@ -23,11 +24,19 @@
 
 struct WorldConfig {
     fsai::sim::MissionDefinition mission;
-    PathConfig pathConfig{};
-
-    WorldConfig() = default;
-    explicit WorldConfig(fsai::sim::MissionDefinition missionDefinition)
-        : mission(std::move(missionDefinition)) {}
+    struct DebugSettings {
+        bool debug_mode{true};
+        bool public_ground_truth{true};
+        bool render_cones{true};
+        bool render_checkpoints{true};
+        bool render_paths{true};
+    } debug{};
+    struct CollisionConfig {
+        float collisionThreshold{1.75f};
+        float vehicleCollisionRadius{0.5f - fsai::sim::kSmallConeRadiusMeters};
+        float lapCompletionThreshold{0.2f};
+    } collision{};
+    ControllerConfig controller_defaults{0.5f, 0.0f, 0.0019f};
 };
 
 class World : public fsai::world::IWorldView {
@@ -55,19 +64,16 @@ public:
     std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
     std::vector<FsaiConeDet> coneDetections {};
 
-
     const VehicleState& vehicleState() const { return vehicleDynamics().state(); }
     const Transform& vehicleTransform() const { return vehicleDynamics().transform(); }
-    const std::vector<Vector3>& checkpointPositionsWorld() const {
-        return checkpointPositions;
-    }
+    const std::vector<Vector3>& checkpointPositionsWorld() const { return debugAccess(checkpointPositions); }
 
-    const std::vector<Cone>& getStartCones() const { return startCones; }
-    const std::vector<Cone>& getLeftCones() const { return leftCones; }
-    const std::vector<Cone>& getRightCones() const { return rightCones; }
-    const std::vector<Vector3>& getStartConePositions() const { return startConePositions_; }
-    const std::vector<Vector3>& getLeftConePositions() const { return leftConePositions_; }
-    const std::vector<Vector3>& getRightConePositions() const { return rightConePositions_; }
+    const std::vector<Cone>& getStartCones() const { return debugAccess(startCones); }
+    const std::vector<Cone>& getLeftCones() const { return debugAccess(leftCones); }
+    const std::vector<Cone>& getRightCones() const { return debugAccess(rightCones); }
+    const std::vector<Vector3>& getStartConePositions() const { return debugAccess(startConePositions_); }
+    const std::vector<Vector3>& getLeftConePositions() const { return debugAccess(leftConePositions_); }
+    const std::vector<Vector3>& getRightConePositions() const { return debugAccess(rightConePositions_); }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
     const WheelsInfo& wheelsInfo() const { return vehicleDynamics().wheels_info(); }
     double lapTimeSeconds() const { return totalTime; }
@@ -86,6 +92,12 @@ public:
 
     const fsai::sim::MissionDefinition& mission() const { return mission_; }
 
+    bool debug_mode() const { return debugConfig_.debug_mode; }
+    bool public_ground_truth() const { return debugConfig_.public_ground_truth; }
+    bool render_cones() const { return debugConfig_.render_cones; }
+    bool render_checkpoints() const { return debugConfig_.render_checkpoints; }
+    bool render_paths() const { return debugConfig_.render_paths; }
+
     // IWorldView overrides
     const VehicleState& vehicle_state() const override { return vehicleDynamics().state(); }
     const Transform& vehicle_transform() const override { return vehicleDynamics().transform(); }
@@ -101,7 +113,7 @@ public:
     double time_step_seconds() const override { return deltaTime; }
     int lap_count() const override { return lapCount; }
     const std::vector<std::pair<Vector2, Vector2>>& best_path_edges() const override { return bestPathEdges; }
-    const std::vector<FsaiConeDet>& ground_truth_detections() const override { return coneDetections; }
+    const std::vector<FsaiConeDet>& ground_truth_detections() const override;
     bool vehicle_reset_pending() const override { return vehicleResetPending_; }
     void acknowledge_vehicle_reset(const Transform& appliedTransform) override {
         acknowledgeVehicleReset(appliedTransform);
@@ -178,5 +190,14 @@ private:
     void handleMissionCompletion();
     bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
     const VehicleDynamics& vehicleDynamics() const;
+    template <typename T>
+    const T& debugAccess(const T& value) const {
+        if (!debugConfig_.debug_mode) {
+            throw std::runtime_error("Debug access requested when debug_mode is disabled");
+        }
+        return value;
+    }
+
+    WorldConfig::DebugSettings debugConfig_{};
 };
 
