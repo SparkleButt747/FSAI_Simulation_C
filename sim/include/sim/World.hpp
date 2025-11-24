@@ -5,39 +5,17 @@
 #include <Eigen/Dense>
 #include "types.h"
 #include "VehicleState.hpp"
-#include "sim/vehicle/VehicleDynamics.hpp"
+#include "VehicleDynamics.hpp"
 #include "Telemetry.hpp"
 #include "controller.prot.h"
 #include "Transform.h"
 #include "Vector.h"
-#include "PathConfig.hpp"
-#include "PathGenerator.hpp"
-#include "TrackGenerator.hpp"
-#include "sim/architecture/IWorldView.hpp"
-#include "sim/mission/MissionDefinition.hpp"
-#include "sim/MissionRuntimeState.hpp"
-#include "sim/WorldConfig.hpp"
-
-enum class ConeType {
-    Start,
-    Left,
-    Right,
-};
-
-struct Cone {
-    Vector3 position{0.0f, 0.0f, 0.0f};
-    float radius{0.0f};
-    float mass{0.0f};
-    ConeType type{ConeType::Left};
-};
-
-struct CollisionSegment {
-    Vector2 start{0.0f, 0.0f};
-    Vector2 end{0.0f, 0.0f};
-    float radius{0.0f};
-    Vector2 boundsMin{0.0f, 0.0f};
-    Vector2 boundsMax{0.0f, 0.0f};
-};
+#include "IWorldView.hpp"
+#include "MissionDefinition.hpp"
+#include "MissionRuntimeState.hpp"
+#include "WorldConfig.hpp"
+#include "TrackBuilder.hpp"
+#include "TrackTypes.hpp"
 
 class World : public fsai::world::IWorldView {
 public:
@@ -139,9 +117,9 @@ private:
     friend class WorldTestHelper;
     void moveNextCheckpointToLast();
     void reset();
-    void configureTrackState(const fsai::sim::TrackData& track);
+    void configureTrackState(const TrackBuildResult& track);
     void initializeVehiclePose();
-    fsai::sim::TrackData generateRandomTrack() const;
+    TrackBuildResult buildTrackState();
 
     const VehicleDynamics* vehicleDynamics_{nullptr};
     VehicleSpawnState spawnState_{};
@@ -181,6 +159,8 @@ private:
     double totalDistance{0.0};
     int lapCount{0};
     fsai::sim::MissionDefinition mission_{};
+    TrackBuilderConfig trackBuilderConfig_{};
+    TrackBuildResult trackState_{};
     fsai::sim::MissionRuntimeState missionState_{};
     bool insideLastCheckpoint_{false};
     struct StraightLineTracker {
@@ -196,4 +176,3 @@ private:
     const VehicleDynamics& vehicleDynamics() const;
     void enforcePublicGroundTruth(const char* accessor) const;
 };
-

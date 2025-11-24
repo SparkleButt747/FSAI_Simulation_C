@@ -8,30 +8,13 @@
 class WorldTestHelper {
 public:
     static void ConfigureSimpleGate(World& world) {
-        world.checkpointPositions.clear();
-        world.checkpointPositions.push_back(Vector3{0.0f, 0.0f, 5.0f});
-        world.checkpointPositions.push_back(Vector3{0.0f, 0.0f, 15.0f});
+        fsai::sim::TrackData track{};
+        track.checkpoints.push_back(MakeTransform(0.0f, 5.0f));
+        track.checkpoints.push_back(MakeTransform(0.0f, 15.0f));
+        track.leftCones.push_back(MakeTransform(-1.0f, 5.0f));
+        track.rightCones.push_back(MakeTransform(1.0f, 5.0f));
 
-        world.leftCones.clear();
-        Cone left{};
-        left.position = Vector3{-1.0f, 0.0f, 5.0f};
-        left.radius = 0.25f;
-        left.mass = 1.0f;
-        left.type = ConeType::Left;
-        world.leftCones.push_back(left);
-
-        world.rightCones.clear();
-        Cone right{};
-        right.position = Vector3{1.0f, 0.0f, 5.0f};
-        right.radius = 0.25f;
-        right.mass = 1.0f;
-        right.type = ConeType::Right;
-        world.rightCones.push_back(right);
-
-        world.startCones.clear();
-        world.gateSegments_.clear();
-        world.boundarySegments_.clear();
-        world.lastCheckpoint = Vector3{1000.0f, 0.0f, 1000.0f};
+        ConfigureTrack(world, track);
         world.initializeVehiclePose();
         world.insideLastCheckpoint_ = false;
     }
@@ -58,11 +41,18 @@ public:
     }
 
     static void ConfigureTrack(World& world, const fsai::sim::TrackData& track) {
-        world.configureTrackState(track);
+        world.trackBuilderConfig_.vehicleCollisionRadius = world.config.vehicleCollisionRadius;
+        TrackBuilder builder(world.trackBuilderConfig_);
+        fsai::sim::MissionDefinition mission = world.mission_;
+        mission.track = track;
+        world.trackState_ = builder.Build(mission);
+        world.mission_ = mission;
+        world.configureTrackState(world.trackState_);
     }
 
     static void SetCollisionRadius(World& world, float radius) {
         world.config.vehicleCollisionRadius = radius;
+        world.trackBuilderConfig_.vehicleCollisionRadius = radius;
     }
 
     static void SetInsideLastCheckpoint(World& world, bool inside) {
@@ -70,6 +60,13 @@ public:
     }
 
 private:
+    static Transform MakeTransform(float x, float z) {
+        Transform t{};
+        t.position = Vector3{x, 0.0f, z};
+        t.yaw = 0.0f;
+        return t;
+    }
+
     static void SetVehiclePose(World& world, VehicleDynamics& dynamics, float x, float y, float z) {
         VehicleState state = dynamics.state();
         state.position = Eigen::Vector3d(static_cast<double>(x), static_cast<double>(z), state.position.z());
@@ -82,4 +79,3 @@ private:
         dynamics.setState(state, transform);
     }
 };
-
