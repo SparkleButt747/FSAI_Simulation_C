@@ -29,18 +29,13 @@
 #endif
 
 #include "imgui.h"
-#include "backends/imgui_impl_sdl2.h"
-#include "backends/imgui_impl_sdlrenderer2.h"
 
-#include "Graphics.h"
 #include "budget.h"
 #include "fsai_clock.h"
 #include "csv_logger.hpp"
 #include "logging.hpp"
 #include "gui_world_adapter.hpp"
-#include "provider_registry.hpp"
-#include "stereo_display.hpp"
-#include "sim_stereo_source.hpp"
+#include "world/WorldRenderAdapter.hpp"
 #include "edge_preview.hpp"
 #include "vision/frame_ring_buffer.hpp"
 #include "vision/vision_node.hpp"
@@ -59,7 +54,6 @@
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
 #include "runtime_telemetry.hpp"
-#include "centerline.hpp"
 #include "human/IUserInput.hpp"
 
 namespace {
@@ -253,10 +247,8 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
 
 
 constexpr double kDefaultDt = 0.01;
-constexpr int kWindowWidth = 800;
-constexpr int kWindowHeight = 600;
 constexpr int kReportIntervalFrames = 120;
-constexpr float kConeDisplayScale = 12.0f;
+constexpr const char* kWorldRenderConfigPath = "configs/sim/world.yaml";
 constexpr uint16_t kDefaultCommandPort = fsai::sim::svcu::kDefaultCommandPort;
 constexpr uint16_t kDefaultTelemetryPort = fsai::sim::svcu::kDefaultTelemetryPort;
 constexpr double kCommandStaleSeconds = 0.1;
@@ -1305,192 +1297,6 @@ void DrawDetectionPreviewPanel(fsai::vision::DetectionPreview& preview, uint64_t
   }
   ImGui::End();
 }
-namespace {
-
-void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
-                    float base_width_m, const SDL_Color& color) {
-  if (graphics == nullptr || graphics->renderer == nullptr) {
-    return;
-  }
-
-  const float base_radius_px =
-      0.5f * base_width_m * K_RENDER_SCALE * kConeDisplayScale;
-  const int radius_px =
-      std::max(1, static_cast<int>(std::lround(base_radius_px)));
-
-  SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
-                         color.a);
-  Graphics_DrawFilledCircle(graphics, center_x, center_y, radius_px);
-}
-
-}  // namespace
-
-void DrawWorldScene(Graphics* graphics,
-                    const fsai::sim::app::GuiWorldSnapshot& world,
-                    const fsai::sim::app::RuntimeTelemetry& telemetry) {
-  (void)telemetry;
-  fsai::time::SimulationStageTimer render_timer("renderer");
-  Graphics_Clear(graphics);
-  Graphics_DrawGrid(graphics, 50);
-
-  const auto& left_cones = world.left_cones;
-  const auto& right_cones = world.right_cones;
-  const std::size_t gate_count =
-      std::min(left_cones.size(), right_cones.size());
-
-  if (gate_count > 0) {
-    for (std::size_t i = 0; i < gate_count; ++i) {
-      const bool is_current_gate = (i == 0);
-      const SDL_Color color = is_current_gate
-                                  ? SDL_Color{200, 0, 200, 255}
-                                  : SDL_Color{120, 120, 200, 180};
-      const auto& left = left_cones[i];
-      const auto& right = right_cones[i];
-
-      const float left_x = left.x * K_RENDER_SCALE + graphics->width / 2.0f;
-      const float left_y = left.z * K_RENDER_SCALE + graphics->height / 2.0f;
-      const float right_x = right.x * K_RENDER_SCALE + graphics->width / 2.0f;
-      const float right_y = right.z * K_RENDER_SCALE + graphics->height / 2.0f;
-
-      SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
-                             color.a);
-      SDL_RenderDrawLineF(graphics->renderer, left_x, left_y, right_x,
-                          right_y);
-
-      if (is_current_gate) {
-        const float thickness = std::max(1.5f, K_RENDER_SCALE * 0.15f);
-        const float dx = right_x - left_x;
-        const float dy = right_y - left_y;
-        const float length = std::hypot(dx, dy);
-        if (length > std::numeric_limits<float>::epsilon()) {
-          const float nx = -dy / length;
-          const float ny = dx / length;
-          const float offset_x = nx * thickness * 0.5f;
-          const float offset_y = ny * thickness * 0.5f;
-          SDL_RenderDrawLineF(graphics->renderer, left_x + offset_x,
-                              left_y + offset_y, right_x + offset_x,
-                              right_y + offset_y);
-          SDL_RenderDrawLineF(graphics->renderer, left_x - offset_x,
-                              left_y - offset_y, right_x - offset_x,
-                              right_y - offset_y);
-        }
-      }
-    }
-  } else {
-    const auto& checkpoints = world.checkpoints;
-    if (!checkpoints.empty()) {
-      SDL_SetRenderDrawColor(graphics->renderer, 200, 0, 200, 255);
-      Graphics_DrawFilledCircle(
-          graphics,
-          static_cast<int>(checkpoints.front().x * K_RENDER_SCALE +
-                           graphics->width / 2.0f),
-          static_cast<int>(checkpoints.front().z * K_RENDER_SCALE +
-                           graphics->height / 2.0f),
-          static_cast<int>(K_RENDER_SCALE));
-    }
-  }
-
-  const auto& lookahead = world.lookahead;
-
-  const auto& start_cones = world.start_cones;
-  const SDL_Color start_color{255, 140, 0, 255};
-  for (const auto& cone : start_cones) {
-    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
-                                        graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
-                                        graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y,
-                  fsai::sim::kLargeConeRadiusMeters * 2.0f, start_color);
-  }
-  // Blue 0, 102, 204, 255
-  const SDL_Color left_base{255, 214, 0, 255};
-  for (size_t i = 0; i < world.left_cones.size(); ++i) {
-    SDL_Color color = left_base;
-    if (i == 0) {
-      color = SDL_Color{0, 255, 0, 255};
-    } else if (static_cast<int>(i) == lookahead.speed) {
-      color = SDL_Color{255, 255, 0, 255};
-    } else if (static_cast<int>(i) == lookahead.steer) {
-      color = SDL_Color{255, 0, 255, 255};
-    }
-    const auto& cone = world.left_cones[i];
-    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
-                                        graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
-                                        graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y,
-                  fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
-  }
-  // Yellow 255, 214, 0, 255
-  const SDL_Color right_base{0, 102, 204, 255};
-  for (size_t i = 0; i < world.right_cones.size(); ++i) {
-    SDL_Color color = right_base;
-    if (i == 0) {
-      color = SDL_Color{0, 255, 0, 255};
-    } else if (static_cast<int>(i) == lookahead.speed) {
-      color = SDL_Color{255, 255, 0, 255};
-    } else if (static_cast<int>(i) == lookahead.steer) {
-      color = SDL_Color{255, 0, 255, 255};
-    }
-    const auto& cone = world.right_cones[i];
-    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
-                                        graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
-                                        graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y,
-                  fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
-  }
-
-  const auto& transform = world.vehicle_transform;
-  const float car_screen_x = transform.position.x * K_RENDER_SCALE +
-                             graphics->width / 2.0f;
-  const float car_screen_y = transform.position.z * K_RENDER_SCALE +
-                             graphics->height / 2.0f;
-  const float car_radius = 2.0f * K_RENDER_SCALE;
-  Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
-                   transform.yaw);
-
-    if (world.detections != nullptr) {
-      for (const auto& cone : *world.detections) {
-          // printf("\n\n cone conf %f \n\n", cone.conf);
-          int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
-                                        graphics->width / 2.0f);
-          int cone_y = static_cast<int>(cone.y * K_RENDER_SCALE +
-                                        graphics->height / 2.0f);
-          if (cone.side == FSAI_CONE_LEFT) {
-            SDL_SetRenderDrawColor(graphics->renderer, 5, 200, 5, 255);
-          } else if (cone.side == FSAI_CONE_RIGHT) {
-            SDL_SetRenderDrawColor(graphics->renderer, 200, 5, 5, 255);
-          } else if (cone.side == FSAI_CONE_UNKNOWN) {
-            SDL_SetRenderDrawColor(graphics->renderer, 150, 150, 150, 250);
-          }
-          Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 5);
-      }
-    }
-  auto to_cones = [](const std::vector<Vector3>& positions, ConeType type) {
-    std::vector<Cone> cones;
-    cones.reserve(positions.size());
-    for (const auto& pos : positions) {
-      Cone cone{};
-      cone.position = pos;
-      cone.type = type;
-      cones.push_back(cone);
-    }
-    return cones;
-  };
-
-  std::vector<std::pair<Vector2, Vector2>> triangulationEdges =
-      getVisibleTriangulationEdges(world.vehicle_state,
-                                   to_cones(world.left_cones, ConeType::Left),
-                                   to_cones(world.right_cones, ConeType::Right))
-          .second;
-  for (auto edge: triangulationEdges) {
-    Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
-  }
-  for (auto edge: world.best_path_edges) {
-    Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 255, 50, 50);
-  }
-}
 
 struct ChannelNoiseConfig {
   double noise_std{0.0};
@@ -1906,13 +1712,22 @@ int main(int argc, char* argv[]) {
                        mission_definition.allowRegeneration ? "enabled" : "disabled");
 
   SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(MakeProjectRelativePath(sensor_config_path).string());
-  bool edge_preview_enabled = sensor_cfg.edge_preview_enabled;
+  const fsai::sim::world::WorldRenderConfig render_config =
+      fsai::sim::world::LoadWorldRenderConfig(
+          MakeProjectRelativePath(kWorldRenderConfigPath).string());
+
+  bool edge_preview_enabled =
+      render_config.edge_preview_enabled && sensor_cfg.edge_preview_enabled;
   if (edge_preview_override.has_value()) {
     edge_preview_enabled = *edge_preview_override;
   }
-  bool detection_preview_enabled = true; // Enable by default
+  bool detection_preview_enabled = render_config.detection_preview_enabled;
   if (detection_preview_override.has_value()) {
     detection_preview_enabled = *detection_preview_override; // Use the override
+  }
+  if (!render_config.graphics_enabled) {
+    edge_preview_enabled = false;
+    detection_preview_enabled = false;
   }
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
                        "Detection preview %s",
@@ -2019,77 +1834,41 @@ int main(int argc, char* argv[]) {
                             world.vehicleSpawnState().transform);
   world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
 
-  Graphics graphics{};
-  if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,
-                    kWindowHeight) != 0) {
-    std::fprintf(stderr, "Graphics_Init failed\n");
-    return EXIT_FAILURE;
-  }
-
-  IMGUI_CHECKVERSION();
-  ImGui::CreateContext();
-  ImGuiIO& io = ImGui::GetIO();
-  (void)io;
-  ImGui::StyleColorsDark();
-  if (!ImGui_ImplSDL2_InitForSDLRenderer(graphics.window, graphics.renderer)) {
-    std::fprintf(stderr, "ImGui_ImplSDL2_InitForSDLRenderer failed\n");
-    ImGui::DestroyContext();
-    Graphics_Cleanup(&graphics);
-    return EXIT_FAILURE;
-  }
-  if (!ImGui_ImplSDLRenderer2_Init(graphics.renderer)) {
-    std::fprintf(stderr, "ImGui_ImplSDLRenderer2_Init failed\n");
-    ImGui_ImplSDL2_Shutdown();
-    ImGui::DestroyContext();
-    Graphics_Cleanup(&graphics);
-    return EXIT_FAILURE;
-  }
-
-  auto shutdown_imgui = [&]() {
-    ImGui_ImplSDLRenderer2_Shutdown();
-    ImGui_ImplSDL2_Shutdown();
-    ImGui::DestroyContext();
-  };
-
   fsai::sim::integration::CsvLogger logger("CarStateLog.csv", "RALog.csv");
   if (!logger.valid()) {
     std::fprintf(stderr, "Failed to open CSV logs\n");
-    shutdown_imgui();
-    Graphics_Cleanup(&graphics);
     return EXIT_FAILURE;
   }
 
-  fsai::sim::integration::registerBuiltInStereoProviders();
-  auto stereo_factory =
-      fsai::sim::integration::lookupStereoProvider("sim_stereo");
-  std::unique_ptr<fsai::io::camera::sim_stereo::SimStereoSource> stereo_source;
   std::shared_ptr<fsai::vision::FrameRingBuffer> stereo_frame_buffer;
-  //vision_node
-  std::shared_ptr<fsai::vision::VisionNode> vision_node;
-  if (stereo_factory) {
-    stereo_source = stereo_factory();
-    if (stereo_source) {
-      constexpr std::size_t kFrameRingCapacity = 4;
-      stereo_frame_buffer = fsai::vision::makeFrameRingBuffer(kFrameRingCapacity);
-      fsai::vision::setActiveFrameRingBuffer(stereo_frame_buffer);
-    }
-  }
-  if (!stereo_frame_buffer) {
+  if (render_config.simstereo_enabled && !render_config.test_mode) {
+    constexpr std::size_t kFrameRingCapacity = 4;
+    stereo_frame_buffer = fsai::vision::makeFrameRingBuffer(kFrameRingCapacity);
+    fsai::vision::setActiveFrameRingBuffer(stereo_frame_buffer);
+  } else {
     fsai::vision::setActiveFrameRingBuffer(nullptr);
   }
-  std::unique_ptr<fsai::sim::integration::StereoDisplay> stereo_display;
-  if (edge_preview_enabled) {
-    stereo_display = std::make_unique<fsai::sim::integration::StereoDisplay>();
+
+  std::shared_ptr<fsai::vision::VisionNode> vision_node;
+
+  fsai::sim::world::WorldRenderAdapter render_adapter(render_config, *io_bus,
+                                                      world);
+  render_adapter.set_stereo_frame_buffer(stereo_frame_buffer);
+  if (!render_adapter.Initialize()) {
+    std::fprintf(stderr, "WorldRenderAdapter initialization failed\n");
+    return EXIT_FAILURE;
   }
 
   fsai::vision::EdgePreview edge_preview;
-  if (edge_preview_enabled && !stereo_frame_buffer) {
+  if (edge_preview_enabled &&
+      (!stereo_frame_buffer || render_adapter.renderer() == nullptr)) {
     fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
                          "Edge preview disabled: stereo source unavailable");
     edge_preview_enabled = false;
   } else if (edge_preview_enabled && stereo_frame_buffer) {
     std::string preview_error;
-    if (!edge_preview.start(graphics.renderer, stereo_frame_buffer, preview_error)) {
+    if (!edge_preview.start(render_adapter.renderer(), stereo_frame_buffer,
+                            preview_error)) {
       if (preview_error.empty()) {
         preview_error = "edge worker initialization failed";
       }
@@ -2099,16 +1878,13 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  io_bus->set_stereo_sink([stereo_frame_buffer, &stereo_display](const FsaiStereoFrame& frame) {
+  io_bus->set_stereo_sink([stereo_frame_buffer](const FsaiStereoFrame& frame) {
     if (stereo_frame_buffer) {
       while (!stereo_frame_buffer->tryPush(frame)) {
         if (!stereo_frame_buffer->tryPop().has_value()) {
           break;
         }
       }
-    }
-    if (stereo_display) {
-      stereo_display->present(frame);
     }
   });
 
@@ -2126,11 +1902,16 @@ int main(int argc, char* argv[]) {
   } catch (const std::exception& e) {
     fsai::sim::log::Logf(fsai::sim::log::Level::kError,
                          "Failed to start VisionNode: %s", e.what());
+    render_adapter.Shutdown();
     return EXIT_FAILURE;
   }
   // --------------------------------------------------------
   fsai::vision::DetectionPreview detection_preview;
-  if (detection_preview_enabled) {
+  if (detection_preview_enabled && render_adapter.renderer() == nullptr) {
+    detection_preview_enabled = false;
+    fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                         "Detection preview disabled: renderer unavailable");
+  } else if (detection_preview_enabled) {
     if (!vision_node) {
       fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
                          "Detection preview disabled: vision node unavailable");
@@ -2140,7 +1921,7 @@ int main(int argc, char* argv[]) {
       fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
                             "Attempting to start DetectionPreview...");
       std::string preview_error;
-      if (!detection_preview.start(graphics.renderer, vision_node, preview_error)) {
+      if (!detection_preview.start(render_adapter.renderer(), vision_node, preview_error)) {
         if (preview_error.empty()) {
           preview_error = "start() returned false";
         }
@@ -2153,7 +1934,6 @@ int main(int argc, char* argv[]) {
       }
     }
   }
-  std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
 
@@ -2177,14 +1957,12 @@ int main(int argc, char* argv[]) {
       can_cfg.mode = fsai::control::runtime::CanIface::Mode::kSimulation;
       if (!can_interface.Initialize(can_cfg)) {
         std::fprintf(stderr, "Failed to open CAN endpoint %s\n", can_cfg.endpoint.c_str());
-        shutdown_imgui();
-        Graphics_Cleanup(&graphics);
+        render_adapter.Shutdown();
         return EXIT_FAILURE;
       }
     } else {
       std::fprintf(stderr, "Failed to open CAN endpoint %s\n", can_cfg.endpoint.c_str());
-      shutdown_imgui();
-      Graphics_Cleanup(&graphics);
+      render_adapter.Shutdown();
       return EXIT_FAILURE;
     }
   }
@@ -2192,8 +1970,7 @@ int main(int argc, char* argv[]) {
   fsai::sim::svcu::UdpEndpoint command_rx;
   if (!command_rx.bind(command_port)) {
     std::fprintf(stderr, "Failed to bind command UDP port %u\n", command_port);
-    shutdown_imgui();
-    Graphics_Cleanup(&graphics);
+    render_adapter.Shutdown();
     return EXIT_FAILURE;
   }
 
@@ -2201,8 +1978,7 @@ int main(int argc, char* argv[]) {
   if (!telemetry_tx.connect(telemetry_port)) {
     std::fprintf(stderr, "Failed to connect telemetry UDP port %u\n",
                  telemetry_port);
-    shutdown_imgui();
-    Graphics_Cleanup(&graphics);
+    render_adapter.Shutdown();
     return EXIT_FAILURE;
   }
   io_bus->set_telemetry_sink(
@@ -2245,10 +2021,7 @@ int main(int argc, char* argv[]) {
 
 
   while (running) {
-    SDL_Event event;
-    while (SDL_PollEvent(&event)) {
-      ImGui_ImplSDL2_ProcessEvent(&event);
-      Graphics_HandleWindowEvent(&graphics, &event);
+    running = render_adapter.PumpEvents([&](const SDL_Event& event) {
       if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
         switch (event.key.keysym.sym) {
           case SDLK_ESCAPE:
@@ -2275,9 +2048,10 @@ int main(int argc, char* argv[]) {
         }
       }
       if (event.type == SDL_QUIT) {
-        running = false;
+        return false;
       }
-    }
+      return true;
+    });
     if (user_input.ConsumeEmergencyStop()) {
       fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
                            "Emergency stop requested; shutting down simulator");
@@ -2287,9 +2061,7 @@ int main(int argc, char* argv[]) {
       break;
     }
 
-    ImGui_ImplSDLRenderer2_NewFrame();
-    ImGui_ImplSDL2_NewFrame();
-    ImGui::NewFrame();
+    render_adapter.BeginFrame();
 
     can_interface.Poll(fsai_clock_now());
 
@@ -2926,12 +2698,7 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    fsai::sim::app::GuiWorldAdapter gui_adapter(world);
-    const auto world_snapshot = gui_adapter.snapshot();
-    DrawWorldScene(&graphics, world_snapshot, runtime_telemetry);
-    ImGui::Render();
-    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), graphics.renderer);
-    Graphics_Present(&graphics);
+    render_adapter.Render(runtime_telemetry, now_ns);
 
     SDL_Delay(static_cast<Uint32>(step_seconds * 1000.0));
 
@@ -2943,15 +2710,13 @@ int main(int argc, char* argv[]) {
   }
   detection_preview.stop();
   edge_preview.stop();
-  stereo_display.reset();
   if (stereo_frame_buffer) {
     while (stereo_frame_buffer->tryPop().has_value()) {
     }
     fsai::vision::setActiveFrameRingBuffer(nullptr);
     stereo_frame_buffer.reset();
   }
-  shutdown_imgui();
-  Graphics_Cleanup(&graphics);
+  render_adapter.Shutdown();
   fsai::sim::log::LogInfoToStdout(
       "Simulation complete. Car state log saved to CarStateLog.csv");
   return EXIT_SUCCESS;

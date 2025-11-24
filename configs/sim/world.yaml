@@ -1,3 +1,18 @@
+# Rendering configuration for simulator visuals and stereo output.
+graphics:
+  enabled: true
+  width: 800
+  height: 600
+  edge_preview: true
+  detection_preview: true
+
+simstereo:
+  enabled: true
+  width: 640
+  height: 480
+  display: false
+
+test_mode: false
 debug:
   debug_mode: true
   public_ground_truth: true
