@@ -5,7 +5,7 @@
 #include "VehicleInput.hpp"
 #include "VehicleState.hpp"
 #include "WheelsInfo.h"
-#include "sim/architecture/IVehicleDynamics.hpp"
+#include "architecture/IVehicleDynamics.hpp"
 
 class VehicleDynamics : public fsai::vehicle::IVehicleDynamics {
 public:

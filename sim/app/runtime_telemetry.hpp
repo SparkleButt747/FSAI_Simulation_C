@@ -10,7 +10,7 @@
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
 #include "types.h"
-#include "sim/MissionRuntimeState.hpp"
+#include "MissionRuntimeState.hpp"
 
 namespace fsai::sim::app {
 

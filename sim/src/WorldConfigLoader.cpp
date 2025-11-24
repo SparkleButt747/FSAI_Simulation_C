@@ -1,4 +1,4 @@
-#include "sim/WorldConfigLoader.hpp"
+#include "WorldConfigLoader.hpp"
 
 #include <cmath>
 #include <sstream>

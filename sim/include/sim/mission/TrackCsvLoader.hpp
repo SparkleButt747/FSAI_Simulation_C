@@ -2,7 +2,7 @@
 
 #include <filesystem>
 
-#include "sim/track/TrackGenerator.hpp"
+#include "track/TrackGenerator.hpp"
 
 namespace fsai::sim {
 

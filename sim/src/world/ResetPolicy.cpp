@@ -1,4 +1,4 @@
-#include "world/ResetPolicy.hpp"
+#include "ResetPolicy.hpp"
 
 ResetPolicy::ResetPolicy(const Config& config) : config_(config) {}
 

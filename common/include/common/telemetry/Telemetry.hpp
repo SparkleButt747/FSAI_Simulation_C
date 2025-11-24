@@ -3,7 +3,7 @@
 #include <cstdint>
 #include "VehicleState.hpp"
 #include "Transform.h"
-#include "sim/MissionRuntimeState.hpp"
+#include "MissionRuntimeState.hpp"
 
 // Prints simulation telemetry to the terminal.
 void Telemetry_Update(const VehicleState& carState, const Transform& carTransform,

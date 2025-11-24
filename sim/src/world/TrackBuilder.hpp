@@ -1,8 +1,8 @@
 #pragma once
 
-#include "sim/mission/MissionDefinition.hpp"
-#include "sim/track/PathConfig.hpp"
-#include "sim/world/TrackState.hpp"
+#include "mission/MissionDefinition.hpp"
+#include "track/PathConfig.hpp"
+#include "TrackState.hpp"
 
 class TrackBuilder {
 public:

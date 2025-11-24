@@ -1,4 +1,4 @@
-#include "sim/mission/TrackCsvLoader.hpp"
+#include "mission/TrackCsvLoader.hpp"
 
 #include <cerrno>
 #include <algorithm>

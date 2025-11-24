@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <vector>
 
-#include "sim/mission/MissionDefinition.hpp"
+#include "mission/MissionDefinition.hpp"
 
 namespace fsai::sim {
 

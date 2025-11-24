@@ -1,7 +1,7 @@
 #include <cmath>
 #include <iostream>
 
-#include "sim/MissionRuntimeState.hpp"
+#include "MissionRuntimeState.hpp"
 
 namespace {
 

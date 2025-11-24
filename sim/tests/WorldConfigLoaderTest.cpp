@@ -4,10 +4,10 @@
 #include <fstream>
 
 #include "World.hpp"
-#include "sim/WorldConfigLoader.hpp"
-#include "sim/mission/MissionDefinition.hpp"
+#include "WorldConfigLoader.hpp"
+#include "mission/MissionDefinition.hpp"
 #include "VehicleState.hpp"
-#include "sim/tests/WorldTestHelper.hpp"
+#include "tests/WorldTestHelper.hpp"
 
 namespace fs = std::filesystem;
 

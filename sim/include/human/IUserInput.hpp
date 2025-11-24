@@ -2,7 +2,7 @@
 
 #include <optional>
 
-#include "sim/mission/MissionDefinition.hpp"
+#include "mission/MissionDefinition.hpp"
 
 namespace human {
 

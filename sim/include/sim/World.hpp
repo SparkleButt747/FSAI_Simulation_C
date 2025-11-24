@@ -8,8 +8,8 @@
 #include <Eigen/Dense>
 #include "types.h"
 #include "VehicleState.hpp"
-#include "sim/cone_constants.hpp"
-#include "sim/vehicle/VehicleDynamics.hpp"
+#include "cone_constants.hpp"
+#include "vehicle/VehicleDynamics.hpp"
 #include "Telemetry.hpp"
 #include "controller.prot.h"
 #include "Transform.h"
@@ -17,12 +17,12 @@
 #include "PathConfig.hpp"
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
-#include "sim/architecture/IWorldView.hpp"
-#include "sim/architecture/WorldDebugPacket.hpp"
-#include "sim/mission/MissionDefinition.hpp"
-#include "sim/MissionRuntimeState.hpp"
-#include "world/CollisionService.hpp"
-#include "world/ResetPolicy.hpp"
+#include "architecture/IWorldView.hpp"
+#include "architecture/WorldDebugPacket.hpp"
+#include "mission/MissionDefinition.hpp"
+#include "MissionRuntimeState.hpp"
+#include "CollisionService.hpp"
+#include "ResetPolicy.hpp"
 
 enum class ConeType {
     Start,

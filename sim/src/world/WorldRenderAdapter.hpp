@@ -13,7 +13,7 @@
 #include "stereo_display.hpp"
 #include "vision/frame_ring_buffer.hpp"
 #include "io_bus.hpp"
-#include "sim/architecture/IWorldView.hpp"
+#include "architecture/IWorldView.hpp"
 
 namespace fsai::sim::world {
 

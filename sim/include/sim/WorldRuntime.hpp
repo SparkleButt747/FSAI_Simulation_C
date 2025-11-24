@@ -7,8 +7,8 @@
 #include <Eigen/Dense>
 
 #include "Transform.h"
-#include "sim/MissionRuntimeState.hpp"
-#include "sim/mission/MissionDefinition.hpp"
+#include "MissionRuntimeState.hpp"
+#include "mission/MissionDefinition.hpp"
 #include "Vector.h"
 
 namespace fsai::sim {

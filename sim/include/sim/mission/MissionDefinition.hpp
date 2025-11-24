@@ -4,8 +4,8 @@
 #include <vector>
 
 #include "Transform.h"
-#include "sim/mission_descriptor.hpp"
-#include "sim/track/TrackGenerator.hpp"
+#include "mission_descriptor.hpp"
+#include "track/TrackGenerator.hpp"
 
 namespace fsai::sim {
 

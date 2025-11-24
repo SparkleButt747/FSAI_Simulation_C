@@ -1,7 +1,7 @@
 #include "gtest/gtest.h"
 
 #include "WorldTestHelper.hpp"
-#include "sim/cone_constants.hpp"
+#include "cone_constants.hpp"
 
 namespace {
 

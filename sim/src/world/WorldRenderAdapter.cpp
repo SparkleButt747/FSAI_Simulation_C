@@ -1,4 +1,4 @@
-#include "world/WorldRenderAdapter.hpp"
+#include "WorldRenderAdapter.hpp"
 
 #include <array>
 #include <cmath>
@@ -14,7 +14,7 @@
 #include "centerline.hpp"
 #include "imgui.h"
 #include "logging.hpp"
-#include "sim/cone_constants.hpp"
+#include "cone_constants.hpp"
 
 namespace fsai::sim::world {
 namespace {

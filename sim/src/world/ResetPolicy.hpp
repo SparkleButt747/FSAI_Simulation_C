@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sim/mission/MissionDefinition.hpp"
+#include "mission/MissionDefinition.hpp"
 
 class ResetPolicy {
  public:

@@ -5,7 +5,7 @@
 
 #include "adsdv_dbc.hpp"
 #include "types.h"
-#include "sim/mission_descriptor.hpp"
+#include "mission_descriptor.hpp"
 
 namespace fsai::control::runtime {
 

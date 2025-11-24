@@ -7,9 +7,9 @@
 #include "Vector.h"
 #include "Transform.h"
 #include "VehicleState.hpp"
-#include "sim/MissionRuntimeState.hpp"
-#include "sim/architecture/IWorldView.hpp"
-#include "sim/architecture/WorldDebugPacket.hpp"
+#include "MissionRuntimeState.hpp"
+#include "architecture/IWorldView.hpp"
+#include "architecture/WorldDebugPacket.hpp"
 
 namespace fsai::sim::app {
 

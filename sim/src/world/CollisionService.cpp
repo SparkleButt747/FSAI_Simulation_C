@@ -1,4 +1,4 @@
-#include "world/CollisionService.hpp"
+#include "CollisionService.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -6,7 +6,7 @@
 
 #include "Transform.h"
 #include "Vector.h"
-#include "sim/World.hpp"
+#include "World.hpp"
 
 namespace {
 

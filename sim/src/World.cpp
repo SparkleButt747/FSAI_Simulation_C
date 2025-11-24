@@ -9,8 +9,8 @@
 #include <limits>
 #include "fsai_clock.h"
 #include "World.hpp"
-#include "sim/cone_constants.hpp"
-#include "sim/vehicle/VehicleDynamics.hpp"
+#include "cone_constants.hpp"
+#include "vehicle/VehicleDynamics.hpp"
 #include "centerline.hpp"
 
 namespace {

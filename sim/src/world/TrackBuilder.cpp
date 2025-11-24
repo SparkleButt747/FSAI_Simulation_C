@@ -4,7 +4,7 @@
 #include <cmath>
 #include <stdexcept>
 
-#include "sim/cone_constants.hpp"
+#include "cone_constants.hpp"
 #include "SkidpadTrackStrategy.hpp"
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"

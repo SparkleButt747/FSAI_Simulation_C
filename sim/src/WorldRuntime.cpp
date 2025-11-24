@@ -1,4 +1,4 @@
-#include "sim/WorldRuntime.hpp"
+#include "WorldRuntime.hpp"
 
 #include <algorithm>
 #include <cmath>

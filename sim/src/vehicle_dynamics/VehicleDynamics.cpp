@@ -1,4 +1,4 @@
-#include "sim/vehicle/VehicleDynamics.hpp"
+#include "vehicle/VehicleDynamics.hpp"
 
 VehicleDynamics::VehicleDynamics() : VehicleDynamics(VehicleParam()) {}
 

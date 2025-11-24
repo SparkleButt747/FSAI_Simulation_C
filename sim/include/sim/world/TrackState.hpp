@@ -4,7 +4,7 @@
 
 #include "Transform.h"
 #include "Vector.h"
-#include "sim/mission/MissionDefinition.hpp"
+#include "mission/MissionDefinition.hpp"
 
 enum class ConeType {
     Start,
