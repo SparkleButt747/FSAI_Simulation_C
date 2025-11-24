@@ -3,7 +3,8 @@
 #include <Eigen/Dense>
 
 #include "World.hpp"
-#include "sim/mission/MissionDefinition.hpp"
+#include "MissionDefinition.hpp"
+#include "TrackBuilder.hpp"
 
 class WorldTestHelper {
 public:
@@ -36,6 +37,16 @@ public:
         world.insideLastCheckpoint_ = false;
     }
 
+    static WorldVehicleContext MakeContext(VehicleDynamics& dynamics) {
+        WorldVehicleContext context{};
+        context.dynamics = &dynamics;
+        context.dynamics_model = &dynamics.model();
+        context.reset_vehicle = [&dynamics](const VehicleSpawnState& spawn) {
+            dynamics.setState(spawn.state, spawn.transform);
+        };
+        return context;
+    }
+
     static std::vector<Vector3> Checkpoints(const World& world) {
         return world.checkpointPositions;
     }
@@ -45,11 +56,11 @@ public:
     }
 
     static void SetCarPosition(World& world, VehicleDynamics& dynamics, float x, float z) {
-        SetVehiclePose(world, dynamics, x, world.vehicleTransform().position.y, z);
+        SetVehiclePose(world, dynamics, x, world.vehicle_transform().position.y, z);
     }
 
     static void SetCarHeight(World& world, VehicleDynamics& dynamics, float y) {
-        const Transform& carTransform = world.vehicleTransform();
+        const Transform& carTransform = world.vehicle_transform();
         SetVehiclePose(world, dynamics, carTransform.position.x, y, carTransform.position.z);
     }
 
@@ -58,7 +69,15 @@ public:
     }
 
     static void ConfigureTrack(World& world, const fsai::sim::TrackData& track) {
-        world.configureTrackState(track);
+        TrackBuilder builder;
+        fsai::sim::MissionDefinition mission = world.mission_;
+        mission.track = track;
+        mission.trackSource = fsai::sim::TrackSource::kCsv;
+        const TrackBuildResult trackState =
+            builder.Build(mission, world.pathConfig_, world.config.vehicleCollisionRadius);
+        world.trackState_ = trackState;
+        world.mission_ = mission;
+        world.configureTrackState(trackState);
     }
 
     static void SetCollisionRadius(World& world, float radius) {
@@ -74,7 +93,7 @@ private:
         VehicleState state = dynamics.state();
         state.position = Eigen::Vector3d(static_cast<double>(x), static_cast<double>(z), state.position.z());
 
-        Transform transform = world.vehicleTransform();
+        Transform transform = world.vehicle_transform();
         transform.position.x = x;
         transform.position.y = y;
         transform.position.z = z;
