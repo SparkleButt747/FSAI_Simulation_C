@@ -1,12 +1,14 @@
 #pragma once
 
-#include <functional>
+#include <optional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 #include <Eigen/Dense>
 #include "types.h"
 #include "VehicleState.hpp"
-#include "sim/architecture/IVehicleDynamics.hpp"
+#include "sim/cone_constants.hpp"
+#include "sim/vehicle/VehicleDynamics.hpp"
 #include "Telemetry.hpp"
 #include "controller.prot.h"
 #include "Transform.h"
@@ -14,34 +16,27 @@
 #include "PathConfig.hpp"
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
-#include "sim/architecture/IWorldView.hpp"
-#include "sim/mission/MissionDefinition.hpp"
-#include "sim/MissionRuntimeState.hpp"
-#include "sim/vehicle/DynamicBicycle.hpp"
-
-enum class ConeType {
-    Start,
-    Left,
-    Right,
-};
-
-struct Cone {
-    Vector3 position{0.0f, 0.0f, 0.0f};
-    float radius{0.0f};
-    float mass{0.0f};
-    ConeType type{ConeType::Left};
-};
-
-struct CollisionSegment {
-    Vector2 start{0.0f, 0.0f};
-    Vector2 end{0.0f, 0.0f};
-    float radius{0.0f};
-    Vector2 boundsMin{0.0f, 0.0f};
-    Vector2 boundsMax{0.0f, 0.0f};
-};
+#include "IWorldView.hpp"
+#include "MissionDefinition.hpp"
+#include "MissionRuntimeState.hpp"
+#include "TrackState.hpp"
+#include "TrackBuilder.hpp"
 
 struct WorldConfig {
     fsai::sim::MissionDefinition mission;
+    struct DebugSettings {
+        bool debug_mode{true};
+        bool public_ground_truth{true};
+        bool render_cones{true};
+        bool render_checkpoints{true};
+        bool render_paths{true};
+    } debug{};
+    struct CollisionConfig {
+        float collisionThreshold{1.75f};
+        float vehicleCollisionRadius{0.5f - fsai::sim::kSmallConeRadiusMeters};
+        float lapCompletionThreshold{0.2f};
+    } collision{};
+    ControllerConfig controller_defaults{0.5f, 0.0f, 0.0019f};
 };
 
 struct VehicleSpawnState {
@@ -83,16 +78,16 @@ public:
     std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
     std::vector<FsaiConeDet> coneDetections {};
 
-    const std::vector<Vector3>& checkpointPositionsWorld() const {
-        return checkpointPositions;
-    }
+    const VehicleState& vehicleState() const { return vehicleDynamics().state(); }
+    const Transform& vehicleTransform() const { return vehicleDynamics().transform(); }
+    const std::vector<Vector3>& checkpointPositionsWorld() const { return debugAccess(checkpointPositions); }
 
-    const std::vector<Cone>& getStartCones() const { return startCones; }
-    const std::vector<Cone>& getLeftCones() const { return leftCones; }
-    const std::vector<Cone>& getRightCones() const { return rightCones; }
-    const std::vector<Vector3>& getStartConePositions() const { return startConePositions_; }
-    const std::vector<Vector3>& getLeftConePositions() const { return leftConePositions_; }
-    const std::vector<Vector3>& getRightConePositions() const { return rightConePositions_; }
+    const std::vector<Cone>& getStartCones() const { return debugAccess(startCones); }
+    const std::vector<Cone>& getLeftCones() const { return debugAccess(leftCones); }
+    const std::vector<Cone>& getRightCones() const { return debugAccess(rightCones); }
+    const std::vector<Vector3>& getStartConePositions() const { return debugAccess(startConePositions_); }
+    const std::vector<Vector3>& getLeftConePositions() const { return debugAccess(leftConePositions_); }
+    const std::vector<Vector3>& getRightConePositions() const { return debugAccess(rightConePositions_); }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
     double lapTimeSeconds() const { return totalTime; }
     double totalDistanceMeters() const { return totalDistance; }
@@ -107,6 +102,12 @@ public:
     const DynamicBicycle& model() const;
 
     const fsai::sim::MissionDefinition& mission() const { return mission_; }
+
+    bool debug_mode() const { return debugConfig_.debug_mode; }
+    bool public_ground_truth() const { return debugConfig_.public_ground_truth; }
+    bool render_cones() const { return debugConfig_.render_cones; }
+    bool render_checkpoints() const { return debugConfig_.render_checkpoints; }
+    bool render_paths() const { return debugConfig_.render_paths; }
 
     // IWorldView overrides
     const VehicleState& vehicle_state() const override { return vehicleDynamics().state(); }
@@ -123,7 +124,7 @@ public:
     double time_step_seconds() const override { return deltaTime; }
     int lap_count() const override { return lapCount; }
     const std::vector<std::pair<Vector2, Vector2>>& best_path_edges() const override { return bestPathEdges; }
-    const std::vector<FsaiConeDet>& ground_truth_detections() const override { return coneDetections; }
+    const std::vector<FsaiConeDet>& ground_truth_detections() const override;
     bool vehicle_reset_pending() const override { return vehicleResetPending_; }
     void acknowledge_vehicle_reset(const Transform& appliedTransform) override {
         acknowledgeVehicleReset(appliedTransform);
@@ -136,10 +137,8 @@ private:
     friend class WorldTestHelper;
     void moveNextCheckpointToLast();
     void reset();
-    void configureTrackState(const fsai::sim::TrackData& track);
+    void configureTrackState(const TrackBuildResult& trackState);
     void initializeVehiclePose();
-    void applyVehicleSpawn();
-    fsai::sim::TrackData generateRandomTrack() const;
 
     fsai::vehicle::IVehicleDynamics* vehicleDynamics_{nullptr};
     const DynamicBicycle* dynamicsModel_{nullptr};
@@ -172,6 +171,9 @@ private:
     double deltaTime{0.0};
     double totalDistance{0.0};
     int lapCount{0};
+    TrackBuilder trackBuilder_{};
+    PathConfig pathConfig_{};
+    std::optional<TrackBuildResult> trackState_{};
     fsai::sim::MissionDefinition mission_{};
     fsai::sim::MissionRuntimeState missionState_{};
     bool insideLastCheckpoint_{false};
@@ -185,7 +187,15 @@ private:
     void updateStraightLineProgress();
     void handleMissionCompletion();
     bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
-    const fsai::vehicle::IVehicleDynamics& vehicleDynamics() const;
-    const DynamicBicycle& vehicleModel() const;
-}; 
+    const VehicleDynamics& vehicleDynamics() const;
+    template <typename T>
+    const T& debugAccess(const T& value) const {
+        if (!debugConfig_.debug_mode) {
+            throw std::runtime_error("Debug access requested when debug_mode is disabled");
+        }
+        return value;
+    }
+
+    WorldConfig::DebugSettings debugConfig_{};
+};
 

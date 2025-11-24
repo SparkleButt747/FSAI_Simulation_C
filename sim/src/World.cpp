@@ -14,11 +14,6 @@
 
 namespace {
 
-using fsai::sim::kLargeConeMassKg;
-using fsai::sim::kLargeConeRadiusMeters;
-using fsai::sim::kSmallConeMassKg;
-using fsai::sim::kSmallConeRadiusMeters;
-
 struct Vec2d {
     double x{0.0};
     double y{0.0};
@@ -70,42 +65,6 @@ bool segmentsIntersect(const Vec2d& p1, const Vec2d& p2, const Vec2d& q1, const 
     return false;
 }
 
-Vector3 transformToVector3(const Transform& t) {
-    return {t.position.x, t.position.y, t.position.z};
-}
-
-Cone makeCone(const Transform& t, ConeType type) {
-    Cone cone;
-    cone.position = transformToVector3(t);
-    cone.type = type;
-    switch (type) {
-        case ConeType::Start:
-            cone.radius = kLargeConeRadiusMeters;
-            cone.mass = kLargeConeMassKg;
-            break;
-        case ConeType::Left:
-        case ConeType::Right:
-            cone.radius = kSmallConeRadiusMeters;
-            cone.mass = kSmallConeMassKg;
-            break;
-    }
-    return cone;
-}
-
-CollisionSegment makeSegment(const Vector2& start, const Vector2& end, float radius) {
-    CollisionSegment segment{};
-    segment.start = start;
-    segment.end = end;
-    segment.radius = radius;
-    const float minX = std::min(start.x, end.x) - radius;
-    const float maxX = std::max(start.x, end.x) + radius;
-    const float minY = std::min(start.y, end.y) - radius;
-    const float maxY = std::max(start.y, end.y) + radius;
-    segment.boundsMin = Vector2{minX, minY};
-    segment.boundsMax = Vector2{maxX, maxY};
-    return segment;
-}
-
 float distanceSquaredToSegment(const Vector2& point, const CollisionSegment& segment) {
     const float ax = segment.start.x;
     const float ay = segment.start.y;
@@ -148,10 +107,10 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     const float carSpeed = Vector3_Magnitude(carVelocity);
     const Transform& carTransform = vehicleDynamics().transform();
 
-    auto triangulation = getVisibleTriangulationEdges(vehicle_state(), getLeftCones(), getRightCones()).first;
-    auto coneToSide = getVisibleTrackTriangulationFromCones(getCarFront(vehicle_state()), vehicle_state().yaw, getLeftCones(), getRightCones()).second;
-    auto [nodes, adj] = generateGraph(triangulation, getCarFront(vehicle_state()), coneToSide);
-    auto searchResult = beamSearch(adj, nodes, getCarFront(vehicle_state()), 30, 2, 20);
+    auto triangulation = getVisibleTriangulationEdges(vehicleState(), leftCones, rightCones).first;
+    auto coneToSide = getVisibleTrackTriangulationFromCones(getCarFront(vehicleState()), vehicleState().yaw, leftCones, rightCones).second;
+    auto [nodes, adj] = generateGraph(triangulation, getCarFront(vehicleState()), coneToSide);
+    auto searchResult = beamSearch(adj, nodes, getCarFront(vehicleState()), 30, 2, 20);
     auto pathNodes = searchResult.first;
     bestPathEdges = searchResult.second;
     auto checkpoints = pathNodesToCheckpoints(pathNodes);
@@ -192,6 +151,7 @@ void World::setVehicleContext(const WorldVehicleContext& vehicleContext) {
 void World::init(const WorldVehicleContext& vehicleContext, const WorldConfig& worldConfig) {
     setVehicleContext(vehicleContext);
     mission_ = worldConfig.mission;
+    debugConfig_ = worldConfig.debug;
 
     if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
         mission_.track.checkpoints.empty()) {
@@ -202,11 +162,14 @@ void World::init(const WorldVehicleContext& vehicleContext, const WorldConfig& w
         throw std::runtime_error("MissionDefinition did not provide any checkpoints");
     }
 
-    this->config.collisionThreshold = 1.75f;
-    this->config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
-    this->config.lapCompletionThreshold = 0.2f;
+    this->config.collisionThreshold = worldConfig.collision.collisionThreshold;
+    this->config.vehicleCollisionRadius = worldConfig.collision.vehicleCollisionRadius;
+    this->config.lapCompletionThreshold = worldConfig.collision.lapCompletionThreshold;
 
-    configureTrackState(mission_.track);
+    trackState_ = trackBuilder_.Build(mission_, pathConfig_, this->config.vehicleCollisionRadius);
+    mission_.track = trackState_->track;
+
+    configureTrackState(*trackState_);
     configureMissionRuntime();
 
     totalTime = 0.0;
@@ -217,15 +180,23 @@ void World::init(const WorldVehicleContext& vehicleContext, const WorldConfig& w
     useController = 1;
     regenTrack = mission_.allowRegeneration ? 1 : 0;
 
-    racingConfig.speedLookAheadSensitivity = 0.5f;
-    racingConfig.steeringLookAheadSensitivity = 0;
-    racingConfig.accelerationFactor = 0.0019f;
+    racingConfig.speedLookAheadSensitivity = worldConfig.controller_defaults.speedLookAheadSensitivity;
+    racingConfig.steeringLookAheadSensitivity = worldConfig.controller_defaults.steeringLookAheadSensitivity;
+    racingConfig.accelerationFactor = worldConfig.controller_defaults.accelerationFactor;
 
     initializeVehiclePose();
     applyVehicleSpawn();
 }
 
-void World::update(double dt, const fsai::types::ControlCmd& command) {
+const std::vector<FsaiConeDet>& World::ground_truth_detections() const {
+    if (!debugConfig_.public_ground_truth) {
+        static const std::vector<FsaiConeDet> kEmptyDetections;
+        return kEmptyDetections;
+    }
+    return coneDetections;
+}
+
+void World::update(double dt) {
     const auto& dynamics = vehicleDynamics();
     deltaTime = dt;
 
@@ -366,171 +337,17 @@ void World::telemetry() const {
                      missionState_);
 }
 
-// Add this debug code to World::configureTrackState() in World.cpp
-// Place it right after loading the cones from track data
-
-void World::configureTrackState(const fsai::sim::TrackData& track) {
-    checkpointPositions.clear();
-    startCones.clear();
-    leftCones.clear();
-    rightCones.clear();
-    startConePositions_.clear();
-    leftConePositions_.clear();
-    rightConePositions_.clear();
-    gateSegments_.clear();
-    boundarySegments_.clear();
-
-    // Load checkpoints
-    for (const auto& cp : track.checkpoints)
-        checkpointPositions.push_back(transformToVector3(cp));
-
-    // Load cones
-    for (const auto& sc : track.startCones)
-        startCones.push_back(makeCone(sc, ConeType::Start));
-
-    for (const auto& lc : track.leftCones)
-        leftCones.push_back(makeCone(lc, ConeType::Left));
-
-    for (const auto& rc : track.rightCones)
-        rightCones.push_back(makeCone(rc, ConeType::Right));
-
-    bool isSkidpad = (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad);
-
-    // =========================================================================
-    // DEBUG: Print orange cone positions
-    // =========================================================================
-    // Add this to World::configureTrackState() in the skidpad section
-    if (isSkidpad)
-    {
-        // Keep existing orange cones (the 4 big ones at top)
-        // Now ADD corridor cones (entrance/exit) as orange
-        
-        // Circle centers based on your data:
-        // Left circle: center around X=-9.25, Z=0
-        // Right circle: center around X=9.25, Z=0
-        const double leftCircleCenterX = -9.25;
-        const double rightCircleCenterX = 9.25;
-        const double circleCenterZ = 0.0;
-        const double circleRadius = 9.0; // Approximate radius from data
-        const double corridorMargin = 2.5; // Distance outside circle to consider "corridor"
-        
-        auto moveCorridorConesToOrange = [&](std::vector<Cone>& list) {
-            std::vector<Cone> keep;
-            for (auto& c : list) {
-                // Calculate distance from both circle centers
-                double distLeft = std::hypot(c.position.x - leftCircleCenterX, 
-                                            c.position.z - circleCenterZ);
-                double distRight = std::hypot(c.position.x - rightCircleCenterX, 
-                                            c.position.z - circleCenterZ);
-                
-                // If cone is NOT part of either circle (too far from both centers)
-                // then it's a corridor cone
-                bool isCorridorCone = (distLeft > circleRadius + corridorMargin) && 
-                                    (distRight > circleRadius + corridorMargin);
-                
-                if (isCorridorCone) {
-                    c.type = ConeType::Start;  // Make it ORANGE
-                    startCones.push_back(c);
-                } else {
-                    keep.push_back(c);
-                }
-            }
-            list = keep;
-        };
-        
-        moveCorridorConesToOrange(leftCones);
-        moveCorridorConesToOrange(rightCones);
-        
-        // Sort orange cones by Z so entrance (bottom) comes first
-        std::sort(startCones.begin(), startCones.end(), 
-                [](const Cone& a, const Cone& b) { 
-                    return a.position.z < b.position.z; 
-                });
-        
-        std::printf("After processing: Total orange cones = %zu\n", startCones.size());
-        
-        // Mirror the entire track along Z axis (flip upside down)
-        // So entrance moves from top to bottom
-        auto flipZ = [](std::vector<Cone>& cones) {
-            for (auto& c : cones) {
-                c.position.z = -c.position.z;
-            }
-        };
-        
-        flipZ(startCones);
-        flipZ(leftCones);
-        flipZ(rightCones);
-        
-        // Also flip checkpoints
-        for (auto& cp : checkpointPositions) {
-            cp.z = -cp.z;
-        }
-        
-        std::printf("Track flipped: entrance now at bottom (negative Z)\n");
-        
-        // Swap blue and yellow cones
-        std::swap(leftCones, rightCones);
-
-        std::printf("Blue and yellow cones swapped\n");
-    }
-    // =========================================================================
-
-    auto rebuildConePositions = [&]() {
-        startConePositions_.clear();
-        leftConePositions_.clear();
-        rightConePositions_.clear();
-        startConePositions_.reserve(startCones.size());
-        leftConePositions_.reserve(leftCones.size());
-        rightConePositions_.reserve(rightCones.size());
-        for (const auto& cone : startCones) {
-            startConePositions_.push_back(cone.position);
-        }
-        for (const auto& cone : leftCones) {
-            leftConePositions_.push_back(cone.position);
-        }
-        for (const auto& cone : rightCones) {
-            rightConePositions_.push_back(cone.position);
-        }
-    };
-
-    rebuildConePositions();
-
-    // Rest of your original code continues here...
-    if (!leftCones.empty() && !rightCones.empty()) {
-        const std::size_t gateCount = std::min(leftCones.size(), rightCones.size());
-        gateSegments_.reserve(gateCount);
-        for (std::size_t i = 0; i < gateCount; ++i) {
-            Vector2 left{leftCones[i].position.x, leftCones[i].position.z};
-            Vector2 right{rightCones[i].position.x, rightCones[i].position.z};
-            gateSegments_.push_back(makeSegment(left, right, config.vehicleCollisionRadius));
-        }
-    }
-
-    auto appendBoundarySegments = [&](const std::vector<Cone>& cones) {
-        if (cones.size() < 2) return;
-
-        for (std::size_t i = 0; i + 1 < cones.size(); ++i) {
-            Vector2 s{cones[i].position.x, cones[i].position.z};
-            Vector2 e{cones[i+1].position.x, cones[i+1].position.z};
-            boundarySegments_.push_back(makeSegment(s, e, config.vehicleCollisionRadius));
-        }
-
-        // close loop
-        Vector2 s{cones.back().position.x, cones.back().position.z};
-        Vector2 e{cones.front().position.x, cones.front().position.z};
-        boundarySegments_.push_back(makeSegment(s, e, config.vehicleCollisionRadius));
-    };
-
-    if (!isSkidpad) {
-        appendBoundarySegments(leftCones);
-        appendBoundarySegments(rightCones);
-    }
-
-    // Update last checkpoint
-    if (!track.checkpoints.empty())
-        lastCheckpoint = transformToVector3(track.checkpoints.back());
-    else
-        lastCheckpoint = {0.0f, 0.0f, 0.0f};
+void World::configureTrackState(const TrackBuildResult& trackState) {
+    checkpointPositions = trackState.checkpointPositions;
+    startCones = trackState.startCones;
+    leftCones = trackState.leftCones;
+    rightCones = trackState.rightCones;
+    startConePositions_ = trackState.startConePositions;
+    leftConePositions_ = trackState.leftConePositions;
+    rightConePositions_ = trackState.rightConePositions;
+    gateSegments_ = trackState.gateSegments;
+    boundarySegments_ = trackState.boundarySegments;
+    lastCheckpoint = trackState.lastCheckpoint;
 }
 
 void World::configureMissionRuntime() {
@@ -703,23 +520,6 @@ const fsai::vehicle::IVehicleDynamics& World::vehicleDynamics() const {
     return *vehicleDynamics_;
 }
 
-const DynamicBicycle& World::vehicleModel() const {
-    if (!dynamicsModel_) {
-        throw std::runtime_error("Vehicle model not provided to World");
-    }
-    return *dynamicsModel_;
-}
-
-fsai::sim::TrackData World::generateRandomTrack() const {
-    PathConfig pathConfig;
-    int nPoints = pathConfig.resolution;
-    PathGenerator pathGen(pathConfig);
-    PathResult path = pathGen.generatePath(nPoints);
-    TrackGenerator trackGen;
-    TrackResult track = trackGen.generateTrack(pathConfig, path);
-    return fsai::sim::TrackData::FromTrackResult(track);
-}
-
 void World::moveNextCheckpointToLast() {
     if (!checkpointPositions.empty()) {
         std::rotate(checkpointPositions.begin(), checkpointPositions.begin() + 1, checkpointPositions.end());
@@ -744,11 +544,20 @@ void World::reset() {
     if (mission_.allowRegeneration && regenTrack) {
         std::printf("Regenerating track due to cone collision.\n");
         if (mission_.trackSource == fsai::sim::TrackSource::kRandom) {
-            mission_.track = generateRandomTrack();
+            mission_.track = {};
         }
-        configureTrackState(mission_.track);
+        trackState_ = trackBuilder_.Build(mission_, pathConfig_, config.vehicleCollisionRadius);
+        mission_.track = trackState_->track;
     } else {
         std::printf("Resetting simulation without regenerating track.\n");
+        if (!trackState_) {
+            trackState_ = trackBuilder_.Build(mission_, pathConfig_, config.vehicleCollisionRadius);
+            mission_.track = trackState_->track;
+        }
+    }
+
+    if (trackState_) {
+        configureTrackState(*trackState_);
     }
 
     configureMissionRuntime();
