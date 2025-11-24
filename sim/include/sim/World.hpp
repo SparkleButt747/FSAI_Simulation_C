@@ -16,6 +16,7 @@
 #include "sim/architecture/IWorldView.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/MissionRuntimeState.hpp"
+#include "sim/WorldConfig.hpp"
 
 enum class ConeType {
     Start,
@@ -36,10 +37,6 @@ struct CollisionSegment {
     float radius{0.0f};
     Vector2 boundsMin{0.0f, 0.0f};
     Vector2 boundsMax{0.0f, 0.0f};
-};
-
-struct WorldConfig {
-    fsai::sim::MissionDefinition mission;
 };
 
 class World : public fsai::world::IWorldView {
@@ -70,16 +67,14 @@ public:
 
     const VehicleState& vehicleState() const { return vehicleDynamics().state(); }
     const Transform& vehicleTransform() const { return vehicleDynamics().transform(); }
-    const std::vector<Vector3>& checkpointPositionsWorld() const {
-        return checkpointPositions;
-    }
+    const std::vector<Vector3>& checkpointPositionsWorld() const;
 
-    const std::vector<Cone>& getStartCones() const { return startCones; }
-    const std::vector<Cone>& getLeftCones() const { return leftCones; }
-    const std::vector<Cone>& getRightCones() const { return rightCones; }
-    const std::vector<Vector3>& getStartConePositions() const { return startConePositions_; }
-    const std::vector<Vector3>& getLeftConePositions() const { return leftConePositions_; }
-    const std::vector<Vector3>& getRightConePositions() const { return rightConePositions_; }
+    const std::vector<Cone>& getStartCones() const;
+    const std::vector<Cone>& getLeftCones() const;
+    const std::vector<Cone>& getRightCones() const;
+    const std::vector<Vector3>& getStartConePositions() const;
+    const std::vector<Vector3>& getLeftConePositions() const;
+    const std::vector<Vector3>& getRightConePositions() const;
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
     const WheelsInfo& wheelsInfo() const { return vehicleDynamics().wheels_info(); }
     double lapTimeSeconds() const { return totalTime; }
@@ -117,6 +112,14 @@ public:
     bool vehicle_reset_pending() const override { return vehicleResetPending_; }
     void acknowledge_vehicle_reset(const Transform& appliedTransform) override {
         acknowledgeVehicleReset(appliedTransform);
+    }
+
+    bool debug_mode() const { return visibilityConfig_.debug_mode; }
+    bool public_ground_truth_enabled() const {
+        return visibilityConfig_.debug_mode && visibilityConfig_.public_ground_truth;
+    }
+    bool render_ground_truth_enabled() const {
+        return public_ground_truth_enabled() && visibilityConfig_.render_ground_truth;
     }
 
     void setVehicleDynamics(const VehicleDynamics& vehicleDynamics);
@@ -167,6 +170,9 @@ private:
         float lapCompletionThreshold{0.1f};
     } config{};
 
+    WorldVisibilityConfig visibilityConfig_{};
+    WorldControlConfig controlConfig_{};
+
     ControllerConfig racingConfig{};
     LookaheadIndices lookaheadIndices{};
 
@@ -188,5 +194,6 @@ private:
     void handleMissionCompletion();
     bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
     const VehicleDynamics& vehicleDynamics() const;
+    void enforcePublicGroundTruth(const char* accessor) const;
 };
 

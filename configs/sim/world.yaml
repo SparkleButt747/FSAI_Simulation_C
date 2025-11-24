@@ -1,0 +1,21 @@
+# Simulation world configuration
+# Adjust visibility/debug toggles, physics thresholds, and controller defaults here.
+visibility:
+  debug_mode: true
+  public_ground_truth: true
+  render_ground_truth: true
+
+tuning:
+  collision_threshold: 1.75
+  vehicle_collision_radius: 0.386
+  lap_completion_threshold: 0.2
+
+control:
+  use_controller: true
+  regenerate_track: true
+  speed_lookahead_sensitivity: 0.5
+  steering_lookahead_sensitivity: 0.0
+  acceleration_factor: 0.0019
+
+# Optional mission overrides. Leave values unset to keep mission defaults.
+mission_override: {}
