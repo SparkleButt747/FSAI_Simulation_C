@@ -1,3 +1,6 @@
+collision_threshold: 1.75
+vehicle_collision_radius: 0.386
+lap_completion_threshold: 0.2
 # Rendering configuration for simulator visuals and stereo output.
 graphics:
   enabled: true

@@ -46,6 +46,7 @@
 #include "vision/detection_buffer_registry.hpp"
 #include "types.h"
 #include "World.hpp"
+#include "sim/WorldConfigLoader.hpp"
 #include "sim/cone_constants.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/mission/TrackCsvLoader.hpp"
@@ -2009,6 +2010,9 @@ int main(int argc, char* argv[]) {
   fsai::world::InProcessWorldDebugPublisher debug_publisher;
   debug_publisher.set_debug_mode(true);
   World world;
+  const auto world_config_path = MakeProjectRelativePath(std::filesystem::path(kDefaultWorldConfig));
+  const WorldConfig world_config =
+      fsai::sim::WorldConfigLoader::FromFile(world_config_path.string(), mission_definition);
   world.set_debug_publisher(&debug_publisher);
   WorldConfig world_config{mission_definition};
   WorldConfig world_config{};

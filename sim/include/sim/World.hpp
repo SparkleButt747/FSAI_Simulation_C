@@ -54,8 +54,18 @@ struct VehicleSpawnState {
     Transform transform{};
 };
 
+struct WorldRuntimeConfig {
+    float collisionThreshold{1.75f};
+    float vehicleCollisionRadius{0.386f};
+    float lapCompletionThreshold{0.2f};
+    float speedLookAheadSensitivity{0.5f};
+    float steeringLookAheadSensitivity{0.0f};
+    float accelerationFactor{0.0019f};
+};
+
 struct WorldConfig {
     fsai::sim::MissionDefinition mission;
+    WorldRuntimeConfig runtime{};
     CollisionService::Config collision;
     ResetPolicy::Config resetPolicy;
     float vehicleCollisionRadius{0.386f};

@@ -217,6 +217,9 @@ void World::init(const WorldVehicleContext& vehicleContext, const WorldConfig& w
         throw std::runtime_error("MissionDefinition did not provide any checkpoints");
     }
 
+    this->config.collisionThreshold = worldConfig.runtime.collisionThreshold;
+    this->config.vehicleCollisionRadius = worldConfig.runtime.vehicleCollisionRadius;
+    this->config.lapCompletionThreshold = worldConfig.runtime.lapCompletionThreshold;
     this->config.collisionThreshold = worldConfig.gateCollisionThreshold;
     this->config.vehicleCollisionRadius = worldConfig.vehicleCollisionRadius;
     this->config.lapCompletionThreshold = worldConfig.collision.lapCompletionThreshold;
@@ -236,6 +239,9 @@ void World::init(const WorldVehicleContext& vehicleContext, const WorldConfig& w
 
     useController = 1;
 
+    racingConfig.speedLookAheadSensitivity = worldConfig.runtime.speedLookAheadSensitivity;
+    racingConfig.steeringLookAheadSensitivity = worldConfig.runtime.steeringLookAheadSensitivity;
+    racingConfig.accelerationFactor = worldConfig.runtime.accelerationFactor;
     racingConfig.speedLookAheadSensitivity = worldConfig.controller_defaults.speedLookAheadSensitivity;
     racingConfig.steeringLookAheadSensitivity = worldConfig.controller_defaults.steeringLookAheadSensitivity;
     racingConfig.accelerationFactor = worldConfig.controller_defaults.accelerationFactor;
