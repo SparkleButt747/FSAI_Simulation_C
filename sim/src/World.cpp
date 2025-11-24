@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <utility>
 #include <limits>
+#include <string>
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
@@ -147,8 +148,11 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     const float carSpeed = Vector3_Magnitude(carVelocity);
     const Transform& carTransform = vehicleDynamics().transform();
 
-    auto triangulation = getVisibleTriangulationEdges(vehicleState(), getLeftCones(), getRightCones()).first;
-    auto coneToSide = getVisibleTrackTriangulationFromCones(getCarFront(vehicleState()), vehicleState().yaw, getLeftCones(), getRightCones()).second;
+    auto triangulation =
+        getVisibleTriangulationEdges(vehicleState(), leftCones, rightCones).first;
+    auto coneToSide = getVisibleTrackTriangulationFromCones(
+                          getCarFront(vehicleState()), vehicleState().yaw, leftCones, rightCones)
+                          .second;
     auto [nodes, adj] = generateGraph(triangulation, getCarFront(vehicleState()), coneToSide);
     auto searchResult = beamSearch(adj, nodes, getCarFront(vehicleState()), 30, 2, 20);
     auto pathNodes = searchResult.first;
@@ -163,6 +167,41 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
         checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
         carSpeed, &carTransform, &racingConfig, dt);
     return true;
+}
+
+const std::vector<Vector3>& World::checkpointPositionsWorld() const {
+    enforcePublicGroundTruth("checkpoint positions");
+    return checkpointPositions;
+}
+
+const std::vector<Cone>& World::getStartCones() const {
+    enforcePublicGroundTruth("start cones");
+    return startCones;
+}
+
+const std::vector<Cone>& World::getLeftCones() const {
+    enforcePublicGroundTruth("left cones");
+    return leftCones;
+}
+
+const std::vector<Cone>& World::getRightCones() const {
+    enforcePublicGroundTruth("right cones");
+    return rightCones;
+}
+
+const std::vector<Vector3>& World::getStartConePositions() const {
+    enforcePublicGroundTruth("start cone positions");
+    return startConePositions_;
+}
+
+const std::vector<Vector3>& World::getLeftConePositions() const {
+    enforcePublicGroundTruth("left cone positions");
+    return leftConePositions_;
+}
+
+const std::vector<Vector3>& World::getRightConePositions() const {
+    enforcePublicGroundTruth("right cone positions");
+    return rightConePositions_;
 }
 
 void World::setSvcuCommand(float throttle, float brake, float steer) {
@@ -194,9 +233,12 @@ void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worl
         throw std::runtime_error("MissionDefinition did not provide any checkpoints");
     }
 
-    this->config.collisionThreshold = 1.75f;
-    this->config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
-    this->config.lapCompletionThreshold = 0.2f;
+    visibilityConfig_ = worldConfig.visibility;
+    controlConfig_ = worldConfig.control;
+
+    this->config.collisionThreshold = worldConfig.tuning.collisionThreshold;
+    this->config.vehicleCollisionRadius = worldConfig.tuning.vehicleCollisionRadius;
+    this->config.lapCompletionThreshold = worldConfig.tuning.lapCompletionThreshold;
 
     configureTrackState(mission_.track);
     configureMissionRuntime();
@@ -206,12 +248,12 @@ void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worl
     lapCount = 0;
     deltaTime = 0.0;
 
-    useController = 1;
-    regenTrack = mission_.allowRegeneration ? 1 : 0;
+    useController = controlConfig_.useController ? 1 : 0;
+    regenTrack = (controlConfig_.regenerateTrack && mission_.allowRegeneration) ? 1 : 0;
 
-    racingConfig.speedLookAheadSensitivity = 0.5f;
-    racingConfig.steeringLookAheadSensitivity = 0;
-    racingConfig.accelerationFactor = 0.0019f;
+    racingConfig.speedLookAheadSensitivity = controlConfig_.speedLookAheadSensitivity;
+    racingConfig.steeringLookAheadSensitivity = controlConfig_.steeringLookAheadSensitivity;
+    racingConfig.accelerationFactor = controlConfig_.accelerationFactor;
 
     initializeVehiclePose();
     vehicleResetPending_ = true;
@@ -702,6 +744,13 @@ fsai::sim::TrackData World::generateRandomTrack() const {
     TrackGenerator trackGen;
     TrackResult track = trackGen.generateTrack(pathConfig, path);
     return fsai::sim::TrackData::FromTrackResult(track);
+}
+
+void World::enforcePublicGroundTruth(const char* accessor) const {
+    if (!public_ground_truth_enabled()) {
+        throw std::runtime_error(std::string("Access to ") + accessor +
+                                 " is disabled when public ground truth is off.");
+    }
 }
 
 void World::moveNextCheckpointToLast() {

@@ -1790,8 +1790,13 @@ int main(int argc, char* argv[]) {
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Mission: %s",
                        mission.name.c_str());
 
-  const fsai::sim::MissionDefinition mission_definition =
+  const fsai::sim::MissionDefinition base_mission_definition =
       BuildMissionDefinition(mission);
+  const auto world_config_path =
+      MakeProjectRelativePath(std::filesystem::path("configs/sim/world.yaml"));
+  const WorldConfig world_config =
+      LoadWorldConfig(world_config_path.string(), base_mission_definition);
+  const fsai::sim::MissionDefinition& mission_definition = world_config.mission;
   const char* track_source =
       mission_definition.trackSource == fsai::sim::TrackSource::kCsv ? "CSV" : "Random";
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
@@ -1897,7 +1902,6 @@ int main(int argc, char* argv[]) {
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
   VehicleDynamics vehicle_dynamics(vehicle_param);
   World world;
-  WorldConfig world_config{mission_definition};
   world.init(vehicle_dynamics, world_config);
   vehicle_dynamics.setState(world.vehicleSpawnState().state,
                             world.vehicleSpawnState().transform);
@@ -2278,12 +2282,14 @@ int main(int argc, char* argv[]) {
       adapter_telemetry.mission_finished =
           mission_state.run_status() == fsai::sim::MissionRunStatus::kCompleted ||
           mission_state.stop_commanded();
-      const auto total_cones = world.getLeftCones().size() +
-                               world.getRightCones().size() +
-                               world.getStartCones().size();
-      if (total_cones > 0) {
-        adapter_telemetry.cones_count_all = static_cast<uint16_t>(
-            std::min<size_t>(total_cones, std::numeric_limits<uint16_t>::max()));
+      if (world.public_ground_truth_enabled()) {
+        const auto total_cones = world.getLeftCones().size() +
+                                 world.getRightCones().size() +
+                                 world.getStartCones().size();
+        if (total_cones > 0) {
+          adapter_telemetry.cones_count_all = static_cast<uint16_t>(
+              std::min<size_t>(total_cones, std::numeric_limits<uint16_t>::max()));
+        }
       }
 
       auto command_frames = ai2vcu_adapter.Adapt(
@@ -2380,7 +2386,6 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.lap.total_distance_m = world.totalDistanceMeters();
     runtime_telemetry.lap.completed_laps = world.completedLaps();
     const auto& mission_state = world.missionRuntime();
-    const auto& mission_definition = world.mission();
     runtime_telemetry.mission.mission_time_s = mission_state.mission_time_seconds();
     runtime_telemetry.mission.straight_progress_m = mission_state.straight_line_progress_m();
     runtime_telemetry.mission.target_laps = mission_state.target_laps();
@@ -2740,61 +2745,63 @@ int main(int argc, char* argv[]) {
                                  transform.position.z, transform.yaw);
 
       cone_positions.clear();
-      const auto& left_cones = world.getLeftCones();
-      const auto& right_cones = world.getRightCones();
-      const auto& start_cones_for_render = world.getStartCones();
-      cone_positions.reserve(left_cones.size() + right_cones.size() +
-                             start_cones_for_render.size());
+      if (world.render_ground_truth_enabled()) {
+        const auto& left_cones = world.getLeftCones();
+        const auto& right_cones = world.getRightCones();
+        const auto& start_cones_for_render = world.getStartCones();
+        cone_positions.reserve(left_cones.size() + right_cones.size() +
+                               start_cones_for_render.size());
 
-      const float color_scale = 1.0f / 255.0f;
-      auto makeColor = [color_scale](int r, int g, int b) {
-        return std::array<float, 3>{r * color_scale, g * color_scale,
-                                    b * color_scale};
-      };
+        const float color_scale = 1.0f / 255.0f;
+        auto makeColor = [color_scale](int r, int g, int b) {
+          return std::array<float, 3>{r * color_scale, g * color_scale,
+                                      b * color_scale};
+        };
 
-      const auto start_body = makeColor(255, 140, 0);
-      const auto start_stripe = makeColor(255, 255, 255);
-      const auto left_body = makeColor(255, 214, 0);
-      const auto left_stripe = makeColor(50, 50, 50);
-      const auto right_body = makeColor(0, 102, 204);
-      const auto right_stripe = makeColor(255, 255, 255);
+        const auto start_body = makeColor(255, 140, 0);
+        const auto start_stripe = makeColor(255, 255, 255);
+        const auto left_body = makeColor(255, 214, 0);
+        const auto left_stripe = makeColor(50, 50, 50);
+        const auto right_body = makeColor(0, 102, 204);
+        const auto right_stripe = makeColor(255, 255, 255);
 
-      auto appendCone = [&](const Cone& cone) {
-        fsai::io::camera::sim_stereo::SimConeInstance instance{};
-        instance.position =
-            {cone.position.x, cone.position.y, cone.position.z};
-        instance.base_width = cone.radius * 2.0f;
-        instance.height =
-            (cone.type == ConeType::Start) ? fsai::sim::kLargeConeHeightMeters
-                                           : fsai::sim::kSmallConeHeightMeters;
-        switch (cone.type) {
-          case ConeType::Start:
-            instance.body_color = start_body;
-            instance.stripe_color = start_stripe;
-            instance.stripe_count = 2;
-            break;
-          case ConeType::Left:
-            instance.body_color = left_body;
-            instance.stripe_color = left_stripe;
-            instance.stripe_count = 1;
-            break;
-          case ConeType::Right:
-            instance.body_color = right_body;
-            instance.stripe_color = right_stripe;
-            instance.stripe_count = 1;
-            break;
+        auto appendCone = [&](const Cone& cone) {
+          fsai::io::camera::sim_stereo::SimConeInstance instance{};
+          instance.position =
+              {cone.position.x, cone.position.y, cone.position.z};
+          instance.base_width = cone.radius * 2.0f;
+          instance.height =
+              (cone.type == ConeType::Start) ? fsai::sim::kLargeConeHeightMeters
+                                             : fsai::sim::kSmallConeHeightMeters;
+          switch (cone.type) {
+            case ConeType::Start:
+              instance.body_color = start_body;
+              instance.stripe_color = start_stripe;
+              instance.stripe_count = 2;
+              break;
+            case ConeType::Left:
+              instance.body_color = left_body;
+              instance.stripe_color = left_stripe;
+              instance.stripe_count = 1;
+              break;
+            case ConeType::Right:
+              instance.body_color = right_body;
+              instance.stripe_color = right_stripe;
+              instance.stripe_count = 1;
+              break;
+          }
+          cone_positions.push_back(instance);
+        };
+
+        for (const auto& cone : left_cones) {
+          appendCone(cone);
         }
-        cone_positions.push_back(instance);
-      };
-
-      for (const auto& cone : left_cones) {
-        appendCone(cone);
-      }
-      for (const auto& cone : right_cones) {
-        appendCone(cone);
-      }
-      for (const auto& cone : start_cones_for_render) {
-        appendCone(cone);
+        for (const auto& cone : right_cones) {
+          appendCone(cone);
+        }
+        for (const auto& cone : start_cones_for_render) {
+          appendCone(cone);
+        }
       }
       stereo_source->setCones(cone_positions);
       const FsaiStereoFrame& frame = stereo_source->capture(now_ns);
