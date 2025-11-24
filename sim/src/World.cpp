@@ -152,7 +152,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     auto [nodes, adj] = generateGraph(triangulation, getCarFront(vehicleState()), coneToSide);
     auto searchResult = beamSearch(adj, nodes, getCarFront(vehicleState()), 30, 2, 20);
     auto pathNodes = searchResult.first;
-    bestPathEdges = searchResult.second;
+    debugPacket_.controller_path = searchResult.second;
     auto checkpoints = pathNodesToCheckpoints(pathNodes);
     lookaheadIndices = Controller_GetLookaheadIndices(
         static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
@@ -162,6 +162,10 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     steering_out = Controller_GetSteeringInput(
         checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
         carSpeed, &carTransform, &racingConfig, dt);
+    if (debugPublisher_) {
+        debugPublisher_->publish(debugPacket_);
+    }
+
     return true;
 }
 
@@ -170,6 +174,13 @@ void World::setSvcuCommand(float throttle, float brake, float steer) {
     lastSvcuBrake_ = brake;
     lastSvcuSteer_ = steer;
     hasSvcuCommand_ = true;
+}
+
+void World::update_debug_detections(const std::vector<FsaiConeDet>& detections) {
+    debugPacket_.detections = detections;
+    if (debugPublisher_) {
+        debugPublisher_->publish(debugPacket_);
+    }
 }
 
 void World::setVehicleDynamics(const VehicleDynamics& vehicleDynamics) {
@@ -395,6 +406,12 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
     for (const auto& rc : track.rightCones)
         rightCones.push_back(makeCone(rc, ConeType::Right));
 
+    debugPacket_.checkpoints = checkpointPositions;
+    debugPacket_.start_cones.clear();
+    debugPacket_.left_cones.clear();
+    debugPacket_.right_cones.clear();
+    debugPacket_.detections.clear();
+
     bool isSkidpad = (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad);
 
     // =========================================================================
@@ -495,6 +512,13 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
     };
 
     rebuildConePositions();
+
+    debugPacket_.start_cones = startConePositions_;
+    debugPacket_.left_cones = leftConePositions_;
+    debugPacket_.right_cones = rightConePositions_;
+    if (debugPublisher_) {
+        debugPublisher_->publish(debugPacket_);
+    }
 
     // Rest of your original code continues here...
     if (!leftCones.empty() && !rightCones.empty()) {
@@ -717,6 +741,25 @@ void World::moveNextCheckpointToLast() {
     if (!gateSegments_.empty()) {
         std::rotate(gateSegments_.begin(), gateSegments_.begin() + 1, gateSegments_.end());
     }
+    startConePositions_.clear();
+    leftConePositions_.clear();
+    rightConePositions_.clear();
+    for (const auto& cone : startCones) {
+        startConePositions_.push_back(cone.position);
+    }
+    for (const auto& cone : leftCones) {
+        leftConePositions_.push_back(cone.position);
+    }
+    for (const auto& cone : rightCones) {
+        rightConePositions_.push_back(cone.position);
+    }
+    debugPacket_.checkpoints = checkpointPositions;
+    debugPacket_.start_cones = startConePositions_;
+    debugPacket_.left_cones = leftConePositions_;
+    debugPacket_.right_cones = rightConePositions_;
+    if (debugPublisher_) {
+        debugPublisher_->publish(debugPacket_);
+    }
 }
 
 void World::reset() {
@@ -743,6 +786,10 @@ void World::reset() {
     const float initDz = spawnState_.transform.position.z - lastCheckpoint.z;
     const float initDist = std::sqrt(initDx * initDx + initDz * initDz);
     insideLastCheckpoint_ = initDist < config.lapCompletionThreshold;
-    coneDetections.clear();
+    debugPacket_.controller_path.clear();
+    debugPacket_.detections.clear();
+    if (debugPublisher_) {
+        debugPublisher_->publish(debugPacket_);
+    }
     vehicleResetPending_ = true;
 }

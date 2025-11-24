@@ -14,6 +14,7 @@
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
 #include "sim/architecture/IWorldView.hpp"
+#include "sim/architecture/WorldDebugPacket.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/MissionRuntimeState.hpp"
 
@@ -64,8 +65,6 @@ public:
     float brakeInput{0.0f};
     int useController{1};
     int regenTrack{1};
-    std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
-    std::vector<FsaiConeDet> coneDetections {};
 
 
     const VehicleState& vehicleState() const { return vehicleDynamics().state(); }
@@ -112,12 +111,13 @@ public:
     double total_distance_meters() const override { return totalDistance; }
     double time_step_seconds() const override { return deltaTime; }
     int lap_count() const override { return lapCount; }
-    const std::vector<std::pair<Vector2, Vector2>>& best_path_edges() const override { return bestPathEdges; }
-    const std::vector<FsaiConeDet>& ground_truth_detections() const override { return coneDetections; }
     bool vehicle_reset_pending() const override { return vehicleResetPending_; }
     void acknowledge_vehicle_reset(const Transform& appliedTransform) override {
         acknowledgeVehicleReset(appliedTransform);
     }
+
+    void set_debug_publisher(fsai::world::IWorldDebugPublisher* publisher) { debugPublisher_ = publisher; }
+    void update_debug_detections(const std::vector<FsaiConeDet>& detections);
 
     void setVehicleDynamics(const VehicleDynamics& vehicleDynamics);
 
@@ -169,6 +169,9 @@ private:
 
     ControllerConfig racingConfig{};
     LookaheadIndices lookaheadIndices{};
+
+    fsai::world::IWorldDebugPublisher* debugPublisher_{nullptr};
+    fsai::world::WorldDebugPacket debugPacket_{};
 
     double totalTime{0.0};
     double deltaTime{0.0};

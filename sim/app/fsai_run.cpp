@@ -47,6 +47,7 @@
 #include "vision/detection_preview.hpp"
 #include "vision/shared_ring_buffer.hpp"
 #include "io_bus.hpp"
+#include "sim/architecture/WorldDebugPacket.hpp"
 #include "vision/detection_buffer_registry.hpp"
 #include "types.h"
 #include "World.hpp"
@@ -1449,8 +1450,8 @@ void DrawWorldScene(Graphics* graphics,
   Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
 
-    if (world.detections != nullptr) {
-      for (const auto& cone : *world.detections) {
+    if (world.debug.has_value()) {
+      for (const auto& cone : world.debug->detections) {
           // printf("\n\n cone conf %f \n\n", cone.conf);
           int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
@@ -1486,8 +1487,10 @@ void DrawWorldScene(Graphics* graphics,
   for (auto edge: triangulationEdges) {
     Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
   }
-  for (auto edge: world.best_path_edges) {
-    Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 255, 50, 50);
+  if (world.debug.has_value()) {
+    for (const auto& edge : world.debug->controller_path) {
+      Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 255, 50, 50);
+    }
   }
 }
 
@@ -1896,7 +1899,10 @@ int main(int argc, char* argv[]) {
   const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
   VehicleDynamics vehicle_dynamics(vehicle_param);
+  fsai::world::InProcessWorldDebugPublisher debug_publisher;
+  debug_publisher.set_debug_mode(true);
   World world;
+  world.set_debug_publisher(&debug_publisher);
   WorldConfig world_config{mission_definition};
   world.init(vehicle_dynamics, world_config);
   vehicle_dynamics.setState(world.vehicleSpawnState().state,
@@ -2808,12 +2814,12 @@ int main(int argc, char* argv[]) {
     }
     auto detections = detection_buffer->tryPop();
     if (detections != std::nullopt) {
-        for (int i = 0; i < detections->n; i++) {
-          world.coneDetections.push_back(detections->dets[i]);
-      }
+        std::vector<FsaiConeDet> dets(detections->dets,
+                                      detections->dets + detections->n);
+        world.update_debug_detections(dets);
     }
 
-    fsai::sim::app::GuiWorldAdapter gui_adapter(world);
+    fsai::sim::app::GuiWorldAdapter gui_adapter(world, debug_publisher.latest_packet());
     const auto world_snapshot = gui_adapter.snapshot();
     DrawWorldScene(&graphics, world_snapshot, runtime_telemetry);
     ImGui::Render();
