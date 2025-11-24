@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 #include <Eigen/Dense>
@@ -16,6 +18,8 @@
 #include "sim/architecture/IWorldView.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/MissionRuntimeState.hpp"
+#include "world/CollisionService.hpp"
+#include "world/ResetPolicy.hpp"
 
 enum class ConeType {
     Start,
@@ -40,6 +44,21 @@ struct CollisionSegment {
 
 struct WorldConfig {
     fsai::sim::MissionDefinition mission;
+    CollisionService::Config collision;
+    ResetPolicy::Config resetPolicy;
+    float vehicleCollisionRadius{0.386f};
+    float gateCollisionThreshold{1.75f};
+};
+
+struct ResetEvent {
+    enum class Reason {
+        kInvalidTrack,
+        kConeCollision,
+        kBoundaryCollision,
+    };
+
+    Reason reason{Reason::kInvalidTrack};
+    bool regenerateTrack{false};
 };
 
 class World : public fsai::world::IWorldView {
@@ -52,8 +71,14 @@ public:
     // Update simulation by dt seconds.
     void update(double dt);
 
-    // Detect collisions with checkpoints and cones. Returns false if a reset occurred.
-    bool detectCollisions(bool crossedGate);
+    // Detect collisions with checkpoints and cones. Returns a reset reason on failure.
+    std::optional<ResetEvent::Reason> detectCollisions(bool crossedGate);
+
+    std::optional<ResetEvent> consumeResetEvent() {
+        auto out = pendingResetEvent_;
+        pendingResetEvent_.reset();
+        return out;
+    }
 
     // Output telemetry information.
     void telemetry() const;
@@ -63,7 +88,6 @@ public:
     float throttleInput{0.0f};
     float brakeInput{0.0f};
     int useController{1};
-    int regenTrack{1};
     std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
     std::vector<FsaiConeDet> coneDetections {};
 
@@ -135,8 +159,10 @@ public:
 private:
     friend class WorldTestHelper;
     void moveNextCheckpointToLast();
-    void reset();
+    void reset(bool regenerateTrack);
+    void emitResetEvent(ResetEvent::Reason reason);
     void configureTrackState(const fsai::sim::TrackData& track);
+    void rebuildCollisionService();
     void initializeVehiclePose();
     fsai::sim::TrackData generateRandomTrack() const;
 
@@ -164,7 +190,7 @@ private:
     struct Config {
         float collisionThreshold{2.5f};
         float vehicleCollisionRadius{0.386f};
-        float lapCompletionThreshold{0.1f};
+        float lapCompletionThreshold{0.2f};
     } config{};
 
     ControllerConfig racingConfig{};
@@ -177,6 +203,7 @@ private:
     fsai::sim::MissionDefinition mission_{};
     fsai::sim::MissionRuntimeState missionState_{};
     bool insideLastCheckpoint_{false};
+    std::optional<ResetEvent> pendingResetEvent_{};
     struct StraightLineTracker {
         bool valid{false};
         Eigen::Vector2d origin{Eigen::Vector2d::Zero()};
@@ -188,5 +215,7 @@ private:
     void handleMissionCompletion();
     bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
     const VehicleDynamics& vehicleDynamics() const;
+    ResetPolicy resetPolicy_{};
+    std::unique_ptr<CollisionService> collisionService_{};
 };
 
