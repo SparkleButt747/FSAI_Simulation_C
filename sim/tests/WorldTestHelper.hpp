@@ -4,6 +4,7 @@
 
 #include "World.hpp"
 #include "sim/mission/MissionDefinition.hpp"
+#include "sim/src/world/TrackBuilder.hpp"
 
 class WorldTestHelper {
 public:
@@ -58,7 +59,15 @@ public:
     }
 
     static void ConfigureTrack(World& world, const fsai::sim::TrackData& track) {
-        world.configureTrackState(track);
+        TrackBuilder builder;
+        fsai::sim::MissionDefinition mission = world.mission_;
+        mission.track = track;
+        mission.trackSource = fsai::sim::TrackSource::kCsv;
+        const TrackBuildResult trackState =
+            builder.Build(mission, world.pathConfig_, world.config.vehicleCollisionRadius);
+        world.trackState_ = trackState;
+        world.mission_ = mission;
+        world.configureTrackState(trackState);
     }
 
     static void SetCollisionRadius(World& world, float radius) {

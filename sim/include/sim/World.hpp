@@ -1,6 +1,8 @@
 #pragma once
 
+#include <optional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 #include <Eigen/Dense>
 #include "types.h"
@@ -10,36 +12,22 @@
 #include "controller.prot.h"
 #include "Transform.h"
 #include "Vector.h"
-#include "PathConfig.hpp"
-#include "PathGenerator.hpp"
-#include "TrackGenerator.hpp"
+#include "sim/track/PathConfig.hpp"
+#include "sim/track/PathGenerator.hpp"
+#include "sim/track/TrackGenerator.hpp"
 #include "sim/architecture/IWorldView.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/MissionRuntimeState.hpp"
-
-enum class ConeType {
-    Start,
-    Left,
-    Right,
-};
-
-struct Cone {
-    Vector3 position{0.0f, 0.0f, 0.0f};
-    float radius{0.0f};
-    float mass{0.0f};
-    ConeType type{ConeType::Left};
-};
-
-struct CollisionSegment {
-    Vector2 start{0.0f, 0.0f};
-    Vector2 end{0.0f, 0.0f};
-    float radius{0.0f};
-    Vector2 boundsMin{0.0f, 0.0f};
-    Vector2 boundsMax{0.0f, 0.0f};
-};
+#include "sim/world/TrackState.hpp"
+#include "sim/src/world/TrackBuilder.hpp"
 
 struct WorldConfig {
     fsai::sim::MissionDefinition mission;
+    PathConfig pathConfig{};
+
+    WorldConfig() = default;
+    explicit WorldConfig(fsai::sim::MissionDefinition missionDefinition)
+        : mission(std::move(missionDefinition)) {}
 };
 
 class World : public fsai::world::IWorldView {
@@ -136,9 +124,8 @@ private:
     friend class WorldTestHelper;
     void moveNextCheckpointToLast();
     void reset();
-    void configureTrackState(const fsai::sim::TrackData& track);
+    void configureTrackState(const TrackBuildResult& trackState);
     void initializeVehiclePose();
-    fsai::sim::TrackData generateRandomTrack() const;
 
     const VehicleDynamics* vehicleDynamics_{nullptr};
     VehicleSpawnState spawnState_{};
@@ -174,6 +161,9 @@ private:
     double deltaTime{0.0};
     double totalDistance{0.0};
     int lapCount{0};
+    TrackBuilder trackBuilder_{};
+    PathConfig pathConfig_{};
+    std::optional<TrackBuildResult> trackState_{};
     fsai::sim::MissionDefinition mission_{};
     fsai::sim::MissionRuntimeState missionState_{};
     bool insideLastCheckpoint_{false};
@@ -186,6 +176,7 @@ private:
     void configureMissionRuntime();
     void updateStraightLineProgress();
     void handleMissionCompletion();
+    void rebuildTrackState();
     bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
     const VehicleDynamics& vehicleDynamics() const;
 };
