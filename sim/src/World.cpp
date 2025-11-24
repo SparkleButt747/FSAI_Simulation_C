@@ -194,9 +194,9 @@ void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worl
         throw std::runtime_error("MissionDefinition did not provide any checkpoints");
     }
 
-    this->config.collisionThreshold = 1.75f;
-    this->config.vehicleCollisionRadius = 0.5f - kSmallConeRadiusMeters;
-    this->config.lapCompletionThreshold = 0.2f;
+    this->config.collisionThreshold = worldConfig.runtime.collisionThreshold;
+    this->config.vehicleCollisionRadius = worldConfig.runtime.vehicleCollisionRadius;
+    this->config.lapCompletionThreshold = worldConfig.runtime.lapCompletionThreshold;
 
     configureTrackState(mission_.track);
     configureMissionRuntime();
@@ -209,9 +209,9 @@ void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worl
     useController = 1;
     regenTrack = mission_.allowRegeneration ? 1 : 0;
 
-    racingConfig.speedLookAheadSensitivity = 0.5f;
-    racingConfig.steeringLookAheadSensitivity = 0;
-    racingConfig.accelerationFactor = 0.0019f;
+    racingConfig.speedLookAheadSensitivity = worldConfig.runtime.speedLookAheadSensitivity;
+    racingConfig.steeringLookAheadSensitivity = worldConfig.runtime.steeringLookAheadSensitivity;
+    racingConfig.accelerationFactor = worldConfig.runtime.accelerationFactor;
 
     initializeVehiclePose();
     vehicleResetPending_ = true;

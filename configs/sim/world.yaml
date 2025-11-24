@@ -1,0 +1,7 @@
+collision_threshold: 1.75
+vehicle_collision_radius: 0.386
+lap_completion_threshold: 0.2
+controller:
+  speed_lookahead_sensitivity: 0.5
+  steering_lookahead_sensitivity: 0.0
+  acceleration_factor: 0.0019

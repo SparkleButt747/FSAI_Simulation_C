@@ -50,6 +50,7 @@
 #include "vision/detection_buffer_registry.hpp"
 #include "types.h"
 #include "World.hpp"
+#include "sim/WorldConfigLoader.hpp"
 #include "sim/cone_constants.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/mission/TrackCsvLoader.hpp"
@@ -265,6 +266,7 @@ constexpr double kBaseLatitudeDeg = 37.4275;
 constexpr double kBaseLongitudeDeg = -122.1697;
 constexpr double kMetersPerDegreeLat = 111111.0;
 constexpr const char* kDefaultSensorConfig = "configs/sim/sensors.yaml";
+constexpr const char* kDefaultWorldConfig = "configs/sim/world.yaml";
 
 
 template <size_t Capacity>
@@ -1897,7 +1899,9 @@ int main(int argc, char* argv[]) {
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
   VehicleDynamics vehicle_dynamics(vehicle_param);
   World world;
-  WorldConfig world_config{mission_definition};
+  const auto world_config_path = MakeProjectRelativePath(std::filesystem::path(kDefaultWorldConfig));
+  const WorldConfig world_config =
+      fsai::sim::WorldConfigLoader::FromFile(world_config_path.string(), mission_definition);
   world.init(vehicle_dynamics, world_config);
   vehicle_dynamics.setState(world.vehicleSpawnState().state,
                             world.vehicleSpawnState().transform);

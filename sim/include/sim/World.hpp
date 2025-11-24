@@ -38,8 +38,18 @@ struct CollisionSegment {
     Vector2 boundsMax{0.0f, 0.0f};
 };
 
+struct WorldRuntimeConfig {
+    float collisionThreshold{1.75f};
+    float vehicleCollisionRadius{0.386f};
+    float lapCompletionThreshold{0.2f};
+    float speedLookAheadSensitivity{0.5f};
+    float steeringLookAheadSensitivity{0.0f};
+    float accelerationFactor{0.0019f};
+};
+
 struct WorldConfig {
     fsai::sim::MissionDefinition mission;
+    WorldRuntimeConfig runtime{};
 };
 
 class World : public fsai::world::IWorldView {

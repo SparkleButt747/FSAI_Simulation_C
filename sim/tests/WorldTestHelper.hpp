@@ -69,6 +69,11 @@ public:
         world.insideLastCheckpoint_ = inside;
     }
 
+    static float CollisionThreshold(const World& world) { return world.config.collisionThreshold; }
+    static float VehicleCollisionRadius(const World& world) { return world.config.vehicleCollisionRadius; }
+    static float LapCompletionThreshold(const World& world) { return world.config.lapCompletionThreshold; }
+    static ControllerConfig RacingControllerConfig(const World& world) { return world.racingConfig; }
+
 private:
     static void SetVehiclePose(World& world, VehicleDynamics& dynamics, float x, float y, float z) {
         VehicleState state = dynamics.state();
