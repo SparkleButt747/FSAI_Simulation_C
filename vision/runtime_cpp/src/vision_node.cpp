@@ -182,7 +182,6 @@ void VisionNode::runProcessingLoop(){
         new_detections.n = 0; // Number of cones found
 
         // get car telem at start
-        CarState car_state = {0.0, 0.0, 0.0};
         Eigen::Vector2d vehicle_pos {0.0, 0.0};
         double car_yaw_rad = 0.0;
 
@@ -190,11 +189,6 @@ void VisionNode::runProcessingLoop(){
             std::pair<Eigen::Vector2d, double> pose = pose_provider_();
             vehicle_pos = pose.first;
             car_yaw_rad = pose.second;
-
-            // Map to Mapper struct
-            car_state.x = vehicle_pos.x();
-            car_state.y = vehicle_pos.y();
-            car_state.heading = car_yaw_rad;
         }
         // 1. Object detection logic
         auto t2 = std::chrono::high_resolution_clock::now();
@@ -265,59 +259,93 @@ void VisionNode::runProcessingLoop(){
 
         std::vector<FsaiConeDet> raw_global_cones;
 
-        for(const auto& cone:matched_features){
-            //iterate over each feature for every cone
-            ConeCluster cluster;
-            cluster.coneId = cone.cone_index;
-            cluster.side = cone.side;
-            for(const auto& feat: cone.matches ){
-                //determine depth for each match and update cone cluster
+        for(const auto& cone : matched_features){
+            
+            // 1. Accumulate 3D points
+            std::vector<Eigen::Vector3d> points;
+            for(const auto& feat : cone.matches){
                 Eigen::Vector3d res;
-                if(triangulatePoint(feat,res)){
-                    cluster.points.push_back(res);
+                if(triangulatePoint(feat, res)){
+                    // Filter out bad depths immediately
+                    // Ignore points behind camera or too close (< 0.5m) or too far (> 20m)
+                    if(res.z() > 0.5 && res.z() < 20.0) {
+                        points.push_back(res);
+                    }
                 }
             }
-            if(!cluster.points.empty()){
-                // refactored to run the centroid recovery here to save space
-                // find 2d centre coord and add to intermittent vector
-                Eigen::Vector2d center = Centroid::centroid_linear(cluster.points);
-                if(!center.isZero()){
-                    cluster.centre = center;
-                    FsaiConeDet glob_det;
-                    // 3. CONVERT Camera Frame (Z-forward, X-right) to Vehicle Frame (X-forward, Y-left)
-                    Eigen::Vector2d vehicle_pos;
-                    vehicle_pos.x() = cluster.centre.y();  // Forward
-                    vehicle_pos.y() = -cluster.centre.x(); // Left (negative right)
 
-                    // Apply Global Transform
-                    Eigen::Vector2d global_pos = car_to_global * vehicle_pos;
-                    glob_det.x = global_pos.x();
-                    glob_det.y = global_pos.y();
-                    glob_det.z = 0.0f;
-                    glob_det.side = cluster.side;
-                    glob_det.conf =0.8f;
-                    raw_global_cones.push_back(glob_det);
+            if(!points.empty()){
+                // 2. Explicit Centroid Calculation (Avoids Y/Z confusion)
+                // We only care about X (Lateral) and Z (Depth)
+                double sum_x = 0.0;
+                double sum_z = 0.0;
+                
+                for(const auto& p : points) {
+                    sum_x += p.x();
+                    sum_z += p.z();
                 }
+                
+                double avg_x = sum_x / points.size(); // Average Lateral (Camera Right)
+                double avg_z = sum_z / points.size(); // Average Depth (Camera Forward)
+
+                // 3. Coordinate Transformation
+                // Camera Frame: X=Right, Y=Down, Z=Forward
+                // Vehicle Frame: X=Forward, Y=Left, Z=Up
+                
+                Eigen::Vector2d vehicle_local_pos;
+                vehicle_local_pos.x() = avg_z;   // Camera Forward (Z) -> Vehicle Forward (X)
+                vehicle_local_pos.y() = -avg_x;  // Camera Right (X)   -> Vehicle Left (Y) (Note the negative)
+
+                // SANITY CHECK: Ignore cones that resolved to be "behind" the car
+                // This handles edge cases where calibration noise produces negative Z
+                if (vehicle_local_pos.x() <= 0.1) continue; 
+
+                // 4. Global Transform
+                Eigen::Vector2d global_pos = car_to_global * vehicle_local_pos;
+                
+                FsaiConeDet glob_det;
+                glob_det.x = global_pos.x();
+                glob_det.z = global_pos.y(); // Map Global Y -> Struct Z
+                glob_det.y = 0.0f;           // Elevation
+                
+                glob_det.side = cone.side;
+                
+                // --- Confidence Calculation ---
+                // Heuristic: Confidence drops with distance
+                // Base 0.9, minus 0.02 for every meter away
+                float dist_penalty = 0.02f * (float)avg_z;
+                glob_det.conf = std::max(0.1f, 0.9f - dist_penalty);
+
+                raw_global_cones.push_back(glob_det);
+                
+                // [Optional Debugging]
+                // std::cout << "Cone Local: " << vehicle_local_pos.x() << "m Fwd, " 
+                //           << vehicle_local_pos.y() << "m Left" << std::endl;
             }
         }
-        //update the covariances
-        mapper_.updateMap(raw_global_cones, car_state);
-        //compute new map
-        std::vector<fsai::vision::MapCone> validated_map = mapper_.getValidatedMap();
 
-        for(const auto& map_cone : validated_map){
-            if(new_detections.n >= 100) break; // Safety check for buffer size
+        // 7. Map Update
+        mapper_.update(raw_global_cones, vehicle_pos);
 
-            FsaiConeDet out_det;
-            out_det.x = static_cast<float>(map_cone.x);
-            out_det.y = static_cast<float>(map_cone.y);
-            out_det.z = 0.0f;
-            out_det.side = map_cone.side;
-            out_det.conf = static_cast<float>(map_cone.trust_score); // Or normalize this
+        // 7. Serialize Output
+        fsai::types::Detections out_msg{};
+        out_msg.t_ns = handle_opt->frame.t_sync_ns;
+        out_msg.n = 0;
 
-            new_detections.dets[new_detections.n] = out_det;
-            new_detections.n++;
+        for(const auto& c : mapper_.cones){
+            if(out_msg.n >= 100) break;
+            
+            FsaiConeDet d;
+            d.x = c.x;
+            d.y = c.y; // Map Y -> Output Z
+            d.z = 0.0f;
+            d.side = static_cast<FsaiConeSide>(c.side);
+            d.conf = c.conf; 
+
+            out_msg.dets[out_msg.n] = d;
+            out_msg.n++;
         }
+        detection_buffer_->push(out_msg);
         auto t_end = std::chrono::high_resolution_clock::now();
         auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count();
         fsai::sim::log::LogInfo("[VISION]: MAPPED " + std::to_string(new_detections.n) + " CONES IN " + std::to_string(duration_ms) + " ms");

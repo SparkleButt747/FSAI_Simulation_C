@@ -6,7 +6,7 @@
 #include "detect.hpp"
 #include "features.hpp"
 #include "shared_ring_buffer.hpp"
-#include "bayesian_mapper.hpp"
+#include "mapper.hpp"
 
 #include <atomic>
 #include <memory>
@@ -108,7 +108,7 @@ class VisionNode{
     std::shared_ptr<DetectionsRingBuffer> detection_buffer_;
 
     //Bayesian mapping
-    BayesianMapper mapper_;
+    SimpleMap mapper_;
 };
 }
 }
