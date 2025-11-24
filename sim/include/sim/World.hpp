@@ -167,25 +167,17 @@ private:
     ControllerConfig racingConfig{};
     LookaheadIndices lookaheadIndices{};
 
-    double totalTime{0.0};
     double deltaTime{0.0};
-    double totalDistance{0.0};
     int lapCount{0};
     TrackBuilder trackBuilder_{};
     PathConfig pathConfig_{};
     std::optional<TrackBuildResult> trackState_{};
     fsai::sim::MissionDefinition mission_{};
     fsai::sim::MissionRuntimeState missionState_{};
-    bool insideLastCheckpoint_{false};
-    struct StraightLineTracker {
-        bool valid{false};
-        Eigen::Vector2d origin{Eigen::Vector2d::Zero()};
-        Eigen::Vector2d direction{Eigen::Vector2d::UnitX()};
-        double length{0.0};
-    } straightTracker_{};
+    fsai::sim::WorldRuntime runtime_{missionState_};
+    std::function<void()> onResetRequested_{};
+    std::function<void()> onMissionComplete_{};
     void configureMissionRuntime();
-    void updateStraightLineProgress();
-    void handleMissionCompletion();
     bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
     const VehicleDynamics& vehicleDynamics() const;
     template <typename T>
