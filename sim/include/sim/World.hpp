@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <stdexcept>
 #include <vector>
 #include <Eigen/Dense>
@@ -16,6 +17,7 @@
 #include "sim/architecture/IWorldView.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/MissionRuntimeState.hpp"
+#include "sim/WorldRuntime.hpp"
 
 enum class ConeType {
     Start,
@@ -82,8 +84,8 @@ public:
     const std::vector<Vector3>& getRightConePositions() const { return rightConePositions_; }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
     const WheelsInfo& wheelsInfo() const { return vehicleDynamics().wheels_info(); }
-    double lapTimeSeconds() const { return totalTime; }
-    double totalDistanceMeters() const { return totalDistance; }
+    double lapTimeSeconds() const { return runtime_.lap_time_seconds(); }
+    double totalDistanceMeters() const { return runtime_.lap_distance_meters(); }
     double timeStepSeconds() const { return deltaTime; }
     int completedLaps() const { return lapCount; }
     double missionElapsedSeconds() const { return missionState_.mission_time_seconds(); }
@@ -118,6 +120,9 @@ public:
     void acknowledge_vehicle_reset(const Transform& appliedTransform) override {
         acknowledgeVehicleReset(appliedTransform);
     }
+
+    void set_on_reset_requested(std::function<void()> callback) { onResetRequested_ = std::move(callback); }
+    void set_on_mission_complete(std::function<void()> callback) { onMissionComplete_ = std::move(callback); }
 
     void setVehicleDynamics(const VehicleDynamics& vehicleDynamics);
 
@@ -161,31 +166,19 @@ private:
     float lastSvcuBrake_{0.0f};
     float lastSvcuSteer_{0.0f};
 
-    struct Config {
-        float collisionThreshold{2.5f};
-        float vehicleCollisionRadius{0.386f};
-        float lapCompletionThreshold{0.1f};
-    } config{};
+    fsai::sim::WorldRuntimeConfig runtimeConfig_{};
 
     ControllerConfig racingConfig{};
     LookaheadIndices lookaheadIndices{};
 
-    double totalTime{0.0};
     double deltaTime{0.0};
-    double totalDistance{0.0};
     int lapCount{0};
     fsai::sim::MissionDefinition mission_{};
     fsai::sim::MissionRuntimeState missionState_{};
-    bool insideLastCheckpoint_{false};
-    struct StraightLineTracker {
-        bool valid{false};
-        Eigen::Vector2d origin{Eigen::Vector2d::Zero()};
-        Eigen::Vector2d direction{Eigen::Vector2d::UnitX()};
-        double length{0.0};
-    } straightTracker_{};
+    fsai::sim::WorldRuntime runtime_{missionState_};
+    std::function<void()> onResetRequested_{};
+    std::function<void()> onMissionComplete_{};
     void configureMissionRuntime();
-    void updateStraightLineProgress();
-    void handleMissionCompletion();
     bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
     const VehicleDynamics& vehicleDynamics() const;
 };
