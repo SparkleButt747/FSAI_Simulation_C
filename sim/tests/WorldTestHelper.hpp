@@ -3,8 +3,8 @@
 #include <Eigen/Dense>
 
 #include "World.hpp"
-#include "sim/mission/MissionDefinition.hpp"
-#include "sim/src/world/TrackBuilder.hpp"
+#include "MissionDefinition.hpp"
+#include "TrackBuilder.hpp"
 
 class WorldTestHelper {
 public:

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sim/mission/MissionDefinition.hpp"
+#include "MissionDefinition.hpp"
 
 namespace fsai::world::tracks {
 

@@ -12,14 +12,14 @@
 #include "controller.prot.h"
 #include "Transform.h"
 #include "Vector.h"
-#include "sim/track/PathConfig.hpp"
-#include "sim/track/PathGenerator.hpp"
-#include "sim/track/TrackGenerator.hpp"
-#include "sim/architecture/IWorldView.hpp"
-#include "sim/mission/MissionDefinition.hpp"
-#include "sim/MissionRuntimeState.hpp"
-#include "sim/world/TrackState.hpp"
-#include "sim/src/world/TrackBuilder.hpp"
+#include "PathConfig.hpp"
+#include "PathGenerator.hpp"
+#include "TrackGenerator.hpp"
+#include "IWorldView.hpp"
+#include "MissionDefinition.hpp"
+#include "MissionRuntimeState.hpp"
+#include "TrackState.hpp"
+#include "TrackBuilder.hpp"
 
 struct WorldConfig {
     fsai::sim::MissionDefinition mission;

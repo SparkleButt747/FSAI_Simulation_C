@@ -1,13 +1,13 @@
-#include "sim/src/world/TrackBuilder.hpp"
+#include "TrackBuilder.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
 #include "sim/cone_constants.hpp"
-#include "sim/src/world/tracks/SkidpadTrackStrategy.hpp"
-#include "sim/track/PathGenerator.hpp"
-#include "sim/track/TrackGenerator.hpp"
+#include "SkidpadTrackStrategy.hpp"
+#include "PathGenerator.hpp"
+#include "TrackGenerator.hpp"
 
 namespace {
 

@@ -1,4 +1,4 @@
-#include "sim/src/world/tracks/SkidpadTrackStrategy.hpp"
+#include "SkidpadTrackStrategy.hpp"
 
 #include <algorithm>
 #include <cmath>
