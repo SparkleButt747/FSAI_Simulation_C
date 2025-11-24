@@ -50,6 +50,7 @@
 #include "vision/detection_buffer_registry.hpp"
 #include "types.h"
 #include "World.hpp"
+#include "VehicleDynamics.hpp"
 #include "sim/cone_constants.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/mission/TrackCsvLoader.hpp"
@@ -1902,10 +1903,46 @@ int main(int argc, char* argv[]) {
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
   VehicleDynamics vehicle_dynamics(vehicle_param);
   World world;
-  world.init(vehicle_dynamics, world_config);
-  vehicle_dynamics.setState(world.vehicleSpawnState().state,
-                            world.vehicleSpawnState().transform);
-  world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
+  bool mission_finished = false;
+  const auto describe_reset_reason = [](fsai::sim::WorldRuntime::ResetReason reason)
+      -> const char* {
+    switch (reason) {
+      case fsai::sim::WorldRuntime::ResetReason::kConeCollision:
+        return "cone collision";
+      case fsai::sim::WorldRuntime::ResetReason::kBoundaryCollision:
+        return "boundary collision";
+      case fsai::sim::WorldRuntime::ResetReason::kTrackRegeneration:
+        return "track regeneration";
+      case fsai::sim::WorldRuntime::ResetReason::kExternal:
+        return "external reset";
+      case fsai::sim::WorldRuntime::ResetReason::kUnknown:
+      default:
+        return "unknown";
+    }
+  };
+  world.runtime_controller().AddResetListener(
+      [describe_reset_reason](const fsai::sim::WorldRuntime::ResetEvent& evt) {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                             "World reset requested (%s)",
+                             describe_reset_reason(evt.reason));
+      });
+  world.runtime_controller().AddMissionCompleteListener(
+      [&mission_finished](const fsai::sim::MissionRuntimeState& state) {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                             "Mission '%s' complete after %.2f s (%zu/%zu laps)",
+                             state.mission().descriptor.name.c_str(),
+                             state.mission_time_seconds(),
+                             state.completed_laps(), state.target_laps());
+        mission_finished = true;
+      });
+  WorldVehicleContext world_vehicle_ctx{};
+  world_vehicle_ctx.dynamics = &vehicle_dynamics;
+  world_vehicle_ctx.reset_handler =
+      [&world, &vehicle_dynamics](const WorldVehicleSpawn& spawn) {
+        vehicle_dynamics.setState(spawn.state, spawn.transform);
+        world.acknowledgeVehicleReset(spawn.transform);
+      };
+  world.init(world_vehicle_ctx, world_config);
 
   Graphics graphics{};
   if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,
@@ -2199,7 +2236,7 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    const VehicleState& veh_state = world.vehicleState();
+    const VehicleState& veh_state = world.vehicle_state();
     const double vx = veh_state.velocity.x();
     const double vy = veh_state.velocity.y();
     const float speed_mps = static_cast<float>(std::sqrt(vx * vx + vy * vy));
@@ -2303,7 +2340,6 @@ int main(int argc, char* argv[]) {
 
     can_interface.Poll(now_ns);
 
-    world.setSvcuCommand(appliedThrottle, appliedBrake, appliedSteer);
     world.throttleInput = appliedThrottle;
     world.brakeInput = appliedBrake;
     world.steeringAngle = appliedSteer;
@@ -2315,18 +2351,13 @@ int main(int argc, char* argv[]) {
       fsai::time::ControlStageTimer control_timer("world_update");
       world.update(step_seconds);
     }
-    if (world.vehicleResetPending()) {
-      vehicle_dynamics.setState(world.vehicleSpawnState().state,
-                                world.vehicleSpawnState().transform);
-      world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
-    }
     const double sim_time_s = fsai_clock_to_seconds(now_ns);
 
-    const auto& vehicle_state = world.vehicleState();
-    const auto& model = world.model();
+    const auto& vehicle_state = world.vehicle_state();
+    const auto& model = vehicle_dynamics.model();
     const auto& pt_status = model.lastPowertrainStatus();
     const auto& brake_status = model.lastBrakeStatus();
-    const WheelsInfo& wheel_info = world.wheelsInfo();
+    const WheelsInfo& wheel_info = world.wheels_info();
     const double wheel_radius = std::max(0.01, model.param().tire.radius);
     const double front_drive_force = pt_status.front_drive_force - pt_status.front_regen_force;
     const double rear_drive_force = pt_status.rear_drive_force - pt_status.rear_regen_force;
@@ -2736,11 +2767,11 @@ int main(int argc, char* argv[]) {
     telemetry.status_flags = static_cast<uint8_t>(world.useController ? 0x3 : 0x1);
     io_bus->publish_telemetry(telemetry);
 
-    logger.logState(sim_time_s, world.vehicleState());
+    logger.logState(sim_time_s, world.vehicle_state());
     logger.logControl(sim_time_s, world.throttleInput, world.steeringAngle);
 
     if (stereo_source) {
-      const auto& transform = world.vehicleTransform();
+      const auto& transform = world.vehicle_transform();
       stereo_source->setBodyPose(transform.position.x, transform.position.y,
                                  transform.position.z, transform.yaw);
 
@@ -2830,6 +2861,11 @@ int main(int argc, char* argv[]) {
     SDL_Delay(static_cast<Uint32>(step_seconds * 1000.0));
 
     frame_counter++;
+    if (mission_finished) {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                           "Mission completion acknowledged; exiting runtime loop");
+      running = false;
+    }
   }
   if (vision_node) {
     vision_node->stop();

@@ -1,0 +1,97 @@
+#pragma once
+
+#include <functional>
+#include <optional>
+#include <vector>
+
+#include <Eigen/Dense>
+
+#include "MissionDefinition.hpp"
+#include "MissionRuntimeState.hpp"
+#include "Transform.h"
+#include "Vector.h"
+
+namespace fsai::sim {
+
+class WorldRuntime {
+ public:
+  enum class ResetReason {
+    kConeCollision,
+    kBoundaryCollision,
+    kTrackRegeneration,
+    kExternal,
+    kUnknown,
+  };
+
+  struct ResetEvent {
+    ResetReason reason{ResetReason::kUnknown};
+  };
+
+  struct Config {
+    float lap_completion_threshold{0.1f};
+  };
+
+  struct LapEvent {
+    double lap_time_s{0.0};
+    double lap_distance_m{0.0};
+    int lap_index{0};
+  };
+
+  using ResetCallback = std::function<void(const ResetEvent&)>;
+  using MissionCompleteCallback =
+      std::function<void(const MissionRuntimeState&)>;
+
+  WorldRuntime() = default;
+
+  void Configure(const MissionDefinition& mission, const Config& config);
+  void UpdateTrackContext(const std::vector<Vector3>& checkpoints);
+  void NotifySpawnApplied(const Transform& transform);
+  void BeginStep(double dt_seconds);
+  void AccumulateDistance(double delta_distance_m);
+  std::optional<LapEvent> EvaluateLapTransition(const Transform& transform);
+  void UpdateStraightLineProgress(const Transform& transform);
+  void HandleMissionCompletion();
+
+  void ResetMission();
+
+  void AddResetListener(ResetCallback callback);
+  void AddMissionCompleteListener(MissionCompleteCallback callback);
+  void EmitResetEvent(ResetReason reason);
+
+  const MissionRuntimeState& mission_state() const { return mission_state_; }
+  double lap_time_seconds() const { return lap_time_s_; }
+  double lap_distance_meters() const { return lap_distance_m_; }
+  double time_step_seconds() const { return delta_time_s_; }
+  int lap_count() const { return lap_count_; }
+
+ private:
+  void ConfigureStraightLineTracker();
+  float DistanceToLastCheckpoint(const Transform& transform) const;
+
+  MissionDefinition mission_{};
+  MissionRuntimeState mission_state_{};
+  Config config_{};
+
+  std::vector<Vector3> checkpoints_snapshot_{};
+  Vector3 last_checkpoint_{0.0f, 0.0f, 0.0f};
+
+  double lap_time_s_{0.0};
+  double lap_distance_m_{0.0};
+  double delta_time_s_{0.0};
+  int lap_count_{0};
+  bool inside_last_checkpoint_{false};
+  bool mission_complete_notified_{false};
+
+  struct StraightLineTracker {
+    bool valid{false};
+    Eigen::Vector2d origin{Eigen::Vector2d::Zero()};
+    Eigen::Vector2d direction{Eigen::Vector2d::UnitX()};
+    double length{0.0};
+  } straight_tracker_{};
+
+  std::vector<ResetCallback> reset_listeners_{};
+  std::vector<MissionCompleteCallback> mission_complete_listeners_{};
+};
+
+}  // namespace fsai::sim
+
