@@ -1,7 +1,42 @@
 collision_threshold: 1.75
 vehicle_collision_radius: 0.386
 lap_completion_threshold: 0.2
+# Rendering configuration for simulator visuals and stereo output.
+graphics:
+  enabled: true
+  width: 800
+  height: 600
+  edge_preview: true
+  detection_preview: true
+
+simstereo:
+  enabled: true
+  width: 640
+  height: 480
+  display: false
+
+test_mode: false
+debug:
+  debug_mode: true
+  public_ground_truth: true
+
+rendering:
+  show_cones: true
+  show_checkpoints: true
+  show_paths: true
+
+physics:
+  gate_collision_threshold: 1.75
+  vehicle_collision_radius: 0.386
+  lap_completion_threshold: 0.2
+
 controller:
   speed_lookahead_sensitivity: 0.5
   steering_lookahead_sensitivity: 0.0
   acceleration_factor: 0.0019
+
+mission:
+  selected: autocross
+  target_laps: 10
+  allow_regeneration: true
+  track_source: random

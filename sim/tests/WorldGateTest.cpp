@@ -5,7 +5,7 @@
 TEST(WorldGateTest, AdvancesCheckpointOnCrossing) {
     World world;
     VehicleDynamics dynamics;
-    world.setVehicleDynamics(dynamics);
+    world.setVehicleContext(WorldTestHelper::MakeContext(dynamics));
     WorldTestHelper::ConfigureSimpleGate(world);
     const auto initial = WorldTestHelper::Checkpoints(world);
 
@@ -26,7 +26,7 @@ TEST(WorldGateTest, AdvancesCheckpointOnCrossing) {
 TEST(WorldGateTest, GateIgnoresNonCrossingMotion) {
     World world;
     VehicleDynamics dynamics;
-    world.setVehicleDynamics(dynamics);
+    world.setVehicleContext(WorldTestHelper::MakeContext(dynamics));
     WorldTestHelper::ConfigureSimpleGate(world);
     const auto initial = WorldTestHelper::Checkpoints(world);
 

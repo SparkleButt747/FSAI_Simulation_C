@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <utility>
 #include <vector>
 
 #include "MissionRuntimeState.hpp"
@@ -33,7 +32,6 @@ class IWorldView {
   virtual const std::vector<Vector3>& left_cones() const = 0;
   virtual const std::vector<Vector3>& right_cones() const = 0;
   virtual const LookaheadIndices& lookahead_indices() const = 0;
-  virtual const std::vector<std::pair<Vector2, Vector2>>& best_path_edges() const = 0;
 
   // --- Mission/runtime bookkeeping ---
   virtual const fsai::sim::MissionRuntimeState& mission_runtime() const = 0;
@@ -41,9 +39,6 @@ class IWorldView {
   virtual double total_distance_meters() const = 0;
   virtual double time_step_seconds() const = 0;
   virtual int lap_count() const = 0;
-
-  // --- Sensor/vision ground truth ---
-  virtual const std::vector<FsaiConeDet>& ground_truth_detections() const = 0;
 
   // --- Lifecycle helpers for consumers holding stale state ---
   virtual bool vehicle_reset_pending() const = 0;
