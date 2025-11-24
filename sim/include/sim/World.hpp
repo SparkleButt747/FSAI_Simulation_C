@@ -75,18 +75,36 @@ public:
     const VehicleState& vehicle_state() const override { return vehicleDynamics().state(); }
     const Transform& vehicle_transform() const override { return vehicleDynamics().transform(); }
     const WheelsInfo& wheels_info() const override { return vehicleDynamics().wheels_info(); }
-    const std::vector<Vector3>& checkpoint_positions() const override { return checkpointPositions; }
-    const std::vector<Vector3>& start_cones() const override { return startConePositions_; }
-    const std::vector<Vector3>& left_cones() const override { return leftConePositions_; }
-    const std::vector<Vector3>& right_cones() const override { return rightConePositions_; }
+    const std::vector<Vector3>& checkpoint_positions() const override {
+        enforcePublicGroundTruth("checkpoint positions");
+        return checkpointPositions;
+    }
+    const std::vector<Vector3>& start_cones() const override {
+        enforcePublicGroundTruth("start cones");
+        return startConePositions_;
+    }
+    const std::vector<Vector3>& left_cones() const override {
+        enforcePublicGroundTruth("left cones");
+        return leftConePositions_;
+    }
+    const std::vector<Vector3>& right_cones() const override {
+        enforcePublicGroundTruth("right cones");
+        return rightConePositions_;
+    }
     const LookaheadIndices& lookahead_indices() const override { return lookaheadIndices; }
     const fsai::sim::MissionRuntimeState& mission_runtime() const override { return missionState_; }
     double lap_time_seconds() const override { return totalTime; }
     double total_distance_meters() const override { return totalDistance; }
     double time_step_seconds() const override { return deltaTime; }
     int lap_count() const override { return lapCount; }
-    const std::vector<std::pair<Vector2, Vector2>>& best_path_edges() const override { return bestPathEdges; }
-    const std::vector<FsaiConeDet>& ground_truth_detections() const override { return coneDetections; }
+    const std::vector<std::pair<Vector2, Vector2>>& best_path_edges() const override {
+        enforcePublicGroundTruth("best path edges");
+        return bestPathEdges;
+    }
+    const std::vector<FsaiConeDet>& ground_truth_detections() const override {
+        enforcePublicGroundTruth("ground truth detections");
+        return coneDetections;
+    }
     bool vehicle_reset_pending() const override { return vehicleResetPending_; }
     void acknowledge_vehicle_reset(const Transform& appliedTransform) override {
         acknowledgeVehicleReset(appliedTransform);
