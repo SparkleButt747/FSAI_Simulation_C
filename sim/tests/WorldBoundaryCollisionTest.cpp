@@ -17,7 +17,7 @@ Transform MakeTransform(float x, float z) {
 TEST(WorldBoundaryCollisionTest, LeftBoundaryTriggersReset) {
     World world;
     VehicleDynamics dynamics;
-    world.setVehicleDynamics(dynamics);
+    world.setVehicleContext(WorldTestHelper::MakeContext(dynamics));
 
     fsai::sim::TrackData track;
     track.leftCones.push_back(MakeTransform(-1.0f, 0.0f));
