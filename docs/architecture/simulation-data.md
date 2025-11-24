@@ -9,13 +9,13 @@
 | Vehicle dynamics | `DynamicBicycle::updateState`, wheel-speed helpers | Vehicle dynamics model | `World` for inputs, mission state for timing | GUI/logging | `World::update` pushes sanitized inputs into the bicycle model, captures wheel speeds, and accumulates distance/time.【F:sim/src/World.cpp†L217-L283】
 | Collision detection | `detectCollisions`, gate/boundary segment builders | `World` | Track config | GUI/control | Detects gate crossings, lap completions, cone/boundary hits; may trigger resets or lap increments.【F:sim/src/World.cpp†L285-L386】
 | Control decisions | `computeRacingControl` (path search + controller) | Control module | `World` geometry and state | GUI/logging | Generates throttle/steer based on visible cones and checkpoints; feeds lookahead indices and best-path edges for visualization.【F:sim/src/World.cpp†L138-L164】
-| External control ingress | `setSvcuCommand`, public control fields | `World` | S-VCU UDP/CAN shim | Control/GUI | Stores latest S-VCU command so `World::update` can apply it when missions are running.【F:sim/src/World.cpp†L166-L215】
+| External control ingress | Per-frame `World::update` command input, public control fields | `World` | S-VCU UDP/CAN shim | Control/GUI | IO/control surfaces sanitize S-VCU inputs before invoking `World::update` with the neutral command for the current frame.【F:sim/src/World.cpp†L192-L274】
 | Telemetry emission | `telemetry` (to `Telemetry_Update`) | Telemetry layer | `World` state | GUI/logging | Pushes authoritative physics/mission state each frame.【F:sim/src/World.cpp†L383-L386】
 
 ## Public getters consumed by GUI/control (`sim/app/fsai_run.cpp`)
 
 * Rendering pulls cones, checkpoints, lookahead indices, vehicle pose, and detection overlays directly from the `World` getters for draw calls.【F:sim/app/fsai_run.cpp†L1322-L1465】
-* Control loop reads and optionally overrides `World` control fields (`throttleInput`, `brakeInput`, `steeringAngle`), invokes `computeRacingControl`, and applies `setSvcuCommand` for S-VCU handoff.【F:sim/app/fsai_run.cpp†L2057-L2187】
+* Control loop reads and optionally overrides `World` control fields (`throttleInput`, `brakeInput`, `steeringAngle`), invokes `computeRacingControl`, and forwards sanitized inputs through `World::update` for runtime state progression.【F:sim/app/fsai_run.cpp†L2138-L2340】
 * Runtime telemetry populates GUI/control panels using `World` getters for lap timing, distance, mission progress, and mission descriptors.【F:sim/app/fsai_run.cpp†L2247-L2291】
 
 ## S-VCU telemetry paths (ground truth vs. noisy sensors)

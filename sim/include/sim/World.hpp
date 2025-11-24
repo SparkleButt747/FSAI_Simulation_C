@@ -1,11 +1,12 @@
 #pragma once
 
+#include <functional>
 #include <stdexcept>
 #include <vector>
 #include <Eigen/Dense>
 #include "types.h"
 #include "VehicleState.hpp"
-#include "sim/vehicle/VehicleDynamics.hpp"
+#include "sim/architecture/IVehicleDynamics.hpp"
 #include "Telemetry.hpp"
 #include "controller.prot.h"
 #include "Transform.h"
@@ -16,6 +17,7 @@
 #include "sim/architecture/IWorldView.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/MissionRuntimeState.hpp"
+#include "sim/vehicle/DynamicBicycle.hpp"
 
 enum class ConeType {
     Start,
@@ -42,15 +44,29 @@ struct WorldConfig {
     fsai::sim::MissionDefinition mission;
 };
 
+struct VehicleSpawnState {
+    VehicleState state{Eigen::Vector3d::Zero(), 0.0,
+                       Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+                       Eigen::Vector3d::Zero()};
+    Transform transform{};
+};
+
+struct WorldVehicleContext {
+    fsai::vehicle::IVehicleDynamics* dynamics{nullptr};
+    const DynamicBicycle* dynamics_model{nullptr};
+    std::function<void(const VehicleSpawnState&)> reset_vehicle{};
+};
+
 class World : public fsai::world::IWorldView {
 public:
     World() = default;
 
     // Initialize the world with vehicle parameters and generate track.
-    void init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worldConfig);
+    void init(const WorldVehicleContext& vehicleContext, const WorldConfig& worldConfig);
+    void setVehicleContext(const WorldVehicleContext& vehicleContext);
 
     // Update simulation by dt seconds.
-    void update(double dt);
+    void update(double dt, const fsai::types::ControlCmd& command);
 
     // Detect collisions with checkpoints and cones. Returns false if a reset occurred.
     bool detectCollisions(bool crossedGate);
@@ -67,9 +83,6 @@ public:
     std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
     std::vector<FsaiConeDet> coneDetections {};
 
-
-    const VehicleState& vehicleState() const { return vehicleDynamics().state(); }
-    const Transform& vehicleTransform() const { return vehicleDynamics().transform(); }
     const std::vector<Vector3>& checkpointPositionsWorld() const {
         return checkpointPositions;
     }
@@ -81,7 +94,6 @@ public:
     const std::vector<Vector3>& getLeftConePositions() const { return leftConePositions_; }
     const std::vector<Vector3>& getRightConePositions() const { return rightConePositions_; }
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
-    const WheelsInfo& wheelsInfo() const { return vehicleDynamics().wheels_info(); }
     double lapTimeSeconds() const { return totalTime; }
     double totalDistanceMeters() const { return totalDistance; }
     double timeStepSeconds() const { return deltaTime; }
@@ -92,9 +104,7 @@ public:
     const fsai::sim::MissionRuntimeState& missionRuntime() const { return missionState_; }
 
     bool computeRacingControl(double dt, float& throttle_out, float& steering_out);
-    void setSvcuCommand(float throttle, float brake, float steer);
-    bool hasSvcuCommand() const { return hasSvcuCommand_; }
-    const DynamicBicycle& model() const { return vehicleDynamics().model(); }
+    const DynamicBicycle& model() const;
 
     const fsai::sim::MissionDefinition& mission() const { return mission_; }
 
@@ -119,17 +129,7 @@ public:
         acknowledgeVehicleReset(appliedTransform);
     }
 
-    void setVehicleDynamics(const VehicleDynamics& vehicleDynamics);
-
-    struct VehicleSpawnState {
-        VehicleState state{Eigen::Vector3d::Zero(), 0.0,
-                           Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                           Eigen::Vector3d::Zero()};
-        Transform transform{};
-    };
-
     const VehicleSpawnState& vehicleSpawnState() const { return spawnState_; }
-    bool vehicleResetPending() const { return vehicleResetPending_; }
     void acknowledgeVehicleReset(const Transform& appliedTransform);
 
 private:
@@ -138,9 +138,12 @@ private:
     void reset();
     void configureTrackState(const fsai::sim::TrackData& track);
     void initializeVehiclePose();
+    void applyVehicleSpawn();
     fsai::sim::TrackData generateRandomTrack() const;
 
-    const VehicleDynamics* vehicleDynamics_{nullptr};
+    fsai::vehicle::IVehicleDynamics* vehicleDynamics_{nullptr};
+    const DynamicBicycle* dynamicsModel_{nullptr};
+    std::function<void(const VehicleSpawnState&)> resetVehicle_{};
     VehicleSpawnState spawnState_{};
     bool vehicleResetPending_{false};
     Vector2 prevCarPos_{0.0f, 0.0f};
@@ -155,11 +158,6 @@ private:
     std::vector<CollisionSegment> gateSegments_{};
     std::vector<CollisionSegment> boundarySegments_{};
     Vector3 lastCheckpoint{0.0f, 0.0f, 0.0f};
-
-    bool hasSvcuCommand_{false};
-    float lastSvcuThrottle_{0.0f};
-    float lastSvcuBrake_{0.0f};
-    float lastSvcuSteer_{0.0f};
 
     struct Config {
         float collisionThreshold{2.5f};
@@ -187,6 +185,7 @@ private:
     void updateStraightLineProgress();
     void handleMissionCompletion();
     bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
-    const VehicleDynamics& vehicleDynamics() const;
-};
+    const fsai::vehicle::IVehicleDynamics& vehicleDynamics() const;
+    const DynamicBicycle& vehicleModel() const;
+}; 
 

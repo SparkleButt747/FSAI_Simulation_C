@@ -9,6 +9,7 @@
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
+#include "sim/vehicle/VehicleDynamics.hpp"
 #include "centerline.hpp"
 
 namespace {
@@ -147,10 +148,10 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     const float carSpeed = Vector3_Magnitude(carVelocity);
     const Transform& carTransform = vehicleDynamics().transform();
 
-    auto triangulation = getVisibleTriangulationEdges(vehicleState(), getLeftCones(), getRightCones()).first;
-    auto coneToSide = getVisibleTrackTriangulationFromCones(getCarFront(vehicleState()), vehicleState().yaw, getLeftCones(), getRightCones()).second;
-    auto [nodes, adj] = generateGraph(triangulation, getCarFront(vehicleState()), coneToSide);
-    auto searchResult = beamSearch(adj, nodes, getCarFront(vehicleState()), 30, 2, 20);
+    auto triangulation = getVisibleTriangulationEdges(vehicle_state(), getLeftCones(), getRightCones()).first;
+    auto coneToSide = getVisibleTrackTriangulationFromCones(getCarFront(vehicle_state()), vehicle_state().yaw, getLeftCones(), getRightCones()).second;
+    auto [nodes, adj] = generateGraph(triangulation, getCarFront(vehicle_state()), coneToSide);
+    auto searchResult = beamSearch(adj, nodes, getCarFront(vehicle_state()), 30, 2, 20);
     auto pathNodes = searchResult.first;
     bestPathEdges = searchResult.second;
     auto checkpoints = pathNodesToCheckpoints(pathNodes);
@@ -165,15 +166,8 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     return true;
 }
 
-void World::setSvcuCommand(float throttle, float brake, float steer) {
-    lastSvcuThrottle_ = throttle;
-    lastSvcuBrake_ = brake;
-    lastSvcuSteer_ = steer;
-    hasSvcuCommand_ = true;
-}
-
-void World::setVehicleDynamics(const VehicleDynamics& vehicleDynamics) {
-    vehicleDynamics_ = &vehicleDynamics;
+const DynamicBicycle& World::model() const {
+    return vehicleModel();
 }
 
 void World::acknowledgeVehicleReset(const Transform& appliedTransform) {
@@ -181,8 +175,22 @@ void World::acknowledgeVehicleReset(const Transform& appliedTransform) {
     prevCarPos_ = {appliedTransform.position.x, appliedTransform.position.z};
 }
 
-void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worldConfig) {
-    setVehicleDynamics(vehicleDynamics);
+void World::setVehicleContext(const WorldVehicleContext& vehicleContext) {
+    if (!vehicleContext.dynamics) {
+        throw std::invalid_argument("WorldVehicleContext.dynamics is required");
+    }
+    vehicleDynamics_ = vehicleContext.dynamics;
+    dynamicsModel_ = vehicleContext.dynamics_model;
+    if (!dynamicsModel_) {
+        if (auto* concrete = dynamic_cast<VehicleDynamics*>(vehicleDynamics_)) {
+            dynamicsModel_ = &concrete->model();
+        }
+    }
+    resetVehicle_ = vehicleContext.reset_vehicle;
+}
+
+void World::init(const WorldVehicleContext& vehicleContext, const WorldConfig& worldConfig) {
+    setVehicleContext(vehicleContext);
     mission_ = worldConfig.mission;
 
     if (mission_.trackSource == fsai::sim::TrackSource::kRandom &&
@@ -214,17 +222,16 @@ void World::init(const VehicleDynamics& vehicleDynamics, const WorldConfig& worl
     racingConfig.accelerationFactor = 0.0019f;
 
     initializeVehiclePose();
-    vehicleResetPending_ = true;
-
-    hasSvcuCommand_ = false;
-    lastSvcuThrottle_ = 0.0f;
-    lastSvcuBrake_ = 0.0f;
-    lastSvcuSteer_ = 0.0f;
+    applyVehicleSpawn();
 }
 
-void World::update(double dt) {
+void World::update(double dt, const fsai::types::ControlCmd& command) {
     const auto& dynamics = vehicleDynamics();
     deltaTime = dt;
+
+    throttleInput = command.throttle;
+    brakeInput = command.brake;
+    steeringAngle = command.steer_rad;
 
     if (vehicleResetPending_) {
         return;
@@ -240,14 +247,6 @@ void World::update(double dt) {
         reset();
         return;
     }
-
-    if (hasSvcuCommand_ && missionState_.run_status() == fsai::sim::MissionRunStatus::kRunning) {
-        throttleInput = lastSvcuThrottle_;
-        brakeInput = lastSvcuBrake_;
-        steeringAngle = lastSvcuSteer_;
-    }
-
-    hasSvcuCommand_ = false;
 
     handleMissionCompletion();
 
@@ -592,6 +591,16 @@ void World::initializeVehiclePose() {
     prevCarPos_ = {spawnState_.transform.position.x, spawnState_.transform.position.z};
 }
 
+void World::applyVehicleSpawn() {
+    vehicleResetPending_ = true;
+    if (resetVehicle_) {
+        resetVehicle_(spawnState_);
+    } else {
+        vehicleDynamics().set_state(spawnState_.state, spawnState_.transform);
+    }
+    acknowledgeVehicleReset(spawnState_.transform);
+}
+
 void World::updateStraightLineProgress() {
     if (!straightTracker_.valid) {
         return;
@@ -687,11 +696,18 @@ bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) 
     return false;
 }
 
-const VehicleDynamics& World::vehicleDynamics() const {
+const fsai::vehicle::IVehicleDynamics& World::vehicleDynamics() const {
     if (!vehicleDynamics_) {
         throw std::runtime_error("VehicleDynamics not set for World");
     }
     return *vehicleDynamics_;
+}
+
+const DynamicBicycle& World::vehicleModel() const {
+    if (!dynamicsModel_) {
+        throw std::runtime_error("Vehicle model not provided to World");
+    }
+    return *dynamicsModel_;
 }
 
 fsai::sim::TrackData World::generateRandomTrack() const {
@@ -738,11 +754,11 @@ void World::reset() {
     configureMissionRuntime();
 
     initializeVehiclePose();
+    applyVehicleSpawn();
 
     const float initDx = spawnState_.transform.position.x - lastCheckpoint.x;
     const float initDz = spawnState_.transform.position.z - lastCheckpoint.z;
     const float initDist = std::sqrt(initDx * initDx + initDz * initDz);
     insideLastCheckpoint_ = initDist < config.lapCompletionThreshold;
     coneDetections.clear();
-    vehicleResetPending_ = true;
 }
