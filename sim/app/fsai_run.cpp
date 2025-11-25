@@ -1504,6 +1504,11 @@ class LocalUserInput final : public human::IUserInput {
 int main(int argc, char* argv[]) {
   std::srand(static_cast<unsigned>(std::time(nullptr)));
 
+  // =============================
+  // HUMAN INPUT + MISSION SETUP
+  // Collect operator intent (mission selection, emergency stop) before wiring
+  // up the rest of the sim stack. Everything below flows from this mission
+  // descriptor: track generation, control targets, and GUI labeling.
   auto parse_port = [](const char* text, uint16_t fallback) {
     if (!text) return fallback;
     char* end = nullptr;
@@ -1694,6 +1699,10 @@ int main(int argc, char* argv[]) {
   GpsSample gps_meas{};
   bool has_gps_meas = false;
 
+  // =============================
+  // SIMULATION BUDGET + CONFIG PIPELINE
+  // Establish per-subsystem timing budgets and load vehicle/world configs that
+  // downstream Control, Vision, and World components will consume.
   fsai_budget_init();
   fsai_budget_configure(FSAI_BUDGET_SUBSYSTEM_SIMULATION, "Simulation Renderer",
                         fsai_clock_from_seconds(1.0 / 60.0));
@@ -1713,6 +1722,10 @@ int main(int argc, char* argv[]) {
   const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
   VehicleDynamics vehicle_dynamics(vehicle_param);
+  // =============================
+  // WORLD + VEHICLE DYNAMICS SECTION
+  // Bind the vehicle model into the World subsystem so it can handle track
+  // generation, mission runtime, collision resets, and publish debug info.
   World world;
   world.set_debug_publisher(io_bus.get());
   bool mission_finished = false;
@@ -1807,6 +1820,10 @@ int main(int argc, char* argv[]) {
     return EXIT_FAILURE;
   }
 
+  // =============================
+  // VISION SECTION
+  // Wire stereo output from WorldRenderer into the Vision ring buffers and
+  // launch the perception node plus optional GUI previews for edges/detections.
   std::shared_ptr<fsai::vision::FrameRingBuffer> stereo_frame_buffer;
   //vision_node
   std::shared_ptr<fsai::vision::VisionNode> vision_node;
@@ -1907,6 +1924,11 @@ int main(int argc, char* argv[]) {
   bool running = true;
   size_t frame_counter = 0;
 
+  // =============================
+  // IO/CAN/NETWORK SECTION
+  // Bridge Control outputs and telemetry between the sim and external
+  // interfaces: configure CAN endpoints, UDP telemetry links, and adapters
+  // that translate controller intent into vehicle commands.
   fsai::control::runtime::CanIface::Config can_cfg{};
   can_cfg.endpoint = can_iface;
   can_cfg.enable_loopback = true;
@@ -1990,6 +2012,9 @@ int main(int argc, char* argv[]) {
   fsai::control::runtime::Ai2VcuCommandSet last_ai2vcu_commands{};
   bool has_last_ai_command = false;
 
+  // RESET/BUFFER MANAGEMENT: called when World asks for a reset (cone hit,
+  // track regeneration, or external trigger). Clears stale IO/vision buffers
+  // so the next mission attempt starts clean.
   auto clear_runtime_state_for_reset = [&]() {
     steer_delay.clear();
     wheel_delay.clear();

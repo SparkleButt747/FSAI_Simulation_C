@@ -56,6 +56,9 @@ void DrawCheckpointSquare(Graphics* graphics, int center_x, int center_y,
 }
 }  // namespace
 
+// WORLD RENDERER: owns the graphics window, pushes stereo frames into Vision,
+// and reads live World snapshots + IO debug packets so the GUI can annotate
+// ground truth, detections, and controller state in one place.
 WorldRenderAdapter::WorldRenderAdapter(const WorldRendererConfig& config,
                                        const fsai::world::IWorldView& world_view,
                                        fsai::io::IoBus& io_bus)
@@ -128,6 +131,9 @@ void WorldRenderAdapter::Render(
     return;
   }
 
+  // RENDER PASS: capture a consistent snapshot from the WorldView and combine
+  // it with any IO-provided debug overlays (e.g., Control/Vision annotations)
+  // before drawing the GUI or pushing stereo frames.
   const auto snapshot = gui_adapter_.snapshot();
   const auto debug_packet = io_bus_.latest_world_debug();
   if (window_initialized_) {
