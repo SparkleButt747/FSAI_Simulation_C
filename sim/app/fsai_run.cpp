@@ -2261,6 +2261,17 @@ int main(int argc, char* argv[]) {
     const WheelsInfo& wheel_info = world.wheels_info();
     const auto& velox_telemetry = vehicle_dynamics.telemetry();
     const double wheel_radius = std::max(0.01, vehicle_dynamics.wheel_radius());
+    constexpr double kTwoPi = 2.0 * std::numbers::pi;
+    const auto wheel_speed_to_rpm = [wheel_radius, kTwoPi](double speed_mps) {
+      return static_cast<float>((speed_mps / (kTwoPi * wheel_radius)) * 60.0);
+    };
+
+    const std::array<float, 4> telemetry_wheel_rpm{
+        wheel_speed_to_rpm(velox_telemetry.front_axle.left.speed),
+        wheel_speed_to_rpm(velox_telemetry.front_axle.right.speed),
+        wheel_speed_to_rpm(velox_telemetry.rear_axle.left.speed),
+        wheel_speed_to_rpm(velox_telemetry.rear_axle.right.speed)};
+
     const double front_drive_force = velox_telemetry.front_axle.drive_torque / wheel_radius;
     const double rear_drive_force = velox_telemetry.rear_axle.drive_torque / wheel_radius;
     const double front_brake_force = velox_telemetry.front_axle.brake_torque / wheel_radius;
@@ -2271,8 +2282,10 @@ int main(int argc, char* argv[]) {
     const double rear_drive_minus_regen = rear_drive_force - rear_regen_force;
     const double front_net_force = front_drive_force - front_brake_force - front_regen_force;
     const double rear_net_force = rear_drive_force - rear_brake_force - rear_regen_force;
-    const double front_axle_torque_nm = front_drive_force * wheel_radius;
-    const double rear_axle_torque_nm = rear_drive_force * wheel_radius;
+    const double front_axle_torque_nm = velox_telemetry.front_axle.drive_torque -
+                                        velox_telemetry.front_axle.regen_torque;
+    const double rear_axle_torque_nm = velox_telemetry.rear_axle.drive_torque -
+                                       velox_telemetry.rear_axle.regen_torque;
 
     const double max_brake_force = std::max(1.0, vehicle_param.brakes.max_force);
     const double front_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_front_bias);
@@ -2286,11 +2299,9 @@ int main(int argc, char* argv[]) {
                                       ? (total_rear_brake_force / rear_max_force) * 100.0
                                       : 0.0;
 
-    const double vehicle_speed_mps = std::sqrt(
-        vehicle_state.velocity.x() * vehicle_state.velocity.x() +
-        vehicle_state.velocity.y() * vehicle_state.velocity.y());
+    const double vehicle_speed_mps = velox_telemetry.velocity.speed;
     const float actual_speed_kph = static_cast<float>(vehicle_speed_mps * 3.6);
-    const float actual_steer_deg = static_cast<float>(wheel_info.steering *
+    const float actual_steer_deg = static_cast<float>(velox_telemetry.steering.actual_angle *
         fsai::sim::svcu::dbc::kRadToDeg);
 
     fsai::sim::app::RuntimeTelemetry runtime_telemetry{};
@@ -2303,8 +2314,7 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.pose.position_z_m = static_cast<float>(vehicle_state.position.z());
     runtime_telemetry.pose.yaw_deg = static_cast<float>(vehicle_state.yaw *
                                                         fsai::sim::svcu::dbc::kRadToDeg);
-    runtime_telemetry.wheels.rpm = {wheel_info.lf_speed, wheel_info.rf_speed,
-                                    wheel_info.lb_speed, wheel_info.rb_speed};
+    runtime_telemetry.wheels.rpm = telemetry_wheel_rpm;
     runtime_telemetry.drive.front_drive_force_n = static_cast<float>(front_drive_force);
     runtime_telemetry.drive.rear_drive_force_n = static_cast<float>(rear_drive_force);
     runtime_telemetry.drive.front_net_force_n = static_cast<float>(front_net_force);
@@ -2316,13 +2326,12 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.brake.front_pct = static_cast<float>(front_brake_pct);
     runtime_telemetry.brake.rear_pct = static_cast<float>(rear_brake_pct);
     runtime_telemetry.acceleration.longitudinal_mps2 =
-        static_cast<float>(vehicle_state.acceleration.x());
+        static_cast<float>(velox_telemetry.acceleration.longitudinal);
     runtime_telemetry.acceleration.lateral_mps2 =
-        static_cast<float>(vehicle_state.acceleration.y());
-    runtime_telemetry.acceleration.vertical_mps2 =
-        static_cast<float>(vehicle_state.acceleration.z());
+        static_cast<float>(velox_telemetry.acceleration.lateral);
+    runtime_telemetry.acceleration.vertical_mps2 = static_cast<float>(vehicle_state.acceleration.z());
     runtime_telemetry.acceleration.yaw_rate_degps =
-        static_cast<float>(vehicle_state.rotation.z() * fsai::sim::svcu::dbc::kRadToDeg);
+        static_cast<float>(velox_telemetry.velocity.yaw_rate * fsai::sim::svcu::dbc::kRadToDeg);
     runtime_telemetry.lap.current_lap_time_s = world.lapTimeSeconds();
     runtime_telemetry.lap.total_distance_m = world.totalDistanceMeters();
     runtime_telemetry.lap.completed_laps = world.completedLaps();
@@ -2474,8 +2483,7 @@ int main(int argc, char* argv[]) {
       has_steer_meas = true;
     }
 
-    std::array<float, 4> wheel_rpm_sample{wheel_info.lf_speed, wheel_info.rf_speed,
-                                          wheel_info.lb_speed, wheel_info.rb_speed};
+    std::array<float, 4> wheel_rpm_sample = telemetry_wheel_rpm;
     for (float& rpm : wheel_rpm_sample) {
       rpm = static_cast<float>(rpm + sample_noise(sensor_cfg.wheel_rpm.noise_std));
       if (!std::isfinite(rpm) || rpm < 0.0f) {
@@ -2523,11 +2531,11 @@ int main(int argc, char* argv[]) {
 
     fsai::sim::svcu::dbc::Ai2LogDynamics2 imu_sample{};
     imu_sample.accel_longitudinal_mps2 = static_cast<float>(
-        vehicle_state.acceleration.x() + sample_noise(sensor_cfg.imu.accel_longitudinal_std));
+        velox_telemetry.acceleration.longitudinal + sample_noise(sensor_cfg.imu.accel_longitudinal_std));
     imu_sample.accel_lateral_mps2 = static_cast<float>(
-        vehicle_state.acceleration.y() + sample_noise(sensor_cfg.imu.accel_lateral_std));
+        velox_telemetry.acceleration.lateral + sample_noise(sensor_cfg.imu.accel_lateral_std));
     imu_sample.yaw_rate_degps = static_cast<float>(
-        vehicle_state.rotation.z() * fsai::sim::svcu::dbc::kRadToDeg +
+        velox_telemetry.velocity.yaw_rate * fsai::sim::svcu::dbc::kRadToDeg +
         sample_noise(sensor_cfg.imu.yaw_rate_std_degps));
     imu_delay.push(now_ns, imu_sample);
     if (auto sample = imu_delay.poll(now_ns)) {
@@ -2536,9 +2544,9 @@ int main(int argc, char* argv[]) {
     }
 
     GpsSample gps_sample{};
-    gps_sample.lat_deg = metersToLatitude(vehicle_state.position.y()) +
+    gps_sample.lat_deg = metersToLatitude(velox_telemetry.pose.y) +
                          sample_noise(sensor_cfg.gps.lat_std_deg);
-    gps_sample.lon_deg = metersToLongitude(vehicle_state.position.x()) +
+    gps_sample.lon_deg = metersToLongitude(velox_telemetry.pose.x) +
                          sample_noise(sensor_cfg.gps.lon_std_deg);
     gps_sample.speed_mps = std::max(0.0, vehicle_speed_mps +
                                     sample_noise(sensor_cfg.gps.speed_std_mps));
@@ -2652,27 +2660,23 @@ int main(int argc, char* argv[]) {
 
     fsai::sim::svcu::TelemetryPacket telemetry{};
     telemetry.t_ns = now_ns;
-    telemetry.steer_angle_rad = appliedSteer;
-    telemetry.front_axle_torque_nm = static_cast<float>(front_net_force * wheel_radius);
-    telemetry.rear_axle_torque_nm = static_cast<float>(rear_net_force * wheel_radius);
-    telemetry.wheel_speed_rpm[0] = wheel_info.lf_speed;
-    telemetry.wheel_speed_rpm[1] = wheel_info.rf_speed;
-    telemetry.wheel_speed_rpm[2] = wheel_info.lb_speed;
-    telemetry.wheel_speed_rpm[3] = wheel_info.rb_speed;
-      telemetry.brake_pressure_front_bar =
-          static_cast<float>(total_front_brake_force / 1000.0);
-      telemetry.brake_pressure_rear_bar =
-          static_cast<float>(total_rear_brake_force / 1000.0);
-    telemetry.imu_ax_mps2 = static_cast<float>(vehicle_state.acceleration.x());
-    telemetry.imu_ay_mps2 = static_cast<float>(vehicle_state.acceleration.y());
-    telemetry.imu_yaw_rate_rps = static_cast<float>(vehicle_state.rotation.z());
-    telemetry.gps_lat_deg = static_cast<float>(
-        metersToLatitude(vehicle_state.position.y()));
-    telemetry.gps_lon_deg = static_cast<float>(
-        metersToLongitude(vehicle_state.position.x()));
-    telemetry.gps_speed_mps = static_cast<float>(
-        std::sqrt(vehicle_state.velocity.x() * vehicle_state.velocity.x() +
-                  vehicle_state.velocity.y() * vehicle_state.velocity.y()));
+    telemetry.steer_angle_rad = static_cast<float>(velox_telemetry.steering.actual_angle);
+    telemetry.front_axle_torque_nm = static_cast<float>(front_axle_torque_nm);
+    telemetry.rear_axle_torque_nm = static_cast<float>(rear_axle_torque_nm);
+    telemetry.wheel_speed_rpm[0] = telemetry_wheel_rpm[0];
+    telemetry.wheel_speed_rpm[1] = telemetry_wheel_rpm[1];
+    telemetry.wheel_speed_rpm[2] = telemetry_wheel_rpm[2];
+    telemetry.wheel_speed_rpm[3] = telemetry_wheel_rpm[3];
+    telemetry.brake_pressure_front_bar =
+        static_cast<float>(total_front_brake_force / 1000.0);
+    telemetry.brake_pressure_rear_bar =
+        static_cast<float>(total_rear_brake_force / 1000.0);
+    telemetry.imu_ax_mps2 = static_cast<float>(velox_telemetry.acceleration.longitudinal);
+    telemetry.imu_ay_mps2 = static_cast<float>(velox_telemetry.acceleration.lateral);
+    telemetry.imu_yaw_rate_rps = static_cast<float>(velox_telemetry.velocity.yaw_rate);
+    telemetry.gps_lat_deg = static_cast<float>(metersToLatitude(velox_telemetry.pose.y));
+    telemetry.gps_lon_deg = static_cast<float>(metersToLongitude(velox_telemetry.pose.x));
+    telemetry.gps_speed_mps = static_cast<float>(velox_telemetry.velocity.speed);
     telemetry.status_flags = static_cast<uint8_t>(world.useController ? 0x3 : 0x1);
     io_bus->publish_telemetry(telemetry);
 
