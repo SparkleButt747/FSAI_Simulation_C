@@ -1,10 +1,10 @@
-#include "controllers/longitudinal/rolling_resistance.hpp"
+#include "rolling_resistance.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 namespace velox::controllers::longitudinal {
 
 void RollingResistanceConfig::validate() const

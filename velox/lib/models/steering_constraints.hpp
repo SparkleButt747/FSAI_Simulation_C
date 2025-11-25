@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-#include "models/steering_parameters.hpp"
+#include "steering_parameters.hpp"
 
 namespace velox::models {
 namespace utils {

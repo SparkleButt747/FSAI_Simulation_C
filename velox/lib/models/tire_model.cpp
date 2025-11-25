@@ -1,4 +1,4 @@
-#include "models/tire_model.hpp"
+#include "tire_model.hpp"
 
 #include <cmath>
 

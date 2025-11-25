@@ -7,14 +7,14 @@
 #include <vector>
 
 #include "common/logging.hpp"
-#include "controllers/longitudinal/final_accel_controller.hpp"
-#include "controllers/steering_controller.hpp"
-#include "io/config_manager.hpp"
-#include "simulation/low_speed_safety.hpp"
-#include "simulation/model_timing.hpp"
-#include "simulation/vehicle_simulator.hpp"
-#include "telemetry/telemetry.hpp"
-#include "simulation/user_input.hpp"
+#include "final_accel_controller.hpp"
+#include "steering_controller.hpp"
+#include "config_manager.hpp"
+#include "low_speed_safety.hpp"
+#include "model_timing.hpp"
+#include "vehicle_simulator.hpp"
+#include "Telemetry.hpp"
+#include "user_input.hpp"
 
 namespace velox::simulation {
 

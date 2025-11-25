@@ -2,8 +2,8 @@
 
 #include <array>
 
-#include "models/acceleration_constraints.hpp"
-#include "models/steering_constraints.hpp"
+#include "acceleration_constraints.hpp"
+#include "steering_constraints.hpp"
 #include "vehicle_parameters.hpp"  // assumes VehicleParameters in namespace velox::models
 
 namespace velox::models {

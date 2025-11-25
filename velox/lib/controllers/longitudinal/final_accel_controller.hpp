@@ -1,9 +1,9 @@
 #pragma once
 
-#include "controllers/longitudinal/aero.hpp"
-#include "controllers/longitudinal/brake.hpp"
-#include "controllers/longitudinal/powertrain.hpp"
-#include "controllers/longitudinal/rolling_resistance.hpp"
+#include "aero.hpp"
+#include "brake.hpp"
+#include "powertrain.hpp"
+#include "rolling_resistance.hpp"
 
 namespace velox::controllers::longitudinal {
 

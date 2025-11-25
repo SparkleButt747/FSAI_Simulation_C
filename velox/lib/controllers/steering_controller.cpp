@@ -1,10 +1,10 @@
-#include "controllers/steering_controller.hpp"
+#include "steering_controller.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 
 namespace velox::controllers {
 

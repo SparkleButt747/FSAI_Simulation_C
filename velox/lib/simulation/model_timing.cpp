@@ -1,10 +1,10 @@
-#include "simulation/model_timing.hpp"
+#include "model_timing.hpp"
 
 #include <cmath>
 #include <numeric>
 #include <sstream>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 
 namespace velox::simulation {
 

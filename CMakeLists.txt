@@ -99,17 +99,69 @@ find_package(SDL2 QUIET CONFIG)
 find_package(Threads REQUIRED)
 
 # onnx required by vision
+set(FSAI_OR_T_VERSION "1.17.3" CACHE STRING "Default ONNX Runtime version to download when missing")
+set(FSAI_OR_T_FETCH ON CACHE BOOL "Automatically download ONNX Runtime if it is not available locally")
+
 find_package(onnxruntime QUIET CONFIG)
 if(NOT onnxruntime_FOUND)
   find_package(ONNXRuntime QUIET CONFIG)
 endif()
+
+if(NOT (onnxruntime_FOUND OR ONNXRuntime_FOUND))
+  if(FSAI_OR_T_FETCH AND NOT WIN32 AND NOT APPLE)
+    set(_ort_archive_root "${CMAKE_BINARY_DIR}/deps")
+    set(_ort_archive "${_ort_archive_root}/onnxruntime-linux-x64-${FSAI_OR_T_VERSION}.tgz")
+    set(_ort_extract_dir "${_ort_archive_root}/onnxruntime-linux-x64-${FSAI_OR_T_VERSION}")
+    set(_ort_url "https://github.com/microsoft/onnxruntime/releases/download/v${FSAI_OR_T_VERSION}/onnxruntime-linux-x64-${FSAI_OR_T_VERSION}.tgz")
+
+    file(MAKE_DIRECTORY "${_ort_archive_root}")
+    if(NOT EXISTS "${_ort_archive}")
+      message(STATUS "Downloading ONNX Runtime ${FSAI_OR_T_VERSION} from ${_ort_url}")
+      file(DOWNLOAD "${_ort_url}" "${_ort_archive}" SHOW_PROGRESS)
+    endif()
+
+    if(NOT EXISTS "${_ort_extract_dir}/lib/cmake/onnxruntime/onnxruntimeConfig.cmake")
+      message(STATUS "Extracting ONNX Runtime to ${_ort_extract_dir}")
+      execute_process(
+        COMMAND ${CMAKE_COMMAND} -E tar xzf "${_ort_archive}"
+        WORKING_DIRECTORY "${_ort_archive_root}"
+        RESULT_VARIABLE _ort_extract_result
+      )
+      if(NOT _ort_extract_result EQUAL 0)
+        message(FATAL_ERROR "Failed to extract ONNX Runtime archive: ${_ort_archive}")
+      endif()
+    endif()
+
+    if(EXISTS "${_ort_extract_dir}/lib/cmake/onnxruntime/onnxruntimeConfig.cmake")
+      set(onnxruntime_DIR "${_ort_extract_dir}/lib/cmake/onnxruntime" CACHE PATH "" FORCE)
+      list(APPEND CMAKE_PREFIX_PATH "${_ort_extract_dir}")
+      find_package(onnxruntime QUIET CONFIG)
+      if(NOT onnxruntime_FOUND)
+        find_package(ONNXRuntime QUIET CONFIG)
+      endif()
+    elseif(NOT TARGET onnxruntime::onnxruntime)
+      set(_ort_lib "${_ort_extract_dir}/lib/libonnxruntime.so")
+      set(_ort_inc "${_ort_extract_dir}/include")
+      if(EXISTS "${_ort_lib}" AND EXISTS "${_ort_inc}")
+        add_library(onnxruntime::onnxruntime SHARED IMPORTED)
+        set_target_properties(onnxruntime::onnxruntime PROPERTIES
+          IMPORTED_LOCATION "${_ort_lib}"
+          INTERFACE_INCLUDE_DIRECTORIES "${_ort_inc}"
+        )
+        set(onnxruntime_FOUND TRUE)
+      endif()
+    endif()
+  endif()
+endif()
+
 if(NOT (onnxruntime_FOUND OR ONNXRuntime_FOUND))
   message(FATAL_ERROR
     "onnxruntime not found.\n"
     "Set one of:\n"
     "  -Donnxruntime_DIR=/path/to/lib/cmake/onnxruntime\n"
     "  -DONNXRUNTIME_ROOT=/path/to/onnxruntime (with include/ and lib/)\n"
-    "  or place a version under /opt/homebrew/onnxruntime/<version> on macOS."
+    "  or place a version under /opt/homebrew/onnxruntime/<version> on macOS.\n"
+    "You can also enable automatic download via -DFSAI_OR_T_FETCH=ON (Linux only)."
   )
 else()
   message(STATUS "ONNX Runtime located via CMake package config.")
@@ -180,6 +232,7 @@ list(APPEND HEADER_DIRS
   "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
   "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
 )
+list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/velox/lib")
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
 # ------------------------------------------------------------------------------

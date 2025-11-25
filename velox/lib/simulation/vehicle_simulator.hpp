@@ -4,7 +4,7 @@
 #include <utility>
 #include <vector>
 
-#include "simulation/low_speed_safety.hpp"
+#include "low_speed_safety.hpp"
 #include "vehicle_parameters.hpp"
 
 namespace velox::simulation {

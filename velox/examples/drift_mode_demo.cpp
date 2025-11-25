@@ -3,8 +3,8 @@
 #include <iostream>
 #include <string_view>
 
-#include "simulation/simulation_daemon.hpp"
-#include "telemetry/telemetry.hpp"
+#include "simulation_daemon.hpp"
+#include "telemetry.hpp"
 
 namespace vsim = velox::simulation;
 

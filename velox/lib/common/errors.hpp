@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-#include "simulation/model_timing.hpp"
+#include "model_timing.hpp"
 
 namespace velox::errors {
 

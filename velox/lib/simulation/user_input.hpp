@@ -3,7 +3,7 @@
 #include <optional>
 #include <vector>
 
-#include "controllers/longitudinal/final_accel_controller.hpp"
+#include "final_accel_controller.hpp"
 
 namespace velox {
 namespace controllers {

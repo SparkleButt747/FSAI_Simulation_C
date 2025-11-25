@@ -1,11 +1,11 @@
-#include "controllers/longitudinal/final_accel_controller.hpp"
+#include "final_accel_controller.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <utility>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 
 namespace velox::controllers::longitudinal {
 

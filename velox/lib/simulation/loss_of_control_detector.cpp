@@ -1,11 +1,11 @@
-#include "simulation/loss_of_control_detector.hpp"
+#include "loss_of_control_detector.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <sstream>
 #include <utility>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 
 namespace velox::simulation {
 

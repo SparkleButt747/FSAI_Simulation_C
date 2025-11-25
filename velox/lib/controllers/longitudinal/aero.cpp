@@ -1,9 +1,9 @@
-#include "controllers/longitudinal/aero.hpp"
+#include "aero.hpp"
 
 #include <cmath>
 #include <stdexcept>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 namespace velox::controllers::longitudinal {
 
 void AeroConfig::validate() const

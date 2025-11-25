@@ -1,15 +1,15 @@
-#include "models/vehiclemodels/vehicle_dynamics_mb.hpp"
+#include "vehicle_dynamics_mb.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <vector>
 
-#include "models/acceleration_constraints.hpp"
-#include "models/steering_constraints.hpp"
-#include "models/tire_model.hpp"
-#include "models/vehicle_dynamics_ks_cog.hpp"
+#include "acceleration_constraints.hpp"
+#include "steering_constraints.hpp"
+#include "tire_model.hpp"
+#include "vehicle_dynamics_ks_cog.hpp"
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 
 namespace velox::models {
 

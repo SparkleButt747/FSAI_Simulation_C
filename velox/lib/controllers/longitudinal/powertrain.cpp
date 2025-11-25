@@ -1,11 +1,11 @@
-#include "controllers/longitudinal/powertrain.hpp"
+#include "powertrain.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <string>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 
 namespace velox::controllers::longitudinal {
 

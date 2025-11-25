@@ -1,7 +1,7 @@
 #pragma once
 
 #include <utility>
-#include "models/tireParameters.hpp"
+#include "tireParameters.hpp"
 
 namespace velox::models {
 namespace utils {

@@ -1,4 +1,4 @@
-#include "telemetry/telemetry.hpp"
+#include "telemetry.hpp"
 
 #include <algorithm>
 #include <cmath>

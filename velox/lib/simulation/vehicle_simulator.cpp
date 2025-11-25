@@ -1,8 +1,8 @@
-#include "simulation/vehicle_simulator.hpp"
+#include "vehicle_simulator.hpp"
 
 #include <stdexcept>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 namespace velox::simulation {
 
 VehicleSimulator::VehicleSimulator(ModelInterface model,
