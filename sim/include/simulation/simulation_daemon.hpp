@@ -18,6 +18,8 @@
 
 namespace velox::simulation {
 
+using telemetry = velox::telemetry;
+
 struct ResetParams {
     std::optional<ModelType> model{};
     std::optional<int>       vehicle_id{};
