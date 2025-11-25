@@ -16,8 +16,8 @@
 #include "sim/WorldRuntime.hpp"
 #include "WorldConfig.hpp"
 #include "TrackBuilder.hpp"
-#include "world/CollisionService.hpp"
-#include "world/ResetPolicy.hpp"
+#include "CollisionService.hpp"
+#include "ResetPolicy.hpp"
 #include "TrackTypes.hpp"
 #include "sim/architecture/IVehicleDynamics.hpp"
 
