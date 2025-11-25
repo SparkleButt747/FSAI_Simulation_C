@@ -162,6 +162,8 @@ private:
                 rendererNode, "publish_stereo_frames", renderer.publish_stereo_frames);
             renderer.show_debug_overlays = getOrDefault(
                 rendererNode, "show_debug_overlays", renderer.show_debug_overlays);
+            renderer.render_scale =
+                getOrDefault(rendererNode, "render_scale", renderer.render_scale);
             renderer.window_width =
                 getOrDefault(rendererNode, "window_width", renderer.window_width);
             renderer.window_height =
@@ -220,6 +222,10 @@ private:
         }
         if (control.pathSearchBeamWidth == 0) {
             throw std::runtime_error("control.path_search_beam_width must be > 0: " + source_);
+        }
+
+        if (config_.renderer.render_scale <= 0.0f) {
+            throw std::runtime_error("renderer.render_scale must be > 0: " + source_);
         }
     }
 

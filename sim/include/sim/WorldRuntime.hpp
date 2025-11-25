@@ -57,12 +57,17 @@ class WorldRuntime {
   void AddResetListener(ResetCallback callback);
   void AddMissionCompleteListener(MissionCompleteCallback callback);
   void EmitResetEvent(ResetReason reason);
+  void MarkResetPending(ResetReason reason);
+  void AcknowledgeResetRequest();
 
   const MissionRuntimeState& mission_state() const { return mission_state_; }
   double lap_time_seconds() const { return lap_time_s_; }
   double lap_distance_meters() const { return lap_distance_m_; }
   double time_step_seconds() const { return delta_time_s_; }
   int lap_count() const { return lap_count_; }
+  std::optional<ResetReason> pending_reset_reason() const {
+    return pending_reset_reason_;
+  }
 
  private:
   void ConfigureStraightLineTracker();
@@ -81,6 +86,7 @@ class WorldRuntime {
   int lap_count_{0};
   bool inside_last_checkpoint_{false};
   bool mission_complete_notified_{false};
+  std::optional<ResetReason> pending_reset_reason_{};
 
   struct StraightLineTracker {
     bool valid{false};

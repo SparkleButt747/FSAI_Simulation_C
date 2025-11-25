@@ -14,8 +14,6 @@ typedef struct {
     int height;
 } Graphics;
 
-const float K_RENDER_SCALE = 5.0f;
-
 // Initializes SDL, creates a window and renderer. Returns 0 on success.
 int Graphics_Init(Graphics* g, const char* title, int width, int height);
 
@@ -33,7 +31,8 @@ void Graphics_DrawCar(Graphics* g, float x, float y, float radius, float yaw);
 void Graphics_DrawFilledCircle(Graphics* g, int centreX, int centreY, int radius);
 
 // Draws a line segment between (x1, y1) and (x2, y2).
-void Graphics_DrawSegment(Graphics* g, float x1, float y1,  float x2, float y2, int red, int green, int blue);
+void Graphics_DrawSegment(Graphics* g, float x1, float y1,  float x2, float y2,
+                          float render_scale, int red, int green, int blue);
 // Presents the current frame.
 void Graphics_Present(Graphics* g);
 

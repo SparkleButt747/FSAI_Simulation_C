@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -7,6 +8,7 @@
 #include "Transform.h"
 #include "VehicleState.hpp"
 #include "sim/MissionRuntimeState.hpp"
+#include "sim/WorldRuntime.hpp"
 #include "sim/architecture/IWorldView.hpp"
 
 namespace fsai::sim::app {
@@ -20,6 +22,9 @@ struct GuiWorldSnapshot {
   Transform vehicle_transform{};
   VehicleState vehicle_state{};
   fsai::sim::MissionRuntimeState mission_runtime{};
+  std::vector<std::pair<Vector2, Vector2>> controller_path_edges;
+  std::vector<FsaiConeDet> detections;
+  std::optional<fsai::sim::WorldRuntime::ResetReason> pending_reset_reason{};
   double lap_time_seconds{0.0};
   double total_distance_meters{0.0};
   double time_step_seconds{0.0};

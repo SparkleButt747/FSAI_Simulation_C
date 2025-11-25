@@ -59,6 +59,7 @@ class WorldRenderAdapter {
   const fsai::world::IWorldView& world_view_;
   fsai::io::IoBus& io_bus_;
   fsai::sim::app::GuiWorldAdapter gui_adapter_;
+  float render_scale_{5.0f};
   Graphics graphics_{};
   bool window_initialized_{false};
   bool initialized_{false};

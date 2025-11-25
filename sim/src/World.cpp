@@ -97,6 +97,7 @@ void World::bindVehicleDynamics(fsai::vehicle::IVehicleDynamics& vehicleDynamics
 void World::acknowledgeVehicleReset(const Transform& appliedTransform) {
     vehicleResetPending_ = false;
     prevCarPos_ = {appliedTransform.position.x, appliedTransform.position.z};
+    runtime_.AcknowledgeResetRequest();
 }
 
 void World::publishVehicleSpawn() {
