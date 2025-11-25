@@ -11,89 +11,6 @@
 #include "World.hpp"
 #include "centerline.hpp"
 
-namespace {
-
-struct Vec2d {
-    double x{0.0};
-    double y{0.0};
-};
-
-constexpr double kEpsilon = 1e-6;
-
-double cross(const Vec2d& a, const Vec2d& b) {
-    return a.x * b.y - a.y * b.x;
-}
-
-double orientation(const Vec2d& a, const Vec2d& b, const Vec2d& c) {
-    return cross({b.x - a.x, b.y - a.y}, {c.x - a.x, c.y - a.y});
-}
-
-bool onSegment(const Vec2d& a, const Vec2d& b, const Vec2d& p) {
-    const double minX = std::min(a.x, b.x) - kEpsilon;
-    const double maxX = std::max(a.x, b.x) + kEpsilon;
-    const double minY = std::min(a.y, b.y) - kEpsilon;
-    const double maxY = std::max(a.y, b.y) + kEpsilon;
-    return p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
-}
-
-bool segmentsIntersect(const Vec2d& p1, const Vec2d& p2, const Vec2d& q1, const Vec2d& q2) {
-    const double o1 = orientation(p1, p2, q1);
-    const double o2 = orientation(p1, p2, q2);
-    const double o3 = orientation(q1, q2, p1);
-    const double o4 = orientation(q1, q2, p2);
-
-    const bool generalCase = ((o1 > kEpsilon && o2 < -kEpsilon) || (o1 < -kEpsilon && o2 > kEpsilon)) &&
-                             ((o3 > kEpsilon && o4 < -kEpsilon) || (o3 < -kEpsilon && o4 > kEpsilon));
-    if (generalCase) {
-        return true;
-    }
-
-    if (std::abs(o1) <= kEpsilon && onSegment(p1, p2, q1)) {
-        return true;
-    }
-    if (std::abs(o2) <= kEpsilon && onSegment(p1, p2, q2)) {
-        return true;
-    }
-    if (std::abs(o3) <= kEpsilon && onSegment(q1, q2, p1)) {
-        return true;
-    }
-    if (std::abs(o4) <= kEpsilon && onSegment(q1, q2, p2)) {
-        return true;
-    }
-
-    return false;
-}
-
-float distanceSquaredToSegment(const Vector2& point, const CollisionSegment& segment) {
-    const float ax = segment.start.x;
-    const float ay = segment.start.y;
-    const float bx = segment.end.x;
-    const float by = segment.end.y;
-    const float abx = bx - ax;
-    const float aby = by - ay;
-    const float lengthSq = abx * abx + aby * aby;
-    if (lengthSq <= std::numeric_limits<float>::epsilon()) {
-        const float dx = point.x - ax;
-        const float dy = point.y - ay;
-        return dx * dx + dy * dy;
-    }
-
-    const float t = ((point.x - ax) * abx + (point.y - ay) * aby) / lengthSq;
-    const float clamped = std::clamp(t, 0.0f, 1.0f);
-    const float closestX = ax + clamped * abx;
-    const float closestY = ay + clamped * aby;
-    const float dx = point.x - closestX;
-    const float dy = point.y - closestY;
-    return dx * dx + dy * dy;
-}
-
-bool pointWithinBounds(const Vector2& point, const CollisionSegment& segment) {
-    return point.x >= segment.boundsMin.x && point.x <= segment.boundsMax.x &&
-           point.y >= segment.boundsMin.y && point.y <= segment.boundsMax.y;
-}
-
-}  // namespace
-
 World::World() {
     runtime_.AddMissionCompleteListener(
         [this](const fsai::sim::MissionRuntimeState&) {
@@ -201,6 +118,10 @@ void World::init(const WorldVehicleContext& vehicleContext, const WorldConfig& w
     this->config.vehicleCollisionRadius = worldConfig.tuning.vehicleCollisionRadius;
     this->config.lapCompletionThreshold = worldConfig.tuning.lapCompletionThreshold;
 
+    collisionService_ = CollisionService(
+        CollisionService::Config{config.vehicleCollisionRadius, config.collisionThreshold});
+    resetPolicy_ = ResetPolicy(controlConfig_);
+
     trackBuilderConfig_.vehicleCollisionRadius = config.vehicleCollisionRadius;
     trackBuilderConfig_.pathConfig = PathConfig{};
 
@@ -229,14 +150,17 @@ void World::update(double dt) {
 
     if (checkpointPositions.empty()) {
         std::printf("No checkpoints available. Resetting simulation.\n");
-        runtime_.EmitResetEvent(fsai::sim::WorldRuntime::ResetReason::kTrackRegeneration);
-        reset();
+        const auto resetReason = fsai::sim::WorldRuntime::ResetReason::kTrackRegeneration;
+        runtime_.EmitResetEvent(resetReason);
+        reset(resetPolicy_.Decide(resetReason, mission_));
         return;
     }
 
     const auto& carTransform = dynamics.transform();
     const Vector2 currentPos{carTransform.position.x, carTransform.position.z};
-    const bool crossedGate = crossesCurrentGate(prevCarPos_, currentPos);
+    const auto collisionResult = collisionService_.Evaluate(prevCarPos_, currentPos, checkpointPositions,
+                                                           startCones, leftCones, rightCones, gateSegments_,
+                                                           boundarySegments_);
 
     const Eigen::Vector2d velocity2d(dynamics.state().velocity.x(),
                                      dynamics.state().velocity.y());
@@ -252,7 +176,13 @@ void World::update(double dt) {
 
     runtime_.UpdateStraightLineProgress(carTransform);
 
-    if (!detectCollisions(crossedGate)) {
+    if (collisionResult.crossedGate && !checkpointPositions.empty()) {
+        moveNextCheckpointToLast();
+    }
+
+    if (collisionResult.resetReason.has_value()) {
+        runtime_.EmitResetEvent(*collisionResult.resetReason);
+        reset(resetPolicy_.Decide(*collisionResult.resetReason, mission_));
         return;
     }
 
@@ -260,79 +190,6 @@ void World::update(double dt) {
 
     runtime_.HandleMissionCompletion();
     telemetry();
-}
-
-bool World::detectCollisions(bool crossedGate) {
-    const Transform& carTransform = vehicleDynamics().transform();
-
-    if (crossedGate && !checkpointPositions.empty()) {
-        moveNextCheckpointToLast();
-    }
-
-    for (const auto& cone : startCones) {
-        float cdx = carTransform.position.x - cone.position.x;
-        float cdz = carTransform.position.z - cone.position.z;
-        float cdist = std::sqrt(cdx * cdx + cdz * cdz);
-        const float combinedRadius = cone.radius + config.vehicleCollisionRadius;
-        if (cdist < combinedRadius) {
-            std::printf("Collision with a cone detected.\n");
-            runtime_.EmitResetEvent(fsai::sim::WorldRuntime::ResetReason::kConeCollision);
-            reset();
-            return false;
-        }
-    }
-    for (const auto& cone : leftCones) {
-        float cdx = carTransform.position.x - cone.position.x;
-        float cdz = carTransform.position.z - cone.position.z;
-        float cdist = std::sqrt(cdx * cdx + cdz * cdz);
-        const float combinedRadius = cone.radius + config.vehicleCollisionRadius;
-        if (cdist < combinedRadius) {
-            std::printf("Collision with a cone detected.\n");
-            runtime_.EmitResetEvent(fsai::sim::WorldRuntime::ResetReason::kConeCollision);
-            reset();
-            return false;
-        }
-    }
-    for (const auto& cone : rightCones) {
-        float cdx = carTransform.position.x - cone.position.x;
-        float cdz = carTransform.position.z - cone.position.z;
-        float cdist = std::sqrt(cdx * cdx + cdz * cdz);
-        const float combinedRadius = cone.radius + config.vehicleCollisionRadius;
-        if (cdist < combinedRadius) {
-            std::printf("Collision with a cone detected.\n");
-            runtime_.EmitResetEvent(fsai::sim::WorldRuntime::ResetReason::kConeCollision);
-            reset();
-            return false;
-        }
-    }
-
-    const Vector2 carCenter{carTransform.position.x, carTransform.position.z};
-    const float collisionRadius = config.vehicleCollisionRadius;
-    const float collisionRadiusSq = collisionRadius * collisionRadius;
-
-    auto segmentHit = [&](const CollisionSegment& segment) {
-        if (!pointWithinBounds(carCenter, segment)) {
-            return false;
-        }
-        return distanceSquaredToSegment(carCenter, segment) < collisionRadiusSq;
-    };
-
-    for (const auto& segment : gateSegments_) {
-        if (segmentHit(segment)) {
-            break;
-        }
-    }
-
-    for (const auto& segment : boundarySegments_) {
-        if (segmentHit(segment)) {
-            std::printf("Collision with a boundary detected.\n");
-            runtime_.EmitResetEvent(fsai::sim::WorldRuntime::ResetReason::kBoundaryCollision);
-            reset();
-            return false;
-        }
-    }
-
-    return true;
 }
 
 void World::telemetry() const {
@@ -412,76 +269,6 @@ void World::initializeVehiclePose() {
     runtime_.NotifySpawnApplied(spawnState_.transform);
 }
 
-bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) const {
-    const Vec2d prev{static_cast<double>(previous.x), static_cast<double>(previous.y)};
-    const Vec2d curr{static_cast<double>(current.x), static_cast<double>(current.y)};
-
-    if (leftCones.empty() || rightCones.empty()) {
-        if (checkpointPositions.empty()) {
-            return false;
-        }
-        const Vector3& checkpoint = checkpointPositions.front();
-        const Vec2d cp{static_cast<double>(checkpoint.x), static_cast<double>(checkpoint.z)};
-        const double prevDist = std::hypot(prev.x - cp.x, prev.y - cp.y);
-        const double currDist = std::hypot(curr.x - cp.x, curr.y - cp.y);
-        return currDist < static_cast<double>(config.collisionThreshold) &&
-               prevDist >= static_cast<double>(config.collisionThreshold);
-    }
-
-    const Vec2d left{static_cast<double>(leftCones.front().position.x),
-                     static_cast<double>(leftCones.front().position.z)};
-    const Vec2d right{static_cast<double>(rightCones.front().position.x),
-                      static_cast<double>(rightCones.front().position.z)};
-
-    const double radius = static_cast<double>(config.vehicleCollisionRadius);
-    const double minX = std::min(left.x, right.x) - radius;
-    const double maxX = std::max(left.x, right.x) + radius;
-    const double minY = std::min(left.y, right.y) - radius;
-    const double maxY = std::max(left.y, right.y) + radius;
-
-    if ((prev.x < minX && curr.x < minX) || (prev.x > maxX && curr.x > maxX) ||
-        (prev.y < minY && curr.y < minY) || (prev.y > maxY && curr.y > maxY)) {
-        return false;
-    }
-
-    const Vec2d gateVector{right.x - left.x, right.y - left.y};
-    const double gateLenSq = gateVector.x * gateVector.x + gateVector.y * gateVector.y;
-    if (gateLenSq <= kEpsilon) {
-        return false;
-    }
-
-    const double gateLength = std::sqrt(gateLenSq);
-    const double margin = gateLength > kEpsilon ? radius / gateLength : 0.0;
-    const double prevProj = ((prev.x - left.x) * gateVector.x + (prev.y - left.y) * gateVector.y) / gateLenSq;
-    const double currProj = ((curr.x - left.x) * gateVector.x + (curr.y - left.y) * gateVector.y) / gateLenSq;
-    const double minProj = -margin;
-    const double maxProj = 1.0 + margin;
-    if ((prevProj < minProj && currProj < minProj) || (prevProj > maxProj && currProj > maxProj)) {
-        return false;
-    }
-
-    const double oriPrev = orientation(left, right, prev);
-    const double oriCurr = orientation(left, right, curr);
-    const bool signChange = (oriPrev > kEpsilon && oriCurr < -kEpsilon) ||
-                            (oriPrev < -kEpsilon && oriCurr > kEpsilon);
-    if (signChange) {
-        return true;
-    }
-
-    if (segmentsIntersect(prev, curr, left, right)) {
-        return true;
-    }
-
-    if (std::abs(oriPrev) <= kEpsilon && onSegment(left, right, prev)) {
-        return true;
-    }
-    if (std::abs(oriCurr) <= kEpsilon && onSegment(left, right, curr)) {
-        return true;
-    }
-
-    return false;
-}
-
 const fsai::vehicle::IVehicleDynamics& World::vehicleDynamics() const {
     if (!vehicleDynamics_) {
         throw std::runtime_error("VehicleDynamics not set for World");
@@ -511,9 +298,9 @@ void World::moveNextCheckpointToLast() {
     }
 }
 
-void World::reset() {
-    if (mission_.allowRegeneration && regenTrack) {
-        std::printf("Regenerating track due to cone collision.\n");
+void World::reset(const ResetDecision& decision) {
+    if (decision.regenerateTrack) {
+        std::printf("Regenerating track due to reset.\n");
         if (mission_.trackSource == fsai::sim::TrackSource::kRandom) {
             mission_.track = {};
         }

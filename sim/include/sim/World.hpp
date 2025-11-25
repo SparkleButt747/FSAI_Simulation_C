@@ -16,6 +16,8 @@
 #include "sim/WorldRuntime.hpp"
 #include "WorldConfig.hpp"
 #include "TrackBuilder.hpp"
+#include "CollisionService.hpp"
+#include "ResetPolicy.hpp"
 #include "TrackTypes.hpp"
 #include "sim/architecture/IVehicleDynamics.hpp"
 
@@ -42,9 +44,6 @@ public:
 
     // Update simulation by dt seconds.
     void update(double dt);
-
-    // Detect collisions with checkpoints and cones. Returns false if a reset occurred.
-    bool detectCollisions(bool crossedGate);
 
     // Output telemetry information.
     void telemetry() const;
@@ -135,7 +134,7 @@ public:
 private:
     friend class WorldTestHelper;
     void moveNextCheckpointToLast();
-    void reset();
+    void reset(const ResetDecision& decision);
     void configureTrackState(const TrackBuildResult& track);
     void initializeVehiclePose();
     TrackBuildResult buildTrackState();
@@ -172,9 +171,10 @@ private:
     fsai::sim::MissionDefinition mission_{};
     TrackBuilderConfig trackBuilderConfig_{};
     TrackBuildResult trackState_{};
+    CollisionService collisionService_{CollisionService::Config{}};
+    ResetPolicy resetPolicy_{WorldControlConfig{}};
     fsai::sim::WorldRuntime runtime_{};
     void configureMissionRuntime();
-    bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
     void bindVehicleDynamics(fsai::vehicle::IVehicleDynamics& vehicleDynamics);
     void publishVehicleSpawn();
     const fsai::vehicle::IVehicleDynamics& vehicleDynamics() const;
