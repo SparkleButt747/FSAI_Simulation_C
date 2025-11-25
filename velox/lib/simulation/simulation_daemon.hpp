@@ -13,10 +13,12 @@
 #include "low_speed_safety.hpp"
 #include "model_timing.hpp"
 #include "vehicle_simulator.hpp"
-#include "telemetry.hpp"
+#include "telemetry/telemetry.hpp"
 #include "user_input.hpp"
 
 namespace velox::simulation {
+
+namespace telemetry = velox::telemetry;
 
 struct ResetParams {
     std::optional<ModelType> model{};

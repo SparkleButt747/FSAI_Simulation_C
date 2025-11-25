@@ -17,6 +17,8 @@
 
 namespace velox::simulation {
 
+namespace telemetry = velox::telemetry;
+
 UserInputLimits UserInputLimits::from_vehicle(const controllers::SteeringWheel* steering_wheel,
                                               const controllers::FinalSteerController* final_steer,
                                               const models::VehicleParameters& params,
