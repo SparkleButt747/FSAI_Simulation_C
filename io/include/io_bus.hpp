@@ -9,6 +9,7 @@
 
 #include "common/types.h"
 #include "link.hpp"
+#include "sim/architecture/WorldDebug.hpp"
 
 namespace fsai::io {
 
@@ -21,7 +22,7 @@ struct TelemetryNoiseConfig {
   double gps_speed_stddev{0.0};
 };
 
-class IoBus {
+class IoBus : public fsai::world::IWorldDebugPublisher {
  public:
   virtual ~IoBus() = default;
 
@@ -36,18 +37,28 @@ class IoBus {
 
   virtual void publish_stereo_frame(const FsaiStereoFrame& frame) = 0;
   virtual std::optional<FsaiStereoFrame> latest_stereo_frame() = 0;
+
+  virtual void publish_world_debug(const fsai::world::WorldDebugPacket& packet) = 0;
+  virtual std::optional<fsai::world::WorldDebugPacket> latest_world_debug() = 0;
+
+  void publish_debug_packet(const fsai::world::WorldDebugPacket& packet) override {
+    publish_world_debug(packet);
+  }
 };
 
 class InProcessIoBus final : public IoBus {
  public:
   using TelemetrySink = std::function<void(const fsai::sim::svcu::TelemetryPacket&)>;
   using StereoSink = std::function<void(const FsaiStereoFrame&)>;
+  using WorldDebugSink =
+      std::function<void(const fsai::world::WorldDebugPacket&)>;
 
   InProcessIoBus();
 
   void set_noise_config(const TelemetryNoiseConfig& cfg) override;
   void set_telemetry_sink(TelemetrySink sink);
   void set_stereo_sink(StereoSink sink);
+  void set_debug_sink(WorldDebugSink sink);
 
   void publish_telemetry(const fsai::sim::svcu::TelemetryPacket& raw) override;
   std::optional<fsai::sim::svcu::TelemetryPacket> latest_raw_telemetry() override;
@@ -59,6 +70,9 @@ class InProcessIoBus final : public IoBus {
   void publish_stereo_frame(const FsaiStereoFrame& frame) override;
   std::optional<FsaiStereoFrame> latest_stereo_frame() override;
 
+  void publish_world_debug(const fsai::world::WorldDebugPacket& packet) override;
+  std::optional<fsai::world::WorldDebugPacket> latest_world_debug() override;
+
  private:
   fsai::sim::svcu::TelemetryPacket apply_noise(
       const fsai::sim::svcu::TelemetryPacket& raw);
@@ -66,11 +80,13 @@ class InProcessIoBus final : public IoBus {
   TelemetryNoiseConfig noise_{};
   TelemetrySink telemetry_sink_{};
   StereoSink stereo_sink_{};
+  WorldDebugSink debug_sink_{};
 
   std::optional<fsai::sim::svcu::TelemetryPacket> raw_telemetry_{};
   std::optional<fsai::sim::svcu::TelemetryPacket> noisy_telemetry_{};
   std::optional<fsai::sim::svcu::CommandPacket> latest_command_{};
   std::optional<FsaiStereoFrame> last_frame_{};
+  std::optional<fsai::world::WorldDebugPacket> last_debug_{};
   std::mt19937 rng_;
 };
 

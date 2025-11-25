@@ -27,6 +27,10 @@ void InProcessIoBus::set_telemetry_sink(TelemetrySink sink) {
 
 void InProcessIoBus::set_stereo_sink(StereoSink sink) { stereo_sink_ = std::move(sink); }
 
+void InProcessIoBus::set_debug_sink(WorldDebugSink sink) {
+  debug_sink_ = std::move(sink);
+}
+
 fsai::sim::svcu::TelemetryPacket InProcessIoBus::apply_noise(
     const fsai::sim::svcu::TelemetryPacket& raw) {
   fsai::sim::svcu::TelemetryPacket noisy = raw;
@@ -81,6 +85,18 @@ void InProcessIoBus::publish_stereo_frame(const FsaiStereoFrame& frame) {
 }
 
 std::optional<FsaiStereoFrame> InProcessIoBus::latest_stereo_frame() { return last_frame_; }
+
+void InProcessIoBus::publish_world_debug(
+    const fsai::world::WorldDebugPacket& packet) {
+  last_debug_ = packet;
+  if (debug_sink_) {
+    debug_sink_(packet);
+  }
+}
+
+std::optional<fsai::world::WorldDebugPacket> InProcessIoBus::latest_world_debug() {
+  return last_debug_;
+}
 
 }  // namespace fsai::io
 

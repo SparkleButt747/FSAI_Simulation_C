@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 #include <Eigen/Dense>
 #include "types.h"
@@ -15,6 +16,7 @@
 #include "MissionRuntimeState.hpp"
 #include "sim/WorldRuntime.hpp"
 #include "WorldConfig.hpp"
+#include "architecture/WorldDebug.hpp"
 #include "TrackBuilder.hpp"
 #include "CollisionService.hpp"
 #include "ResetPolicy.hpp"
@@ -54,8 +56,6 @@ public:
     float brakeInput{0.0f};
     int useController{1};
     int regenTrack{1};
-    std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
-    std::vector<FsaiConeDet> coneDetections {};
 
 
     const std::vector<Vector3>& checkpointPositionsWorld() const;
@@ -108,14 +108,6 @@ public:
     double total_distance_meters() const override { return runtime_.lap_distance_meters(); }
     double time_step_seconds() const override { return runtime_.time_step_seconds(); }
     int lap_count() const override { return runtime_.lap_count(); }
-    const std::vector<std::pair<Vector2, Vector2>>& best_path_edges() const override {
-        enforcePublicGroundTruth("best path edges");
-        return bestPathEdges;
-    }
-    const std::vector<FsaiConeDet>& ground_truth_detections() const override {
-        enforcePublicGroundTruth("ground truth detections");
-        return coneDetections;
-    }
     bool vehicle_reset_pending() const override { return vehicleResetPending_; }
     void acknowledge_vehicle_reset(const Transform& appliedTransform) override {
         acknowledgeVehicleReset(appliedTransform);
@@ -130,6 +122,13 @@ public:
     }
 
     void acknowledgeVehicleReset(const Transform& appliedTransform);
+    void set_debug_publisher(fsai::world::IWorldDebugPublisher* publisher) {
+        debugPublisher_ = publisher;
+    }
+    void set_debug_detections(std::vector<FsaiConeDet> detections) {
+        coneDetections_ = std::move(detections);
+    }
+    void publish_debug_state() const;
 
 private:
     friend class WorldTestHelper;
@@ -174,9 +173,13 @@ private:
     CollisionService collisionService_{CollisionService::Config{}};
     ResetPolicy resetPolicy_{WorldControlConfig{}};
     fsai::sim::WorldRuntime runtime_{};
+    std::vector<std::pair<Vector2, Vector2>> bestPathEdges_{};
+    std::vector<FsaiConeDet> coneDetections_{};
+    fsai::world::IWorldDebugPublisher* debugPublisher_{nullptr};
     void configureMissionRuntime();
     void bindVehicleDynamics(fsai::vehicle::IVehicleDynamics& vehicleDynamics);
     void publishVehicleSpawn();
     const fsai::vehicle::IVehicleDynamics& vehicleDynamics() const;
     void enforcePublicGroundTruth(const char* accessor) const;
+    void publishDebugPacket(const fsai::world::WorldDebugPacket& packet) const;
 };
