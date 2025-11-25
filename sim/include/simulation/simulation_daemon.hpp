@@ -13,7 +13,7 @@
 #include "simulation/low_speed_safety.hpp"
 #include "simulation/model_timing.hpp"
 #include "simulation/vehicle_simulator.hpp"
-#include "telemetry/telemetry.hpp"
+#include <telemetry/telemetry.hpp>
 #include "simulation/user_input.hpp"
 
 namespace velox::simulation {
