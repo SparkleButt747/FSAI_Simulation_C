@@ -1,0 +1,131 @@
+# parameters_vehicle1 - parameter set of the multi-body vehicle dynamics
+# based on the DOT (department of transportation) vehicle dynamics
+# values are taken from a BMW 320i
+
+# see Althoff, M. and Würsching, G. "CommonRoad: Vehicle Models", 2020, Tab. 6 (pp. 24)
+# <https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/blob/master/vehicleModels_commonRoad.pdf>
+
+# vehicle body dimensions
+# vehicle length [m]
+l: 4.508
+# vehicle width [m]
+w: 1.61
+
+# steering constraints
+steering:
+  # minimum steering angle [rad]
+  max: 1.066
+  # maximum steering angle [rad]
+  min: -1.066
+  # minimum steering velocity [rad/s]
+  v_max: 0.4
+  # maximum steering velocity [rad/s]
+  v_min: -0.4
+  # maximum curvature change
+  kappa_dot_max: 0.4
+  # maximum curvature rate rate
+  kappa_dot_dot_max: 20
+
+# longitudinal constraints
+longitudinal:
+  # maximum absolute acceleration [m/s^2]
+  a_max: 11.5
+  # maximum longitudinal jerk [m/s^3]
+  j_max: 10.0e+3
+  # maximum longitudinal jerk change [m/s^4]
+  j_dot_max: 10.0e3
+  # maximum velocity [m/s]
+  v_max: 50.8
+  # minimum velocity [m/s]
+  v_min: -13.9
+  # switching velocity [m/s]
+  v_switch: 7.319
+
+# masses
+# vehicle mass [kg]  MASS
+m: 1093.2952334674046
+# sprung mass [kg]  SMASS
+m_s: 965.7108098804363
+# unsprung mass front [kg]  UMASSF
+m_uf: 63.7921826056784
+# unsprung mass rear [kg]  UMASSR
+m_ur: 63.7921826056784
+
+# axes distances
+# distance from spring mass center of gravity to front axle [m]  LENA
+a: 1.1561957064
+# distance from spring mass center of gravity to rear axle [m]  LENB
+b: 1.4227170936
+
+# moments of inertia of sprung mass
+# moment of inertia for sprung mass in roll [kg m^2]  IXS
+I_Phi_s: 207.26524557936952
+# moment of inertia for sprung mass in pitch [kg m^2]  IYS
+I_y_s: 1565.8178787125541
+# moment of inertia for sprung mass in yaw [kg m^2]  IZZ
+I_z: 1791.5995300122856
+# moment of inertia cross product [kg m^2]  IXZ
+I_xz_s: 0.0
+
+# suspension parameters
+# suspension spring rate (front) [N/m]  KSF
+K_sf: 24453.137879749014
+# suspension damping rate (front) [N s/m]  KSDF
+K_sdf: 1786.2441002440723
+# suspension spring rate (rear) [N/m]  KSR
+K_sr: 19635.504745231297
+# suspension damping rate (rear) [N s/m]  KSDR
+K_sdr: 1649.0833034887382
+
+# geometric parameters
+# track width front [m]  TRWF
+T_f: 1.38684
+# track width rear [m]  TRWB
+T_r: 1.36398
+# lateral spring rate at compliant compliant pin joint between M_s and M_u [N/m]  KRAS
+K_ras: 175186.65943700788
+
+# auxiliary torsion roll stiffness per axle (normally negative) (front) [N m/rad]  KTSF
+K_tsf: -6914.881688272133
+# auxiliary torsion roll stiffness per axle (normally negative) (rear) [N m/rad]  KTSR
+K_tsr: -2643.6009520155308
+# damping rate at compliant compliant pin joint between M_s and M_u [N s/m]  KRADP
+K_rad: 10215.732056044453
+# vertical spring rate of tire [N/m]  KZT
+K_zt: 158294.1398119115
+
+# center of gravity height of total mass [m]  HCG (mainly required for conversion to other vehicle models)
+h_cg: 0.5748689544000001
+# height of roll axis above ground (front) [m]  HRAF
+h_raf: 0.0
+# height of roll axis above ground (rear) [m]  HRAR
+h_rar: 0.0
+
+# M_s center of gravity above ground [m]  HS
+h_s: 0.61373004
+
+# moment of inertia for unsprung mass about x-axis (front) [kg m^2]  IXUF
+I_uf: 30.673279563178017
+# moment of inertia for unsprung mass about x-axis (rear) [kg m^2]  IXUR
+I_ur: 29.670408143156248
+# wheel inertia, from internet forum for 235/65 R 17 [kg m^2]
+I_y_w: 1.7
+
+# lateral compliance rate of tire, wheel, and suspension, per tire [m/N]  KLT
+K_lt: 1.6430724599974725e-05
+# effective wheel/tire radius  chosen as tire rolling radius RR  taken from ADAMS documentation [m]
+R_w: 0.344
+
+# split of brake and engine torque
+T_sb: 0.66
+T_se: 0
+
+# suspension parameters
+# [rad/m]  DF
+D_f: -0.39370078740157477
+# [rad/m]  DR
+D_r: -0.905511811023622
+# [needs conversion if nonzero]  EF
+E_f: 0
+# [needs conversion if nonzero]  ER
+E_r: 0

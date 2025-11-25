@@ -1,0 +1,52 @@
+# parameters_vehicle4 - parameter set of the kinematic single track model with on-axle trailer (truck model)
+
+# see Althoff, M. and Würsching, G. "CommonRoad: Vehicle Models", 2020, (pp. 6-8)
+# <https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/blob/master/vehicleModels_commonRoad.pdf>
+
+# vehicle body dimensions
+# vehicle length [m]
+l: 5.1
+# vehicle width [m]
+w: 2.55
+
+# steering constraints
+steering:
+  # minimum steering angle [rad]
+  max: 0.55
+  # maximum steering angle [rad]
+  min: -0.55
+  # minimum steering velocity [rad/s]
+  v_max: 0.7103
+  # maximum steering velocity [rad/s]
+  v_min: -0.7103
+
+# longitudinal constraints
+longitudinal:
+  # maximum absolute acceleration [m/s^2]
+  a_max: 11.5
+  # maximum velocity [m/s]
+  v_max: 22.22
+  # minimum velocity [m/s]
+  v_min: -2.78
+  # switching velocity [m/s]
+  v_switch: 7.824
+
+# axes distances
+# distance from spring mass center of gravity to front axle [m]  LENA
+a: 1.8
+# distance from spring mass center of gravity to rear axle [m]  LENB
+b: 1.8
+
+
+# trailer parameters
+trailer:
+# trailer length [m]
+  l: 13.6
+# trailer width [m]
+  w: 2.55
+# hitch length [m]
+  l_hitch: 12.0
+# total system length [m]
+  l_total: 16.5
+# trailer wheelbase [m]
+  l_wb: 8.1

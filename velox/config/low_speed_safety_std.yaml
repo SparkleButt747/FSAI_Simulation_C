@@ -1,0 +1,13 @@
+# Model-specific low-speed safety thresholds for the single-track drift model.
+drift_enabled: true
+stop_speed_epsilon: 0.05
+normal:
+  engage_speed: 0.1
+  release_speed: 0.8
+  yaw_rate_limit: 0.5
+  slip_angle_limit: 0.35
+drift:
+  engage_speed: 0.2
+  release_speed: 0.5
+  yaw_rate_limit: 0.8
+  slip_angle_limit: 0.6

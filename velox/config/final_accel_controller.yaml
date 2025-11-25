@@ -1,0 +1,5 @@
+tau_throttle: 0.1
+tau_brake: 0.1
+accel_min: -8.0
+accel_max: 4.0
+stop_speed_epsilon: 0.05

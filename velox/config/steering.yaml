@@ -1,0 +1,12 @@
+wheel:
+  max_angle: 0.6        # [rad]
+  max_rate: 3.5         # [rad/s]
+  nudge_angle: 0.06     # [rad] incremental change per input step
+  centering_stiffness: 5.0  # [1/s] pull-back rate towards center
+  centering_deadband: 0.01  # [rad] no centering within this window
+final:
+  min_angle: -0.6       # [rad]
+  max_angle: 0.6        # [rad]
+  max_rate: 2.5         # [rad/s]
+  actuator_time_constant: 0.18  # [s]
+  smoothing_time_constant: 0.12  # [s]
