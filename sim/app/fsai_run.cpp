@@ -48,7 +48,7 @@
 #include "types.h"
 #include "World.hpp"
 #include "WorldRenderAdapter.hpp"
-#include "VehicleDynamics.hpp"
+#include "VeloxVehicleDynamics.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/mission/TrackCsvLoader.hpp"
 #include "adsdv_dbc.hpp"
@@ -1721,7 +1721,10 @@ int main(int argc, char* argv[]) {
 
   const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
-  VehicleDynamics vehicle_dynamics(vehicle_param);
+  fsai::vehicle::VeloxVehicleDynamics::Config dynamics_cfg{};
+  dynamics_cfg.config_root = MakeProjectRelativePath(std::filesystem::path("velox/config"));
+  dynamics_cfg.parameter_root = MakeProjectRelativePath(std::filesystem::path("velox/parameters"));
+  fsai::vehicle::VeloxVehicleDynamics vehicle_dynamics(dynamics_cfg);
   // =============================
   // WORLD + VEHICLE DYNAMICS SECTION
   // Bind the vehicle model into the World subsystem so it can handle track
@@ -1765,7 +1768,7 @@ int main(int argc, char* argv[]) {
   world_vehicle_ctx.dynamics = &vehicle_dynamics;
   world_vehicle_ctx.reset_handler =
       [&world, &vehicle_dynamics, &pending_vehicle_reset](const WorldVehicleSpawn& spawn) {
-        vehicle_dynamics.setState(spawn.state, spawn.transform);
+        vehicle_dynamics.set_state(spawn.state, spawn.transform);
         pending_vehicle_reset = spawn;
       };
   world.init(world_vehicle_ctx, world_config);
@@ -2229,7 +2232,7 @@ int main(int argc, char* argv[]) {
     world.brakeInput = appliedBrake;
     world.steeringAngle = appliedSteer;
 
-    vehicle_dynamics.setCommand(appliedThrottle, appliedBrake, appliedSteer);
+    vehicle_dynamics.set_command(appliedThrottle, appliedBrake, appliedSteer);
     vehicle_dynamics.step(step_seconds);
 
     {
@@ -2255,26 +2258,32 @@ int main(int argc, char* argv[]) {
     const double sim_time_s = fsai_clock_to_seconds(now_ns);
 
     const auto& vehicle_state = world.vehicle_state();
-    const auto& model = vehicle_dynamics.model();
-    const auto& pt_status = model.lastPowertrainStatus();
-    const auto& brake_status = model.lastBrakeStatus();
     const WheelsInfo& wheel_info = world.wheels_info();
-    const double wheel_radius = std::max(0.01, model.param().tire.radius);
-    const double front_drive_force = pt_status.front_drive_force - pt_status.front_regen_force;
-    const double rear_drive_force = pt_status.rear_drive_force - pt_status.rear_regen_force;
-    const double front_net_force = front_drive_force - brake_status.front_force;
-    const double rear_net_force = rear_drive_force - brake_status.rear_force;
+    const auto& velox_telemetry = vehicle_dynamics.telemetry();
+    const double wheel_radius = std::max(0.01, vehicle_dynamics.wheel_radius());
+    const double front_drive_force = velox_telemetry.front_axle.drive_torque / wheel_radius;
+    const double rear_drive_force = velox_telemetry.rear_axle.drive_torque / wheel_radius;
+    const double front_brake_force = velox_telemetry.front_axle.brake_torque / wheel_radius;
+    const double rear_brake_force = velox_telemetry.rear_axle.brake_torque / wheel_radius;
+    const double front_regen_force = velox_telemetry.front_axle.regen_torque / wheel_radius;
+    const double rear_regen_force = velox_telemetry.rear_axle.regen_torque / wheel_radius;
+    const double front_drive_minus_regen = front_drive_force - front_regen_force;
+    const double rear_drive_minus_regen = rear_drive_force - rear_regen_force;
+    const double front_net_force = front_drive_force - front_brake_force - front_regen_force;
+    const double rear_net_force = rear_drive_force - rear_brake_force - rear_regen_force;
     const double front_axle_torque_nm = front_drive_force * wheel_radius;
     const double rear_axle_torque_nm = rear_drive_force * wheel_radius;
 
-    const double max_brake_force = std::max(1.0, model.param().brakes.max_force);
+    const double max_brake_force = std::max(1.0, vehicle_param.brakes.max_force);
     const double front_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_front_bias);
     const double rear_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_rear_bias);
+    const double total_front_brake_force = std::max(0.0, front_brake_force + front_regen_force);
+    const double total_rear_brake_force = std::max(0.0, rear_brake_force + rear_regen_force);
     const double front_brake_pct = front_max_force > 0.0
-                                       ? (std::max(0.0, brake_status.front_force) / front_max_force) * 100.0
+                                       ? (total_front_brake_force / front_max_force) * 100.0
                                        : 0.0;
     const double rear_brake_pct = rear_max_force > 0.0
-                                      ? (std::max(0.0, brake_status.rear_force) / rear_max_force) * 100.0
+                                      ? (total_rear_brake_force / rear_max_force) * 100.0
                                       : 0.0;
 
     const double vehicle_speed_mps = std::sqrt(
@@ -2302,8 +2311,8 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.drive.rear_net_force_n = static_cast<float>(rear_net_force);
     runtime_telemetry.drive.front_axle_torque_nm = static_cast<float>(front_axle_torque_nm);
     runtime_telemetry.drive.rear_axle_torque_nm = static_cast<float>(rear_axle_torque_nm);
-    runtime_telemetry.brake.front_force_n = static_cast<float>(brake_status.front_force);
-    runtime_telemetry.brake.rear_force_n = static_cast<float>(brake_status.rear_force);
+    runtime_telemetry.brake.front_force_n = static_cast<float>(total_front_brake_force);
+    runtime_telemetry.brake.rear_force_n = static_cast<float>(total_rear_brake_force);
     runtime_telemetry.brake.front_pct = static_cast<float>(front_brake_pct);
     runtime_telemetry.brake.rear_pct = static_cast<float>(rear_brake_pct);
     runtime_telemetry.acceleration.longitudinal_mps2 =
@@ -2479,13 +2488,11 @@ int main(int argc, char* argv[]) {
       has_wheel_meas = true;
     }
 
-    TorqueSample torque_sample{};
-    torque_sample.front_nm = static_cast<float>((pt_status.front_drive_force - pt_status.front_regen_force) *
-                                               wheel_radius +
-                                               sample_noise(sensor_cfg.drive_torque.front_noise_std_nm));
-    torque_sample.rear_nm = static_cast<float>((pt_status.rear_drive_force - pt_status.rear_regen_force) *
-                                              wheel_radius +
-                                              sample_noise(sensor_cfg.drive_torque.rear_noise_std_nm));
+      TorqueSample torque_sample{};
+      torque_sample.front_nm = static_cast<float>((front_drive_minus_regen * wheel_radius) +
+                                                 sample_noise(sensor_cfg.drive_torque.front_noise_std_nm));
+      torque_sample.rear_nm = static_cast<float>((rear_drive_minus_regen * wheel_radius) +
+                                                sample_noise(sensor_cfg.drive_torque.rear_noise_std_nm));
     torque_delay.push(now_ns, torque_sample);
     if (auto sample = torque_delay.poll(now_ns)) {
       torque_meas = *sample;
@@ -2493,8 +2500,8 @@ int main(int argc, char* argv[]) {
     }
 
     BrakeSample brake_sample{};
-    const double front_pct_raw = (std::max(0.0, brake_status.front_force) / front_max_force) * 100.0;
-    const double rear_pct_raw = (std::max(0.0, brake_status.rear_force) / rear_max_force) * 100.0;
+      const double front_pct_raw = (std::max(0.0, total_front_brake_force) / front_max_force) * 100.0;
+      const double rear_pct_raw = (std::max(0.0, total_rear_brake_force) / rear_max_force) * 100.0;
     brake_sample.front_pct = static_cast<float>(std::clamp(front_pct_raw +
                                            sample_noise(sensor_cfg.brake_pct.noise_std), 0.0, 100.0));
     brake_sample.rear_pct = static_cast<float>(std::clamp(rear_pct_raw +
@@ -2652,10 +2659,10 @@ int main(int argc, char* argv[]) {
     telemetry.wheel_speed_rpm[1] = wheel_info.rf_speed;
     telemetry.wheel_speed_rpm[2] = wheel_info.lb_speed;
     telemetry.wheel_speed_rpm[3] = wheel_info.rb_speed;
-    telemetry.brake_pressure_front_bar =
-        static_cast<float>(std::max(0.0, brake_status.front_force) / 1000.0);
-    telemetry.brake_pressure_rear_bar =
-        static_cast<float>(std::max(0.0, brake_status.rear_force) / 1000.0);
+      telemetry.brake_pressure_front_bar =
+          static_cast<float>(total_front_brake_force / 1000.0);
+      telemetry.brake_pressure_rear_bar =
+          static_cast<float>(total_rear_brake_force / 1000.0);
     telemetry.imu_ax_mps2 = static_cast<float>(vehicle_state.acceleration.x());
     telemetry.imu_ay_mps2 = static_cast<float>(vehicle_state.acceleration.y());
     telemetry.imu_yaw_rate_rps = static_cast<float>(vehicle_state.rotation.z());
