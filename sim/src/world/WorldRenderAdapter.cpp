@@ -20,8 +20,8 @@ namespace fsai::sim::world {
 namespace {
 constexpr float kConeDisplayScale = 12.0f;
 
-void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
-                    float base_width_m, const SDL_Color& color) {
+void DrawConeCrosshair(Graphics* graphics, int center_x, int center_y,
+                       float base_width_m, const SDL_Color& color) {
   if (graphics == nullptr || graphics->renderer == nullptr) {
     return;
   }
@@ -29,11 +29,35 @@ void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
   const float base_radius_px =
       0.5f * base_width_m * K_RENDER_SCALE * kConeDisplayScale;
   const int radius_px =
-      std::max(1, static_cast<int>(std::lround(base_radius_px)));
+      std::max(2, static_cast<int>(std::lround(base_radius_px)));
 
   SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
                          color.a);
-  Graphics_DrawFilledCircle(graphics, center_x, center_y, radius_px);
+  SDL_RenderDrawLine(graphics->renderer, center_x - radius_px, center_y,
+                     center_x + radius_px, center_y);
+  SDL_RenderDrawLine(graphics->renderer, center_x, center_y - radius_px,
+                     center_x, center_y + radius_px);
+  SDL_RenderDrawLine(graphics->renderer, center_x - radius_px,
+                     center_y - radius_px, center_x + radius_px,
+                     center_y + radius_px);
+  SDL_RenderDrawLine(graphics->renderer, center_x - radius_px,
+                     center_y + radius_px, center_x + radius_px,
+                     center_y - radius_px);
+}
+
+void DrawCheckpointSquare(Graphics* graphics, int center_x, int center_y,
+                          float size_px, const SDL_Color& color) {
+  if (graphics == nullptr || graphics->renderer == nullptr) {
+    return;
+  }
+  SDL_Rect rect{};
+  rect.x = static_cast<int>(std::lround(center_x - size_px * 0.5f));
+  rect.y = static_cast<int>(std::lround(center_y - size_px * 0.5f));
+  rect.w = static_cast<int>(std::lround(size_px));
+  rect.h = rect.w;
+  SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
+                         color.a);
+  SDL_RenderFillRect(graphics->renderer, &rect);
 }
 }  // namespace
 
@@ -152,6 +176,11 @@ void WorldRenderAdapter::drawScene(
       debug_packet ? debug_packet->right_cones : snapshot.right_cones;
   const auto& checkpoints =
       debug_packet ? debug_packet->checkpoints : snapshot.checkpoints;
+  const auto& controller_path_edges =
+      debug_packet ? debug_packet->controller_path_edges
+                   : snapshot.controller_path_edges;
+  const auto& vision_detections =
+      debug_packet ? debug_packet->detections : snapshot.detections;
   const std::size_t gate_count =
       std::min(left_cones.size(), right_cones.size());
 
@@ -197,14 +226,26 @@ void WorldRenderAdapter::drawScene(
     }
   } else {
     if (!checkpoints.empty()) {
-      SDL_SetRenderDrawColor(graphics_.renderer, 200, 0, 200, 255);
-      Graphics_DrawFilledCircle(
+      const SDL_Color checkpoint_color{210, 20, 20, 220};
+      DrawCheckpointSquare(
           &graphics_,
-          static_cast<int>(checkpoints.front().x * K_RENDER_SCALE +
-                           graphics_.width / 2.0f),
-          static_cast<int>(checkpoints.front().z * K_RENDER_SCALE +
-                           graphics_.height / 2.0f),
-          static_cast<int>(K_RENDER_SCALE));
+          static_cast<int>(std::lround(checkpoints.front().x * K_RENDER_SCALE +
+                                        graphics_.width / 2.0f)),
+          static_cast<int>(std::lround(checkpoints.front().z * K_RENDER_SCALE +
+                                        graphics_.height / 2.0f)),
+          std::max(4.0f, K_RENDER_SCALE * 1.5f), checkpoint_color);
+    }
+  }
+
+  if (!checkpoints.empty()) {
+    const SDL_Color checkpoint_color{210, 20, 20, 220};
+    for (const auto& checkpoint : checkpoints) {
+      const float cx = checkpoint.x * K_RENDER_SCALE + graphics_.width / 2.0f;
+      const float cy = checkpoint.z * K_RENDER_SCALE + graphics_.height / 2.0f;
+      DrawCheckpointSquare(&graphics_, static_cast<int>(std::lround(cx)),
+                           static_cast<int>(std::lround(cy)),
+                           std::max(4.0f, K_RENDER_SCALE * 1.5f),
+                           checkpoint_color);
     }
   }
 
@@ -216,8 +257,8 @@ void WorldRenderAdapter::drawScene(
                                         graphics_.width / 2.0f);
     const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
                                         graphics_.height / 2.0f);
-    DrawConeMarker(&graphics_, cone_x, cone_y,
-                   fsai::sim::kLargeConeRadiusMeters * 2.0f, start_color);
+    DrawConeCrosshair(&graphics_, cone_x, cone_y,
+                      fsai::sim::kLargeConeRadiusMeters * 2.0f, start_color);
   }
 
   const SDL_Color left_base{255, 214, 0, 255};
@@ -237,8 +278,8 @@ void WorldRenderAdapter::drawScene(
                                         graphics_.width / 2.0f);
     const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
                                         graphics_.height / 2.0f);
-    DrawConeMarker(&graphics_, cone_x, cone_y,
-                   fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
+    DrawConeCrosshair(&graphics_, cone_x, cone_y,
+                      fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
   }
 
   const SDL_Color right_base{0, 102, 204, 255};
@@ -258,8 +299,8 @@ void WorldRenderAdapter::drawScene(
                                         graphics_.width / 2.0f);
     const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
                                         graphics_.height / 2.0f);
-    DrawConeMarker(&graphics_, cone_x, cone_y,
-                   fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
+    DrawConeCrosshair(&graphics_, cone_x, cone_y,
+                      fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
   }
 
   const auto& transform = snapshot.vehicle_transform;
@@ -271,20 +312,20 @@ void WorldRenderAdapter::drawScene(
   Graphics_DrawCar(&graphics_, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
 
-  if (show_overlays && debug_packet && !debug_packet->detections.empty()) {
-    for (const auto& cone : debug_packet->detections) {
+  if (show_overlays && !vision_detections.empty()) {
+    for (const auto& cone : vision_detections) {
       int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                     graphics_.width / 2.0f);
       int cone_y = static_cast<int>(cone.y * K_RENDER_SCALE +
                                     graphics_.height / 2.0f);
+      SDL_Color color{150, 150, 150, 230};
       if (cone.side == FSAI_CONE_LEFT) {
-        SDL_SetRenderDrawColor(graphics_.renderer, 5, 200, 5, 255);
+        color = SDL_Color{40, 205, 40, 240};
       } else if (cone.side == FSAI_CONE_RIGHT) {
-        SDL_SetRenderDrawColor(graphics_.renderer, 200, 5, 5, 255);
-      } else {
-        SDL_SetRenderDrawColor(graphics_.renderer, 150, 150, 150, 250);
+        color = SDL_Color{215, 35, 35, 240};
       }
-      Graphics_DrawFilledCircle(&graphics_, cone_x, cone_y, 5);
+      DrawConeCrosshair(&graphics_, cone_x, cone_y,
+                        fsai::sim::kSmallConeRadiusMeters * 1.5f, color);
     }
   }
 
@@ -311,11 +352,13 @@ void WorldRenderAdapter::drawScene(
       Graphics_DrawSegment(&graphics_, edge.first.x, edge.first.y,
                            edge.second.x, edge.second.y, 50, 0, 255);
     }
-    if (debug_packet) {
-      for (const auto& edge : debug_packet->controller_path_edges) {
-        Graphics_DrawSegment(&graphics_, edge.first.x, edge.first.y,
-                             edge.second.x, edge.second.y, 255, 50, 50);
-      }
+    const SDL_Color path_color{0, 220, 200, 255};
+    for (const auto& edge : controller_path_edges) {
+      SDL_SetRenderDrawColor(graphics_.renderer, path_color.r, path_color.g,
+                             path_color.b, path_color.a);
+      Graphics_DrawSegment(&graphics_, edge.first.x, edge.first.y,
+                           edge.second.x, edge.second.y, path_color.r,
+                           path_color.g, path_color.b);
     }
   }
 }

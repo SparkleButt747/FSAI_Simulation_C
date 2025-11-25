@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -108,6 +109,15 @@ public:
     double total_distance_meters() const override { return runtime_.lap_distance_meters(); }
     double time_step_seconds() const override { return runtime_.time_step_seconds(); }
     int lap_count() const override { return runtime_.lap_count(); }
+    std::optional<fsai::sim::WorldRuntime::ResetReason> pending_reset_reason() const override {
+        return runtime_.pending_reset_reason();
+    }
+    const std::vector<std::pair<Vector2, Vector2>>& controller_path_edges() const override {
+        return bestPathEdges_;
+    }
+    const std::vector<FsaiConeDet>& debug_detections() const override {
+        return coneDetections_;
+    }
     bool vehicle_reset_pending() const override { return vehicleResetPending_; }
     void acknowledge_vehicle_reset(const Transform& appliedTransform) override {
         acknowledgeVehicleReset(appliedTransform);

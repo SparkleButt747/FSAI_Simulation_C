@@ -72,6 +72,7 @@ class InProcessIoBus final : public IoBus {
 
   void publish_world_debug(const fsai::world::WorldDebugPacket& packet) override;
   std::optional<fsai::world::WorldDebugPacket> latest_world_debug() override;
+  void clear_state();
 
  private:
   fsai::sim::svcu::TelemetryPacket apply_noise(

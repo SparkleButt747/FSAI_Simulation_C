@@ -1365,6 +1365,11 @@ class SensorDelayLine {
     return last_value_;
   }
 
+  void clear() {
+    queue_.clear();
+    last_value_.reset();
+  }
+
  private:
   uint64_t latency_ns_{0};
   std::deque<std::pair<uint64_t, T>> queue_{};
@@ -1711,6 +1716,7 @@ int main(int argc, char* argv[]) {
   World world;
   world.set_debug_publisher(io_bus.get());
   bool mission_finished = false;
+  std::optional<WorldVehicleSpawn> pending_vehicle_reset;
   const auto describe_reset_reason = [](fsai::sim::WorldRuntime::ResetReason reason)
       -> const char* {
     switch (reason) {
@@ -1745,11 +1751,16 @@ int main(int argc, char* argv[]) {
   WorldVehicleContext world_vehicle_ctx{};
   world_vehicle_ctx.dynamics = &vehicle_dynamics;
   world_vehicle_ctx.reset_handler =
-      [&world, &vehicle_dynamics](const WorldVehicleSpawn& spawn) {
+      [&world, &vehicle_dynamics, &pending_vehicle_reset](const WorldVehicleSpawn& spawn) {
         vehicle_dynamics.setState(spawn.state, spawn.transform);
-        world.acknowledgeVehicleReset(spawn.transform);
+        pending_vehicle_reset = spawn;
       };
   world.init(world_vehicle_ctx, world_config);
+
+  if (pending_vehicle_reset) {
+    world.acknowledgeVehicleReset(pending_vehicle_reset->transform);
+    pending_vehicle_reset.reset();
+  }
 
   fsai::sim::world::WorldRenderAdapter renderer(world_config.renderer, world,
                                                 *io_bus);
@@ -1979,6 +1990,37 @@ int main(int argc, char* argv[]) {
   fsai::control::runtime::Ai2VcuCommandSet last_ai2vcu_commands{};
   bool has_last_ai_command = false;
 
+  auto clear_runtime_state_for_reset = [&]() {
+    steer_delay.clear();
+    wheel_delay.clear();
+    torque_delay.clear();
+    brake_delay.clear();
+    speed_delay.clear();
+    imu_delay.clear();
+    gps_delay.clear();
+
+    has_steer_meas = false;
+    has_wheel_meas = false;
+    has_torque_meas = false;
+    has_brake_meas = false;
+    has_speed_meas = false;
+    has_imu_meas = false;
+    has_gps_meas = false;
+    has_last_ai_command = false;
+    last_ai2vcu_commands = {};
+
+    if (auto frame_buffer = stereo_frame_buffer) {
+      while (frame_buffer->tryPop()) {
+      }
+    }
+    if (auto detection_buffer = fsai::vision::getActiveDetectionBuffer()) {
+      while (detection_buffer->tryPop()) {
+      }
+    }
+
+    io_bus->clear_state();
+  };
+
   const uint64_t stale_threshold_ns =
       fsai_clock_from_seconds(kCommandStaleSeconds);
 
@@ -2168,6 +2210,19 @@ int main(int argc, char* argv[]) {
     {
       fsai::time::ControlStageTimer control_timer("world_update");
       world.update(step_seconds);
+    }
+
+    if (const auto pending_reason = world.runtime_controller().pending_reset_reason()) {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                           "Reset pending (%s); clearing buffered IO/vision state",
+                           describe_reset_reason(*pending_reason));
+      clear_runtime_state_for_reset();
+      mission_finished = false;
+      if (pending_vehicle_reset) {
+        world.acknowledgeVehicleReset(pending_vehicle_reset->transform);
+        pending_vehicle_reset.reset();
+      }
+      continue;
     }
     const double sim_time_s = fsai_clock_to_seconds(now_ns);
 

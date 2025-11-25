@@ -98,5 +98,13 @@ std::optional<fsai::world::WorldDebugPacket> InProcessIoBus::latest_world_debug(
   return last_debug_;
 }
 
+void InProcessIoBus::clear_state() {
+  raw_telemetry_.reset();
+  noisy_telemetry_.reset();
+  latest_command_.reset();
+  last_frame_.reset();
+  last_debug_.reset();
+}
+
 }  // namespace fsai::io
 

@@ -118,6 +118,7 @@ void WorldRuntime::AddMissionCompleteListener(
 }
 
 void WorldRuntime::EmitResetEvent(ResetReason reason) {
+  MarkResetPending(reason);
   const ResetEvent event{reason};
   for (const auto& listener : reset_listeners_) {
     if (listener) {
@@ -125,6 +126,12 @@ void WorldRuntime::EmitResetEvent(ResetReason reason) {
     }
   }
 }
+
+void WorldRuntime::MarkResetPending(ResetReason reason) {
+  pending_reset_reason_ = reason;
+}
+
+void WorldRuntime::AcknowledgeResetRequest() { pending_reset_reason_.reset(); }
 
 void WorldRuntime::ConfigureStraightLineTracker() {
   straight_tracker_ = {};
