@@ -17,5 +17,14 @@ control:
   steering_lookahead_sensitivity: 0.0
   acceleration_factor: 0.0019
 
+renderer:
+  enable_window: true
+  publish_stereo_frames: true
+  show_debug_overlays: true
+  window_width: 800
+  window_height: 600
+  window_title: "Car Simulation 2D"
+  stereo_provider: sim_stereo
+
 # Optional mission overrides. Leave values unset to keep mission defaults.
 mission_override: {}

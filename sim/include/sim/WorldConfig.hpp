@@ -33,14 +33,24 @@ struct WorldMissionOverride {
     std::optional<fsai::sim::TrackSource> trackSource{};
 };
 
+struct WorldRendererConfig {
+    bool enable_window{true};
+    bool publish_stereo_frames{true};
+    bool show_debug_overlays{true};
+    int window_width{800};
+    int window_height{600};
+    std::string window_title{"Car Simulation 2D"};
+    std::string stereo_provider{"sim_stereo"};
+};
+
 struct WorldConfig {
     fsai::sim::MissionDefinition mission;
     WorldVisibilityConfig visibility{};
     WorldTuningConfig tuning{};
     WorldControlConfig control{};
     WorldMissionOverride missionOverride{};
+    WorldRendererConfig renderer{};
 };
 
 WorldConfig LoadWorldConfig(const std::string& yamlFile,
                             const fsai::sim::MissionDefinition& mission);
-

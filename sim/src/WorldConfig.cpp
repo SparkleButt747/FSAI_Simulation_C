@@ -93,6 +93,25 @@ WorldConfig LoadWorldConfig(const std::string& yamlFile,
         }
     }
 
+    if (auto renderer = root["renderer"]) {
+        config.renderer.enable_window =
+            getOrDefault(renderer, "enable_window", config.renderer.enable_window);
+        config.renderer.publish_stereo_frames = getOrDefault(
+            renderer, "publish_stereo_frames", config.renderer.publish_stereo_frames);
+        config.renderer.show_debug_overlays = getOrDefault(
+            renderer, "show_debug_overlays", config.renderer.show_debug_overlays);
+        config.renderer.window_width =
+            getOrDefault(renderer, "window_width", config.renderer.window_width);
+        config.renderer.window_height =
+            getOrDefault(renderer, "window_height", config.renderer.window_height);
+        if (auto title = renderer["window_title"]) {
+            config.renderer.window_title = title.as<std::string>(config.renderer.window_title);
+        }
+        if (auto provider = renderer["stereo_provider"]) {
+            config.renderer.stereo_provider = provider.as<std::string>(config.renderer.stereo_provider);
+        }
+    }
+
     if (config.missionOverride.targetLaps) {
         config.mission.targetLaps = *config.missionOverride.targetLaps;
     }
@@ -105,4 +124,3 @@ WorldConfig LoadWorldConfig(const std::string& yamlFile,
 
     return config;
 }
-
