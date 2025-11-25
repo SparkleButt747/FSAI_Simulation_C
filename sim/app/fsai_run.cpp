@@ -48,7 +48,7 @@
 #include "types.h"
 #include "World.hpp"
 #include "WorldRenderAdapter.hpp"
-#include "sim/vehicle_dynamics/VeloxVehicleDynamics.hpp"
+#include "VeloxVehicleDynamics.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/mission/TrackCsvLoader.hpp"
 #include "adsdv_dbc.hpp"

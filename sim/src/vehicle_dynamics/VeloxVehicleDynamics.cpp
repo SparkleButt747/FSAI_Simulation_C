@@ -1,4 +1,4 @@
-#include "sim/vehicle_dynamics/VeloxVehicleDynamics.hpp"
+#include "VeloxVehicleDynamics.hpp"
 
 #include <algorithm>
 #include <cmath>
