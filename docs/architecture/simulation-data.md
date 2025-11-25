@@ -14,7 +14,7 @@
 
 ## Public getters consumed by GUI/control (`sim/app/fsai_run.cpp`)
 
-* Rendering pulls cones, checkpoints, lookahead indices, vehicle pose, and detection overlays directly from the `World` getters for draw calls.【F:sim/app/fsai_run.cpp†L1322-L1465】
+* Rendering pulls cones, checkpoints, lookahead indices, and vehicle pose directly from the `World` getters for draw calls, while debug overlays (detections, controller path) flow through the IO debug channel.【F:sim/src/world/WorldRenderAdapter.cpp†L141-L240】【F:sim/app/fsai_run.cpp†L2565-L2597】
 * Control loop reads and optionally overrides `World` control fields (`throttleInput`, `brakeInput`, `steeringAngle`), invokes `computeRacingControl`, writes the neutral inputs back, and drives `VehicleDynamics::setCommand` before `World::update` consumes them.【F:sim/app/fsai_run.cpp†L2189-L2321】
 * Runtime telemetry populates GUI/control panels using `World` getters for lap timing, distance, mission progress, and mission descriptors.【F:sim/app/fsai_run.cpp†L2247-L2291】
 
@@ -26,6 +26,6 @@
 
 ## Surfaces that should be private/mediated
 
-* Mutable `World` fields (`throttleInput`, `brakeInput`, `steeringAngle`, `coneDetections`, `bestPathEdges`, `useController`, `regenTrack`) are public and written by UI/control code, bypassing validation or mission state checks.【F:sim/include/sim/World.hpp†L51-L58】【F:sim/app/fsai_run.cpp†L2189-L2316】
-* Geometry accessors expose mutable vectors (cones, checkpoints) used for rendering and path planning; callers could hold stale references across resets/regenerations.【F:sim/include/sim/World.hpp†L61-L115】【F:sim/app/fsai_run.cpp†L1322-L1465】
+* Mutable `World` fields (`throttleInput`, `brakeInput`, `steeringAngle`, `useController`, `regenTrack`) are public and written by UI/control code, bypassing validation or mission state checks.【F:sim/include/sim/World.hpp†L50-L56】【F:sim/app/fsai_run.cpp†L2179-L2325】
+* Geometry accessors expose mutable vectors (cones, checkpoints) used for rendering and path planning; callers could hold stale references across resets/regenerations.【F:sim/include/sim/World.hpp†L60-L114】【F:sim/app/gui_world_adapter.cpp†L5-L18】
 * Telemetry uses authoritative `World` state, but S-VCU transmissions build on noisy sensor facades; separating “truth” from “telemetry” producers would clarify which consumers should see which feed.【F:sim/app/fsai_run.cpp†L2230-L2291】【F:sim/app/fsai_run.cpp†L2391-L2479】

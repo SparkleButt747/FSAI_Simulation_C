@@ -108,8 +108,9 @@ void WorldRenderAdapter::Render(
   }
 
   const auto snapshot = gui_adapter_.snapshot();
+  const auto debug_packet = io_bus_.latest_world_debug();
   if (window_initialized_) {
-    drawScene(snapshot, telemetry);
+    drawScene(snapshot, telemetry, debug_packet);
   }
   if (stereo_source_) {
     publishStereoFrame(snapshot, now_ns);
@@ -133,7 +134,8 @@ void WorldRenderAdapter::Present() {
 
 void WorldRenderAdapter::drawScene(
     const fsai::sim::app::GuiWorldSnapshot& snapshot,
-    const fsai::sim::app::RuntimeTelemetry& telemetry) {
+    const fsai::sim::app::RuntimeTelemetry& telemetry,
+    const std::optional<fsai::world::WorldDebugPacket>& debug_packet) {
   (void)telemetry;
   fsai::time::SimulationStageTimer render_timer("renderer");
 
@@ -142,8 +144,14 @@ void WorldRenderAdapter::drawScene(
     Graphics_DrawGrid(&graphics_, 50);
   }
 
-  const auto& left_cones = snapshot.left_cones;
-  const auto& right_cones = snapshot.right_cones;
+  const auto& start_cones =
+      debug_packet ? debug_packet->start_cones : snapshot.start_cones;
+  const auto& left_cones =
+      debug_packet ? debug_packet->left_cones : snapshot.left_cones;
+  const auto& right_cones =
+      debug_packet ? debug_packet->right_cones : snapshot.right_cones;
+  const auto& checkpoints =
+      debug_packet ? debug_packet->checkpoints : snapshot.checkpoints;
   const std::size_t gate_count =
       std::min(left_cones.size(), right_cones.size());
 
@@ -188,7 +196,6 @@ void WorldRenderAdapter::drawScene(
       }
     }
   } else {
-    const auto& checkpoints = snapshot.checkpoints;
     if (!checkpoints.empty()) {
       SDL_SetRenderDrawColor(graphics_.renderer, 200, 0, 200, 255);
       Graphics_DrawFilledCircle(
@@ -203,8 +210,6 @@ void WorldRenderAdapter::drawScene(
 
   const auto& lookahead = snapshot.lookahead;
   const bool show_overlays = config_.show_debug_overlays;
-
-  const auto& start_cones = snapshot.start_cones;
   const SDL_Color start_color{255, 140, 0, 255};
   for (const auto& cone : start_cones) {
     const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
@@ -216,7 +221,7 @@ void WorldRenderAdapter::drawScene(
   }
 
   const SDL_Color left_base{255, 214, 0, 255};
-  for (size_t i = 0; i < snapshot.left_cones.size(); ++i) {
+  for (size_t i = 0; i < left_cones.size(); ++i) {
     SDL_Color color = left_base;
     if (show_overlays) {
       if (i == 0) {
@@ -227,7 +232,7 @@ void WorldRenderAdapter::drawScene(
         color = SDL_Color{255, 0, 255, 255};
       }
     }
-    const auto& cone = snapshot.left_cones[i];
+    const auto& cone = left_cones[i];
     const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                         graphics_.width / 2.0f);
     const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
@@ -237,7 +242,7 @@ void WorldRenderAdapter::drawScene(
   }
 
   const SDL_Color right_base{0, 102, 204, 255};
-  for (size_t i = 0; i < snapshot.right_cones.size(); ++i) {
+  for (size_t i = 0; i < right_cones.size(); ++i) {
     SDL_Color color = right_base;
     if (show_overlays) {
       if (i == 0) {
@@ -248,7 +253,7 @@ void WorldRenderAdapter::drawScene(
         color = SDL_Color{255, 0, 255, 255};
       }
     }
-    const auto& cone = snapshot.right_cones[i];
+    const auto& cone = right_cones[i];
     const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                         graphics_.width / 2.0f);
     const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
@@ -266,8 +271,8 @@ void WorldRenderAdapter::drawScene(
   Graphics_DrawCar(&graphics_, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
 
-  if (show_overlays && snapshot.detections != nullptr) {
-    for (const auto& cone : *snapshot.detections) {
+  if (show_overlays && debug_packet && !debug_packet->detections.empty()) {
+    for (const auto& cone : debug_packet->detections) {
       int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                     graphics_.width / 2.0f);
       int cone_y = static_cast<int>(cone.y * K_RENDER_SCALE +
@@ -299,16 +304,18 @@ void WorldRenderAdapter::drawScene(
     std::vector<std::pair<Vector2, Vector2>> triangulation_edges =
         getVisibleTriangulationEdges(
             snapshot.vehicle_state,
-            to_cones(snapshot.left_cones, ConeType::Left),
-            to_cones(snapshot.right_cones, ConeType::Right))
+            to_cones(left_cones, ConeType::Left),
+            to_cones(right_cones, ConeType::Right))
             .second;
     for (const auto& edge : triangulation_edges) {
       Graphics_DrawSegment(&graphics_, edge.first.x, edge.first.y,
                            edge.second.x, edge.second.y, 50, 0, 255);
     }
-    for (const auto& edge : snapshot.best_path_edges) {
-      Graphics_DrawSegment(&graphics_, edge.first.x, edge.first.y,
-                           edge.second.x, edge.second.y, 255, 50, 50);
+    if (debug_packet) {
+      for (const auto& edge : debug_packet->controller_path_edges) {
+        Graphics_DrawSegment(&graphics_, edge.first.x, edge.first.y,
+                             edge.second.x, edge.second.y, 255, 50, 50);
+      }
     }
   }
 }

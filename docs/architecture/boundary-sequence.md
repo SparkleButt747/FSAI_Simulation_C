@@ -15,7 +15,8 @@ sequenceDiagram
     IO->>World: publish_ground_truth(world)
     World->>Dyn: set_command(throttle, brake, steer)
     Dyn-->>World: state(), transform(), wheels_info()
-    World-->>IO: ground_truth_detections(), vehicle_state()
+    World-->>IO: vehicle_state(), track geometry
+    World-->>IO: publish_debug_packet(WorldDebugPacket)
     IO-->>Control: latest_raw_telemetry()
 ```
 
@@ -32,7 +33,8 @@ sequenceDiagram
     IO->>World: publish_ground_truth(world)
     World->>Dyn: set_command(throttle, brake, steer)
     Dyn-->>World: state(), transform(), wheels_info()
-    World-->>IO: ground_truth_detections(), vehicle_state()
+    World-->>IO: vehicle_state(), track geometry
+    World-->>IO: publish_debug_packet(WorldDebugPacket)
     IO->>IO: set_noise_config(TelemetryNoiseConfig)
     IO-->>Control: latest_noisy_telemetry(), latest_stereo_frame()
 ```

@@ -1709,6 +1709,7 @@ int main(int argc, char* argv[]) {
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
   VehicleDynamics vehicle_dynamics(vehicle_param);
   World world;
+  world.set_debug_publisher(io_bus.get());
   bool mission_finished = false;
   const auto describe_reset_reason = [](fsai::sim::WorldRuntime::ResetReason reason)
       -> const char* {
@@ -2594,11 +2595,12 @@ int main(int argc, char* argv[]) {
       exit(-1);
     }
     auto detections = detection_buffer->tryPop();
+    std::vector<FsaiConeDet> debug_detections;
     if (detections != std::nullopt) {
-        for (int i = 0; i < detections->n; i++) {
-          world.coneDetections.push_back(detections->dets[i]);
-      }
+        debug_detections.assign(detections->dets, detections->dets + detections->n);
     }
+    world.set_debug_detections(std::move(debug_detections));
+    world.publish_debug_state();
 
     renderer.Render(now_ns, runtime_telemetry);
     if (imgui_initialized) {

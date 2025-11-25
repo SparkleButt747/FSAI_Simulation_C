@@ -39,7 +39,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     auto [nodes, adj] = generateGraph(triangulation, getCarFront(state), coneToSide);
     auto searchResult = beamSearch(adj, nodes, getCarFront(state), 30, 2, 20);
     auto pathNodes = searchResult.first;
-    bestPathEdges = searchResult.second;
+    bestPathEdges_ = searchResult.second;
     auto checkpoints = pathNodesToCheckpoints(pathNodes);
     lookaheadIndices = Controller_GetLookaheadIndices(
         static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
@@ -313,6 +313,29 @@ void World::reset(const ResetDecision& decision) {
     configureMissionRuntime();
 
     initializeVehiclePose();
-    coneDetections.clear();
+    coneDetections_.clear();
+    bestPathEdges_.clear();
     publishVehicleSpawn();
+}
+
+void World::publish_debug_state() const {
+    if (!debug_mode() || debugPublisher_ == nullptr) {
+        return;
+    }
+
+    fsai::world::WorldDebugPacket packet{};
+    packet.start_cones = startConePositions_;
+    packet.left_cones = leftConePositions_;
+    packet.right_cones = rightConePositions_;
+    packet.checkpoints = checkpointPositions;
+    packet.controller_path_edges = bestPathEdges_;
+    packet.detections = coneDetections_;
+
+    publishDebugPacket(packet);
+}
+
+void World::publishDebugPacket(const fsai::world::WorldDebugPacket& packet) const {
+    if (debugPublisher_ != nullptr) {
+        debugPublisher_->publish_debug_packet(packet);
+    }
 }

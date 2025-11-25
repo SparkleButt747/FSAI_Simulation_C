@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <SDL.h>
@@ -12,6 +13,7 @@
 #include "io_bus.hpp"
 #include "runtime_telemetry.hpp"
 #include "sim/architecture/IWorldView.hpp"
+#include "sim/architecture/WorldDebug.hpp"
 
 namespace fsai::io::camera::sim_stereo {
 class SimStereoSource;
@@ -48,7 +50,8 @@ class WorldRenderAdapter {
 
  private:
   void drawScene(const fsai::sim::app::GuiWorldSnapshot& snapshot,
-                 const fsai::sim::app::RuntimeTelemetry& telemetry);
+                 const fsai::sim::app::RuntimeTelemetry& telemetry,
+                 const std::optional<fsai::world::WorldDebugPacket>& debug_packet);
   void publishStereoFrame(const fsai::sim::app::GuiWorldSnapshot& snapshot,
                           uint64_t now_ns);
 
