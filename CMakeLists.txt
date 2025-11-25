@@ -244,6 +244,8 @@ list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
 file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/fsai_plan.cpp")
 
+set(VELOX_PARAM_ROOT_DIR "${CMAKE_SOURCE_DIR}/velox/parameters")
+
 add_library(fsai_sim STATIC
   ${SIM_C_SOURCES}
   ${SIM_CPP_SOURCES}
@@ -260,6 +262,7 @@ target_link_libraries(fsai_sim PUBLIC
   onnxruntime::onnxruntime
   ${OpenCV_LIBRARIES}
 )
+target_compile_definitions(fsai_sim PUBLIC VELOX_PARAM_ROOT="${VELOX_PARAM_ROOT_DIR}")
 
 
 add_library(fsai_ctrl STATIC
@@ -274,6 +277,7 @@ target_link_libraries(fsai_ctrl PUBLIC
   m
   yaml-cpp::yaml-cpp
 )
+target_compile_definitions(fsai_ctrl PUBLIC VELOX_PARAM_ROOT="${VELOX_PARAM_ROOT_DIR}")
 
 file(GLOB SIM_UNIT_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/sim/src/tests/*.cpp")
 if(SIM_UNIT_TEST_SOURCES)
