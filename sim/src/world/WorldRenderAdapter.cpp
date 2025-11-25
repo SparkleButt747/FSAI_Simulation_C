@@ -1,5 +1,7 @@
 #include "WorldRenderAdapter.hpp"
 
+#include "logging.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -9,7 +11,6 @@
 
 #include "budget.h"
 #include "centerline.hpp"
-#include "logging.hpp"
 #include "sim_stereo_source.hpp"
 #include "sim/cone_constants.hpp"
 #include "sim/integration/provider_registry.hpp"

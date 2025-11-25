@@ -5,6 +5,8 @@
  * Calculate glob coordinate
  */
 #include "vision/vision_node.hpp"
+#include "logging.hpp"
+
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <iomanip>
@@ -16,7 +18,6 @@
 
 #include "vision/detection_buffer_registry.hpp"
 #include "common/include/common/types.h"
-#include "logging.hpp"
 #include <iostream>
 #include <chrono>
 
