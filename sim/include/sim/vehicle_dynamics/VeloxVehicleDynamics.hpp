@@ -24,6 +24,7 @@ public:
     [[nodiscard]] const VehicleState& state() const override { return state_; }
     [[nodiscard]] const Transform& transform() const override { return transform_; }
     [[nodiscard]] const WheelsInfo& wheels_info() const override { return wheels_info_; }
+    [[nodiscard]] const velox::telemetry::SimulationTelemetry& telemetry() const { return last_telemetry_; }
 
 private:
     void refresh_input_limits();
