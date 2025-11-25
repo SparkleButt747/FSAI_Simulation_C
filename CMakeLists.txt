@@ -182,6 +182,7 @@ list(APPEND HEADER_DIRS
   "${CMAKE_SOURCE_DIR}/sim/include"
   "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
   "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+  "${CMAKE_SOURCE_DIR}/velox/lib"
 )
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
