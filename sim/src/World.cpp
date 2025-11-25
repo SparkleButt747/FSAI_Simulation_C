@@ -11,6 +11,10 @@
 #include "World.hpp"
 #include "centerline.hpp"
 
+// WORLD SYSTEM: orchestrates track generation, vehicle binding, collision
+// detection, mission timing, and publishes debug/telemetry to downstream
+// systems. The flow below highlights how the world owns vehicle dynamics,
+// runtime state, and reset policy so fsai_run can remain mostly orchestration.
 World::World() {
     runtime_.AddMissionCompleteListener(
         [this](const fsai::sim::MissionRuntimeState&) {
@@ -129,6 +133,9 @@ void World::init(const WorldVehicleContext& vehicleContext, const WorldConfig& w
     trackBuilderConfig_.vehicleCollisionRadius = config.vehicleCollisionRadius;
     trackBuilderConfig_.pathConfig = PathConfig{};
 
+    // TRACK PIPELINE: generate and load the requested mission layout, then
+    // hand the checkpoints, cones, and boundaries into runtime + collision
+    // subsystems before seeding the vehicle pose.
     trackState_ = buildTrackState();
     configureTrackState(trackState_);
     configureMissionRuntime();
@@ -145,6 +152,9 @@ void World::init(const WorldVehicleContext& vehicleContext, const WorldConfig& w
 }
 
 void World::update(double dt) {
+    // WORLD TICK: advance mission runtime, collision detection, and reset
+    // policies. All data used by fsai_run (telemetry, render snapshot, reset
+    // flags) flows out after this call.
     const auto& dynamics = vehicleDynamics();
     runtime_.BeginStep(dt);
 
