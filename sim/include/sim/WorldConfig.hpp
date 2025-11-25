@@ -25,6 +25,9 @@ struct WorldControlConfig {
     float speedLookAheadSensitivity{0.5f};
     float steeringLookAheadSensitivity{0.0f};
     float accelerationFactor{0.0019f};
+    std::size_t pathSearchMaxLength{30};
+    std::size_t pathSearchMinLength{2};
+    std::size_t pathSearchBeamWidth{20};
 };
 
 struct WorldMissionOverride {
