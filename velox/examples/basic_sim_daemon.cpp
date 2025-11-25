@@ -1,8 +1,8 @@
 #include <iostream>
 #include <vector>
 
-#include "simulation/simulation_daemon.hpp"
-#include "telemetry/telemetry.hpp"
+#include "simulation_daemon.hpp"
+#include "telemetry.hpp"
 
 int main()
 {

@@ -1,10 +1,10 @@
-#include "controllers/longitudinal/brake.hpp"
+#include "brake.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 namespace velox::controllers::longitudinal {
 
 void BrakeConfig::validate() const

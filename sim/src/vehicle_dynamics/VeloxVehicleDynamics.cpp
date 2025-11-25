@@ -4,8 +4,8 @@
 #include <cmath>
 #include <numeric>
 
-#include "common/errors.hpp"
-#include "controllers/longitudinal/powertrain.hpp"
+#include "errors.hpp"
+#include "powertrain.hpp"
 
 using velox::controllers::longitudinal::PowertrainConfig;
 using velox::simulation::ControlMode;

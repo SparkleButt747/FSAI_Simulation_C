@@ -1,7 +1,7 @@
 #pragma once
 
 #include "imgui.h"
-#include "telemetry/telemetry.hpp"
+#include "telemetry.hpp"
 
 namespace velox::telemetry {
 

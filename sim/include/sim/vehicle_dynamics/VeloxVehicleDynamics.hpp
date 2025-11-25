@@ -7,9 +7,9 @@
 #include "VehicleState.hpp"
 #include "WheelsInfo.h"
 #include "sim/architecture/IVehicleDynamics.hpp"
-#include "simulation/simulation_daemon.hpp"
-#include "simulation/user_input.hpp"
-#include "telemetry/telemetry.hpp"
+#include "simulation_daemon.hpp"
+#include "user_input.hpp"
+#include "telemetry.hpp"
 
 class VeloxVehicleDynamics : public fsai::vehicle::IVehicleDynamics {
 public:

@@ -2,19 +2,23 @@
 
 #include <filesystem>
 
-#include "controllers/longitudinal/aero.hpp"
-#include "controllers/longitudinal/brake.hpp"
-#include "controllers/longitudinal/final_accel_controller.hpp"
-#include "controllers/longitudinal/powertrain.hpp"
-#include "controllers/longitudinal/rolling_resistance.hpp"
-#include "controllers/steering_controller.hpp"
-#include "simulation/low_speed_safety.hpp"
-#include "simulation/loss_of_control_detector.hpp"
-#include "simulation/model_timing.hpp"
+#include "aero.hpp"
+#include "brake.hpp"
+#include "final_accel_controller.hpp"
+#include "powertrain.hpp"
+#include "rolling_resistance.hpp"
+#include "steering_controller.hpp"
+#include "low_speed_safety.hpp"
+#include "loss_of_control_detector.hpp"
+#include "model_timing.hpp"
 #include "vehicle_parameters.hpp"
 #include "yaml-cpp/yaml.h"
 
 namespace velox::io {
+
+#ifndef VELOX_PARAM_ROOT
+#define VELOX_PARAM_ROOT "parameters"
+#endif
 
 class ConfigManager {
 public:

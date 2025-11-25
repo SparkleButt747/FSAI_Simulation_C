@@ -48,6 +48,7 @@
 #include "types.h"
 #include "World.hpp"
 #include "WorldRenderAdapter.hpp"
+#include "VehicleParam.hpp"
 #include "VeloxVehicleDynamics.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/mission/TrackCsvLoader.hpp"
@@ -2285,6 +2286,7 @@ int main(int argc, char* argv[]) {
 
     const auto& vehicle_state = world.vehicle_state();
     const WheelsInfo& wheel_info = world.wheels_info();
+    const double wheel_radius = vehicle_param.tire.radius;
     const double front_drive_force = 0.0;
     const double rear_drive_force = 0.0;
     const double front_net_force = 0.0;
@@ -2499,11 +2501,9 @@ int main(int argc, char* argv[]) {
     }
 
     TorqueSample torque_sample{};
-    torque_sample.front_nm = static_cast<float>((pt_status.front_drive_force - pt_status.front_regen_force) *
-                                               wheel_radius +
+    torque_sample.front_nm = static_cast<float>(front_net_force * wheel_radius +
                                                sample_noise(sensor_cfg.drive_torque.front_noise_std_nm));
-    torque_sample.rear_nm = static_cast<float>((pt_status.rear_drive_force - pt_status.rear_regen_force) *
-                                              wheel_radius +
+    torque_sample.rear_nm = static_cast<float>(rear_net_force * wheel_radius +
                                               sample_noise(sensor_cfg.drive_torque.rear_noise_std_nm));
     torque_delay.push(now_ns, torque_sample);
     if (auto sample = torque_delay.poll(now_ns)) {
@@ -2512,8 +2512,10 @@ int main(int argc, char* argv[]) {
     }
 
     BrakeSample brake_sample{};
-    const double front_pct_raw = (std::max(0.0, brake_status.front_force) / front_max_force) * 100.0;
-    const double rear_pct_raw = (std::max(0.0, brake_status.rear_force) / rear_max_force) * 100.0;
+    const double front_max_force = std::max(1.0, std::abs(front_brake_force));
+    const double rear_max_force = std::max(1.0, std::abs(rear_brake_force));
+    const double front_pct_raw = (std::max(0.0, front_brake_force) / front_max_force) * 100.0;
+    const double rear_pct_raw = (std::max(0.0, rear_brake_force) / rear_max_force) * 100.0;
     brake_sample.front_pct = static_cast<float>(std::clamp(front_pct_raw +
                                            sample_noise(sensor_cfg.brake_pct.noise_std), 0.0, 100.0));
     brake_sample.rear_pct = static_cast<float>(std::clamp(rear_pct_raw +
@@ -2672,9 +2674,9 @@ int main(int argc, char* argv[]) {
     telemetry.wheel_speed_rpm[2] = wheel_info.lb_speed;
     telemetry.wheel_speed_rpm[3] = wheel_info.rb_speed;
     telemetry.brake_pressure_front_bar =
-        static_cast<float>(std::max(0.0, brake_status.front_force) / 1000.0);
+        static_cast<float>(std::max(0.0, front_brake_force) / 1000.0);
     telemetry.brake_pressure_rear_bar =
-        static_cast<float>(std::max(0.0, brake_status.rear_force) / 1000.0);
+        static_cast<float>(std::max(0.0, rear_brake_force) / 1000.0);
     telemetry.imu_ax_mps2 = static_cast<float>(vehicle_state.acceleration.x());
     telemetry.imu_ay_mps2 = static_cast<float>(vehicle_state.acceleration.y());
     telemetry.imu_yaw_rate_rps = static_cast<float>(vehicle_state.rotation.z());

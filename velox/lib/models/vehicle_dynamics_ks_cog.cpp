@@ -1,4 +1,4 @@
-#include "models/vehicle_dynamics_ks_cog.hpp"
+#include "vehicle_dynamics_ks_cog.hpp"
 
 #include <cmath>
 

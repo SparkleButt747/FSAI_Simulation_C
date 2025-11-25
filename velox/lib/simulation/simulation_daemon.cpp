@@ -1,18 +1,18 @@
-#include "simulation/simulation_daemon.hpp"
+#include "simulation_daemon.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 #include <sstream>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 
-#include "models/vehiclemodels/init_mb.hpp"
-#include "models/vehiclemodels/init_st.hpp"
-#include "models/vehiclemodels/init_std.hpp"
-#include "models/vehiclemodels/vehicle_dynamics_mb.hpp"
-#include "models/vehiclemodels/vehicle_dynamics_st.hpp"
-#include "models/vehiclemodels/vehicle_dynamics_std.hpp"
+#include "init_mb.hpp"
+#include "init_st.hpp"
+#include "init_std.hpp"
+#include "vehicle_dynamics_mb.hpp"
+#include "vehicle_dynamics_st.hpp"
+#include "vehicle_dynamics_std.hpp"
 #include "vehicle_parameters.hpp"
 
 namespace velox::simulation {

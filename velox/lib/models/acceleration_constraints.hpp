@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-#include "models/longitudinal_parameters.hpp"
+#include "longitudinal_parameters.hpp"
 
 namespace velox::models {
 namespace utils {

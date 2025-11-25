@@ -1,4 +1,4 @@
-#include "models/vehiclemodels/init_mb.hpp"
+#include "init_mb.hpp"
 
 #include <algorithm>
 #include <cmath>

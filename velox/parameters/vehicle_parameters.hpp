@@ -2,10 +2,10 @@
 
 #include <string>
 
-#include "models/longitudinal_parameters.hpp"
-#include "models/steering_parameters.hpp"
-#include "models/tireParameters.hpp"
-#include "models/trailer_parameters.hpp"
+#include "longitudinal_parameters.hpp"
+#include "steering_parameters.hpp"
+#include "tireParameters.hpp"
+#include "trailer_parameters.hpp"
 
 namespace velox::models {
 

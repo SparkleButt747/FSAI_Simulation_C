@@ -1,4 +1,4 @@
-#include "simulation/low_speed_safety.hpp"
+#include "low_speed_safety.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <string_view>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 namespace velox::simulation {
 
 void LowSpeedSafetyProfile::validate(const char* name) const

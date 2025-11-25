@@ -3,10 +3,10 @@
 #include <string>
 #include <vector>
 
-#include "controllers/longitudinal/final_accel_controller.hpp"
-#include "controllers/steering_controller.hpp"
-#include "simulation/low_speed_safety.hpp"
-#include "simulation/model_timing.hpp"
+#include "final_accel_controller.hpp"
+#include "steering_controller.hpp"
+#include "low_speed_safety.hpp"
+#include "model_timing.hpp"
 #include "vehicle_parameters.hpp"
 
 namespace velox::telemetry {

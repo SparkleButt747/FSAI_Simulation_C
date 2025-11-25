@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "common/errors.hpp"
+#include "errors.hpp"
 
 namespace velox::io {
 
