@@ -272,6 +272,14 @@ target_link_libraries(fsai_ctrl PUBLIC
   yaml-cpp::yaml-cpp
 )
 
+file(GLOB SIM_UNIT_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/sim/src/tests/*.cpp")
+if(SIM_UNIT_TEST_SOURCES)
+  add_executable(sim_unit_tests ${SIM_UNIT_TEST_SOURCES})
+  target_link_libraries(sim_unit_tests PRIVATE fsai_sim Threads::Threads)
+  target_compile_definitions(sim_unit_tests PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
+  add_test(NAME sim_unit_tests COMMAND sim_unit_tests)
+endif()
+
 if(SDL2_IMPORTED_TARGET)
   target_link_libraries(fsai_sim  PUBLIC ${SDL2_IMPORTED_TARGET})
   target_link_libraries(fsai_ctrl PUBLIC ${SDL2_IMPORTED_TARGET})

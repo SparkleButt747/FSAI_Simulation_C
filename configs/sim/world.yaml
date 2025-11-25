@@ -16,6 +16,9 @@ control:
   speed_lookahead_sensitivity: 0.5
   steering_lookahead_sensitivity: 0.0
   acceleration_factor: 0.0019
+  path_search_max_length: 30
+  path_search_min_length: 2
+  path_search_beam_width: 20
 
 renderer:
   enable_window: true

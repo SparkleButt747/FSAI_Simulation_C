@@ -37,7 +37,10 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
                           getCarFront(state), state.yaw, leftCones, rightCones)
                           .second;
     auto [nodes, adj] = generateGraph(triangulation, getCarFront(state), coneToSide);
-    auto searchResult = beamSearch(adj, nodes, getCarFront(state), 30, 2, 20);
+    auto searchResult = beamSearch(adj, nodes, getCarFront(state),
+                                   controlConfig_.pathSearchMaxLength,
+                                   controlConfig_.pathSearchMinLength,
+                                   controlConfig_.pathSearchBeamWidth);
     auto pathNodes = searchResult.first;
     bestPathEdges_ = searchResult.second;
     auto checkpoints = pathNodesToCheckpoints(pathNodes);
