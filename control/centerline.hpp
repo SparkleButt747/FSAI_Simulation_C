@@ -153,12 +153,33 @@ void updateVisibleTrackTriangulation(
   double sensorFOV = 2 * M_PI / 3
 );
 
+void updateSkidpadTrackTriangulation(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
+  const std::vector<Cone>& orangeConePositions,
+  double sensorRange = 20.0,
+  double sensorFOV = 2 * M_PI / 3
+);
+
 std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
   Triangulation& triangulation,
   std::unordered_map<Point, FsaiConeSide>& coneToSide,
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
   const std::vector<Cone>& rightConePositions
+);
+
+std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
+  Triangulation& triangulation,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  VehicleState carState,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
+  const std::vector<Cone>& orangeConePositions
 );
 
 // Returns a simple path (sequence of PathNode) with the lowest cost according to calculateCost.

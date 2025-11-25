@@ -151,7 +151,14 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
 
     removePassedCones(triangulation_, coneToSide_, carFront, carYaw);
 
-    triangulationEdges = getVisibleTriangulationEdges(triangulation_, coneToSide_, vehicleState(), getLeftCones(), getRightCones());
+    if (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad)
+    {
+        triangulationEdges = getVisibleTriangulationEdges(triangulation_, coneToSide_, vehicleState(), getLeftCones(), getRightCones(), getOrangeCones());
+    }
+    else
+    {
+        triangulationEdges = getVisibleTriangulationEdges(triangulation_, coneToSide_, vehicleState(), getLeftCones(), getRightCones());
+    }
 
     
     // --- NEW: cache path; only recompute when we reach a new checkpoint ---

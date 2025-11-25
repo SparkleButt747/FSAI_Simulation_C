@@ -45,7 +45,8 @@ typedef struct FsaiStereoFrame {
 typedef enum FsaiConeSide {
     FSAI_CONE_LEFT = 0,
     FSAI_CONE_RIGHT = 1,
-    FSAI_CONE_UNKNOWN = 2
+    FSAI_CONE_ORANGE = 2,
+    FSAI_CONE_UNKNOWN = 3
 } FsaiConeSide;
 
 typedef struct FsaiConeDet {

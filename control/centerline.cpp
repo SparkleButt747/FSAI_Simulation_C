@@ -153,6 +153,7 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
     // 4) Color penalty, 0 if any color info missing, else 1 per mismatch
     int sameSide=0;
     int considered=0;
+    float colorPenalty = 0.0f;
 
     for (const auto& n : path) {
         const auto a=n.first.side;
@@ -163,18 +164,19 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
             continue;
         }
 
-        const bool opposite =   (a==FSAI_CONE_LEFT && b==FSAI_CONE_RIGHT) ||
+        const bool opposite_track =   (a==FSAI_CONE_LEFT && b==FSAI_CONE_RIGHT) ||
                                 (a==FSAI_CONE_RIGHT && b==FSAI_CONE_LEFT);
 
+        const bool same_orange = (a==FSAI_CONE_ORANGE && b==FSAI_CONE_ORANGE);
+
         considered++;
-        if(!opposite) {
+        if(!opposite_track && !same_orange) {
             sameSide++;
         }
     }
 
-    float colorPenalty = 0.0f;
     if(considered>0) {
-        colorPenalty = static_cast<float>(considered - sameSide)/static_cast<float>(considered);
+        colorPenalty = static_cast<float>(sameSide) * 1000.0f;
     }
 
     // 5) Squared difference between path length and sensor range
@@ -236,10 +238,6 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         FsaiConeDet d2{}; d2.x = static_cast<float>(p2.x()); d2.y = static_cast<float>(p2.y());
         auto it2 = coneToSide.find(p2);
         d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
-
-        if (d1.side == d2.side) {
-            continue;
-        }
 
         node.first  = d1;
         node.second = d2;
@@ -403,6 +401,38 @@ void updateVisibleTrackTriangulation(
     addCones(rightConePositions, FSAI_CONE_RIGHT);
 }
 
+void updateSkidpadTrackTriangulation(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
+  const std::vector<Cone>& orangeConePositions,
+  double sensorRange,
+  double sensorFOV
+) {
+    Point carVector = Point(std::cos(carYaw), std::sin(carYaw));
+
+    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &T, &coneToSide](const std::vector<Cone>& cones, FsaiConeSide side) {
+      for (const auto& cone3d : cones) {
+        Point delta = Point(cone3d.position.x - carFront.x(), cone3d.position.z - carFront.y());
+        Point cone = Point(cone3d.position.x, cone3d.position.z);
+        if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
+        if (getAngle(carVector, delta) > sensorFOV/2) continue;
+
+        if (coneToSide.find(cone) == coneToSide.end()) {
+            T.insert(cone);
+            coneToSide[cone] = side;
+        }
+      }
+    };
+
+    addCones(leftConePositions, FSAI_CONE_LEFT);
+    addCones(rightConePositions, FSAI_CONE_RIGHT);
+    addCones(orangeConePositions, FSAI_CONE_ORANGE);
+}
+
 std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
   Triangulation& triangulation,
   std::unordered_map<Point, FsaiConeSide>& coneToSide,
@@ -434,6 +464,40 @@ std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
 
     return edges;
 }
+
+std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
+  Triangulation& triangulation,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  VehicleState carState,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
+  const std::vector<Cone>& orangeConePositions
+) {
+    Point carFront = getCarFront(carState);
+    updateSkidpadTrackTriangulation(triangulation, coneToSide, carFront, carState.yaw, leftConePositions, rightConePositions, orangeConePositions);
+
+    std::vector<std::pair<Vector2, Vector2>> edges {};
+    for (auto it = triangulation.finite_edges_begin(); it != triangulation.finite_edges_end(); ++it) {
+        auto face_handle = it->first;
+        int edge_index = it->second;
+
+        // Get the two vertices of the edge
+        auto v1 = face_handle->vertex((edge_index + 1) % 3);
+        auto v2 = face_handle->vertex((edge_index + 2) % 3);
+
+        // Get coordinates
+        auto p1 = v1->point();
+        auto p2 = v2->point();
+
+        edges.emplace_back(
+            Vector2{ static_cast<float>(p1.x()), static_cast<float>(p1.y()) },
+            Vector2{ static_cast<float>(p2.x()), static_cast<float>(p2.y()) }
+        );
+    }
+
+    return edges;
+}
+
 
 std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
     const std::vector<std::vector<int>>& adj,

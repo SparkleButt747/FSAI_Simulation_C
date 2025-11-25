@@ -69,6 +69,7 @@ public:
     const std::vector<Cone>& getStartCones() const { return startCones; }
     const std::vector<Cone>& getLeftCones() const { return leftCones; }
     const std::vector<Cone>& getRightCones() const { return rightCones; }
+    const std::vector<Cone>& getOrangeCones() const { return startCones; }
     const std::vector<Vector3> getStartConePositions() const {
         std::vector<Vector3> positions;
         positions.reserve(startCones.size());
