@@ -163,7 +163,7 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
             continue;
         }
 
-        const bool opposite =   (a==FSAI_CONE_LEFT && b==FSAI_CONE_RIGHT) || 
+        const bool opposite =   (a==FSAI_CONE_LEFT && b==FSAI_CONE_RIGHT) ||
                                 (a==FSAI_CONE_RIGHT && b==FSAI_CONE_LEFT);
 
         considered++;
@@ -330,7 +330,7 @@ Point getCarFront(
       double carYaw = carState.yaw;
 
       double carX = carState.position.x();
-      double carZ = carState.position.z();
+      double carZ = carState.position.y();
 
       float frontX = carX + (carLength / 2.0) * std::cos(carYaw);
       float frontZ = carZ + (carLength / 2.0) * std::sin(carYaw);
@@ -353,14 +353,14 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
       for (int i = 0; i < cones.size(); i++) {
         Point delta = Point(cones[i].position.x - carFront.x(), cones[i].position.z - carFront.y());
         Point cone = Point(cones[i].position.x, cones[i].position.z);
-        
+
         if (std::hypot(delta.x(), delta.y()) > sensorRange) {
             continue;
         }
         if (getAngle(carVector, delta) > sensorFOV/2) {
             continue;
         }
-        
+
         coneToSide[cone] = side;
         T.insert(cone);
       }
@@ -391,7 +391,7 @@ void updateVisibleTrackTriangulation(
         Point cone = Point(cone3d.position.x, cone3d.position.z);
         if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
         if (getAngle(carVector, delta) > sensorFOV/2) continue;
-        
+
         if (coneToSide.find(cone) == coneToSide.end()) {
             T.insert(cone);
             coneToSide[cone] = side;
@@ -654,7 +654,7 @@ Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
             path[i].midpoint.y
         };
     }
-    
+
     return checkpoints;
 }
 
