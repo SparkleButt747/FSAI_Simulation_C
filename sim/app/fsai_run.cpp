@@ -48,7 +48,7 @@
 #include "types.h"
 #include "World.hpp"
 #include "WorldRenderAdapter.hpp"
-#include "VehicleDynamics.hpp"
+#include "sim/vehicle_dynamics/VeloxVehicleDynamics.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/mission/TrackCsvLoader.hpp"
 #include "adsdv_dbc.hpp"
@@ -1721,7 +1721,35 @@ int main(int argc, char* argv[]) {
 
   const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
-  VehicleDynamics vehicle_dynamics(vehicle_param);
+
+  // Adapter around the Velox-backed dynamics implementation so the existing
+  // control/plumbing can continue to drive the World with the expected API.
+  class VeloxDynamicsAdapter {
+   public:
+    VeloxVehicleDynamics& backend() { return backend_; }
+    const VeloxVehicleDynamics& backend() const { return backend_; }
+
+    void set_command(float throttle, float brake, float steer) {
+      backend_.set_command(throttle, brake, steer);
+    }
+
+    void step(double dt_seconds) { backend_.step(dt_seconds); }
+
+    void set_state(const VehicleState& state, const Transform& transform) {
+      backend_.set_state(state, transform);
+    }
+
+    void reset_input() { backend_.reset_input(); }
+
+    const VehicleState& state() const { return backend_.state(); }
+    const Transform& transform() const { return backend_.transform(); }
+    const WheelsInfo& wheels_info() const { return backend_.wheels_info(); }
+
+   private:
+    VeloxVehicleDynamics backend_{};
+  };
+
+  VeloxDynamicsAdapter vehicle_dynamics;
   // =============================
   // WORLD + VEHICLE DYNAMICS SECTION
   // Bind the vehicle model into the World subsystem so it can handle track
@@ -1762,10 +1790,11 @@ int main(int argc, char* argv[]) {
         mission_finished = true;
       });
   WorldVehicleContext world_vehicle_ctx{};
-  world_vehicle_ctx.dynamics = &vehicle_dynamics;
+  world_vehicle_ctx.dynamics = &vehicle_dynamics.backend();
   world_vehicle_ctx.reset_handler =
       [&world, &vehicle_dynamics, &pending_vehicle_reset](const WorldVehicleSpawn& spawn) {
-        vehicle_dynamics.setState(spawn.state, spawn.transform);
+        vehicle_dynamics.set_state(spawn.state, spawn.transform);
+        vehicle_dynamics.reset_input();
         pending_vehicle_reset = spawn;
       };
   world.init(world_vehicle_ctx, world_config);
@@ -2229,7 +2258,7 @@ int main(int argc, char* argv[]) {
     world.brakeInput = appliedBrake;
     world.steeringAngle = appliedSteer;
 
-    vehicle_dynamics.setCommand(appliedThrottle, appliedBrake, appliedSteer);
+    vehicle_dynamics.set_command(appliedThrottle, appliedBrake, appliedSteer);
     vehicle_dynamics.step(step_seconds);
 
     {
@@ -2255,27 +2284,17 @@ int main(int argc, char* argv[]) {
     const double sim_time_s = fsai_clock_to_seconds(now_ns);
 
     const auto& vehicle_state = world.vehicle_state();
-    const auto& model = vehicle_dynamics.model();
-    const auto& pt_status = model.lastPowertrainStatus();
-    const auto& brake_status = model.lastBrakeStatus();
     const WheelsInfo& wheel_info = world.wheels_info();
-    const double wheel_radius = std::max(0.01, model.param().tire.radius);
-    const double front_drive_force = pt_status.front_drive_force - pt_status.front_regen_force;
-    const double rear_drive_force = pt_status.rear_drive_force - pt_status.rear_regen_force;
-    const double front_net_force = front_drive_force - brake_status.front_force;
-    const double rear_net_force = rear_drive_force - brake_status.rear_force;
-    const double front_axle_torque_nm = front_drive_force * wheel_radius;
-    const double rear_axle_torque_nm = rear_drive_force * wheel_radius;
-
-    const double max_brake_force = std::max(1.0, model.param().brakes.max_force);
-    const double front_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_front_bias);
-    const double rear_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_rear_bias);
-    const double front_brake_pct = front_max_force > 0.0
-                                       ? (std::max(0.0, brake_status.front_force) / front_max_force) * 100.0
-                                       : 0.0;
-    const double rear_brake_pct = rear_max_force > 0.0
-                                      ? (std::max(0.0, brake_status.rear_force) / rear_max_force) * 100.0
-                                      : 0.0;
+    const double front_drive_force = 0.0;
+    const double rear_drive_force = 0.0;
+    const double front_net_force = 0.0;
+    const double rear_net_force = 0.0;
+    const double front_axle_torque_nm = 0.0;
+    const double rear_axle_torque_nm = 0.0;
+    const double front_brake_force = 0.0;
+    const double rear_brake_force = 0.0;
+    const double front_brake_pct = 0.0;
+    const double rear_brake_pct = 0.0;
 
     const double vehicle_speed_mps = std::sqrt(
         vehicle_state.velocity.x() * vehicle_state.velocity.x() +
@@ -2302,8 +2321,8 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.drive.rear_net_force_n = static_cast<float>(rear_net_force);
     runtime_telemetry.drive.front_axle_torque_nm = static_cast<float>(front_axle_torque_nm);
     runtime_telemetry.drive.rear_axle_torque_nm = static_cast<float>(rear_axle_torque_nm);
-    runtime_telemetry.brake.front_force_n = static_cast<float>(brake_status.front_force);
-    runtime_telemetry.brake.rear_force_n = static_cast<float>(brake_status.rear_force);
+    runtime_telemetry.brake.front_force_n = static_cast<float>(front_brake_force);
+    runtime_telemetry.brake.rear_force_n = static_cast<float>(rear_brake_force);
     runtime_telemetry.brake.front_pct = static_cast<float>(front_brake_pct);
     runtime_telemetry.brake.rear_pct = static_cast<float>(rear_brake_pct);
     runtime_telemetry.acceleration.longitudinal_mps2 =
