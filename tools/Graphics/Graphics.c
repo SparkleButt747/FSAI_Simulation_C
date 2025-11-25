@@ -109,11 +109,12 @@ void Graphics_DrawCar(Graphics* g, float x, float y, float radius, float yaw) {
     SDL_RenderDrawLineF(g->renderer, right_x, right_y, tip_x, tip_y);
 }
 
-void Graphics_DrawSegment(Graphics* g, float x1, float y1,  float x2, float y2, int red, int green, int blue) {
-    x1 = x1 * K_RENDER_SCALE + g->width / 2.0f;
-    y1 = y1 * K_RENDER_SCALE + g->height / 2.0f;
-    x2 = x2 * K_RENDER_SCALE + g->width / 2.0f;
-    y2 = y2 * K_RENDER_SCALE + g->height / 2.0f;
+void Graphics_DrawSegment(Graphics* g, float x1, float y1,  float x2, float y2,
+                          float render_scale, int red, int green, int blue) {
+    x1 = x1 * render_scale + g->width / 2.0f;
+    y1 = y1 * render_scale + g->height / 2.0f;
+    x2 = x2 * render_scale + g->width / 2.0f;
+    y2 = y2 * render_scale + g->height / 2.0f;
     SDL_SetRenderDrawColor(g->renderer, red, green, blue, 255);
     SDL_RenderDrawLine(g->renderer, x1, y1, x2, y2);
 }

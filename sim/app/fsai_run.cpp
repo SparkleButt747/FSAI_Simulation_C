@@ -2222,6 +2222,9 @@ int main(int argc, char* argv[]) {
         world.acknowledgeVehicleReset(pending_vehicle_reset->transform);
         pending_vehicle_reset.reset();
       }
+      if (imgui_initialized) {
+        ImGui::EndFrame();
+      }
       continue;
     }
     const double sim_time_s = fsai_clock_to_seconds(now_ns);

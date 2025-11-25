@@ -40,6 +40,7 @@ struct WorldRendererConfig {
     bool enable_window{true};
     bool publish_stereo_frames{true};
     bool show_debug_overlays{true};
+    float render_scale{5.0f};
     int window_width{800};
     int window_height{600};
     std::string window_title{"Car Simulation 2D"};
