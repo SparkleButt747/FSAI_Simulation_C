@@ -166,6 +166,8 @@ list(FILTER ALL_C_SOURCES   EXCLUDE REGEX ".*/velox/.*")
 list(FILTER ALL_CPP_SOURCES EXCLUDE REGEX ".*/velox/.*")
 list(FILTER ALL_HEADERS     EXCLUDE REGEX ".*/velox/.*")
 
+set(VELOX_HEADER_DIR "${CMAKE_SOURCE_DIR}/velox/lib")
+
 # Build a list of header parent dirs so bare #include "X.h" works
 set(HEADER_DIRS "")
 foreach(h ${ALL_HEADERS})
@@ -182,7 +184,8 @@ list(APPEND HEADER_DIRS
   "${CMAKE_SOURCE_DIR}/sim/include"
   "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
   "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
-  "${CMAKE_SOURCE_DIR}/velox/lib"
+  "${VELOX_HEADER_DIR}"
+  "${VELOX_HEADER_DIR}/telemetry"
 )
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
