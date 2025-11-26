@@ -17,9 +17,6 @@
 #include "simulation/user_input.hpp"
 
 namespace velox::simulation {
-
-using telemetry = velox::telemetry;
-
 struct ResetParams {
     std::optional<ModelType> model{};
     std::optional<int>       vehicle_id{};
@@ -30,10 +27,10 @@ struct ResetParams {
 };
 
 struct SimulationSnapshot {
-    std::vector<double>               state{};
-    telemetry::SimulationTelemetry    telemetry{};
-    double                            dt{0.0};
-    double                            simulation_time_s{0.0};
+    std::vector<double>                   state{};
+    ::velox::telemetry::SimulationTelemetry telemetry{};
+    double                                  dt{0.0};
+    double                                  simulation_time_s{0.0};
 };
 
     class SimulationDaemon {
@@ -61,8 +58,9 @@ struct SimulationSnapshot {
 
     void set_log_sink(logging::LogSinkPtr sink) { log_sink_ = std::move(sink); }
 
-    telemetry::SimulationTelemetry step(const UserInput& input);
-    std::vector<telemetry::SimulationTelemetry> step(const std::vector<UserInput>& batch_inputs);
+    ::velox::telemetry::SimulationTelemetry step(const UserInput& input);
+    std::vector<::velox::telemetry::SimulationTelemetry>
+        step(const std::vector<UserInput>& batch_inputs);
 
     [[nodiscard]] const VehicleSimulator* simulator() const { return simulator_.get(); }
     [[nodiscard]] const controllers::longitudinal::FinalAccelController* accel_controller() const
@@ -82,7 +80,10 @@ struct SimulationSnapshot {
     [[nodiscard]] bool drift_enabled() const { return drift_enabled_; }
     [[nodiscard]] ControlMode control_mode() const { return control_mode_; }
     void                set_drift_enabled(bool enabled);
-    [[nodiscard]] const telemetry::SimulationTelemetry& telemetry() const { return last_telemetry_; }
+    [[nodiscard]] const ::velox::telemetry::SimulationTelemetry& telemetry() const
+    {
+        return last_telemetry_;
+    }
 
     [[nodiscard]] SimulationSnapshot snapshot() const;
 
@@ -125,7 +126,7 @@ private:
     double cumulative_distance_m_{0.0};
     double cumulative_energy_j_{0.0};
 
-    telemetry::SimulationTelemetry last_telemetry_{};
+    ::velox::telemetry::SimulationTelemetry last_telemetry_{};
 
     void load_vehicle_parameters(int vehicle_id);
     void rebuild_controllers();
@@ -134,7 +135,7 @@ private:
     void rebuild_simulator(double dt, const std::vector<double>& initial_state);
     void rebuild_input_limits();
     double direct_acceleration_from_torque(const std::vector<double>& axle_torques) const;
-    telemetry::SimulationTelemetry compute_telemetry(
+    ::velox::telemetry::SimulationTelemetry compute_telemetry(
         const controllers::longitudinal::ControllerOutput& accel_output,
         const controllers::SteeringWheel::Output& steering_input,
         const controllers::FinalSteerController::Output&    steering_output) const;
