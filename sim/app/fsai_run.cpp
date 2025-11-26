@@ -1725,6 +1725,19 @@ int main(int argc, char* argv[]) {
   fsai::vehicle::VeloxVehicleDynamics::Config dynamics_cfg{};
   dynamics_cfg.config_root = MakeProjectRelativePath(std::filesystem::path("velox/config"));
   dynamics_cfg.parameter_root = MakeProjectRelativePath(std::filesystem::path("velox/parameters"));
+  dynamics_cfg = fsai::vehicle::VeloxVehicleDynamics::Config::FromVehicleConfig(vehicle_config_path,
+                                                                                dynamics_cfg);
+  const auto model_name = [model = dynamics_cfg.model]() {
+    switch (model) {
+      case velox::simulation::ModelType::MB: return "MB";
+      case velox::simulation::ModelType::ST: return "ST";
+      case velox::simulation::ModelType::STD: return "STD";
+    }
+    return "unknown";
+  }();
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                       "Initializing Velox dynamics with model=%s vehicle_id=%d",
+                       model_name, dynamics_cfg.vehicle_id);
   fsai::vehicle::VeloxVehicleDynamics vehicle_dynamics(dynamics_cfg);
   // =============================
   // WORLD + VEHICLE DYNAMICS SECTION

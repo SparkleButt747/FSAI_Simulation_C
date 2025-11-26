@@ -21,6 +21,9 @@ public:
         std::filesystem::path parameter_root{"velox/parameters"};
         velox::simulation::ModelType model{velox::simulation::ModelType::MB};
         int vehicle_id{1};
+
+        static Config FromVehicleConfig(const std::filesystem::path& vehicle_config,
+                                        Config base = Config{});
     };
 
     VeloxVehicleDynamics();

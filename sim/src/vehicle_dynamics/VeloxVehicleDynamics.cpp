@@ -1,13 +1,65 @@
 #include "sim/vehicle/VeloxVehicleDynamics.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 
 #include "../../include/logging.hpp"
+#include <yaml-cpp/yaml.h>
 
 namespace fsai::vehicle {
 namespace {
 constexpr double kTwoPi = 2.0 * M_PI;
+
+velox::simulation::ModelType ParseModelType(std::string_view name)
+{
+    std::string normalized{name};
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    if (normalized == "mb" || normalized == "multi-body" || normalized == "multibody") {
+        return velox::simulation::ModelType::MB;
+    }
+    if (normalized == "st" || normalized == "single-track" || normalized == "singletrack") {
+        return velox::simulation::ModelType::ST;
+    }
+    if (normalized == "std" || normalized == "kinematic-st" || normalized == "kinematic") {
+        return velox::simulation::ModelType::STD;
+    }
+
+    throw std::invalid_argument("Unsupported Velox model type: " + normalized);
+}
+}
+
+VeloxVehicleDynamics::Config VeloxVehicleDynamics::Config::FromVehicleConfig(
+    const std::filesystem::path& vehicle_config,
+    Config base)
+{
+    if (vehicle_config.empty()) {
+        return base;
+    }
+
+    try {
+        const YAML::Node config = YAML::LoadFile(vehicle_config.string());
+        const YAML::Node velox = config["velox"];
+        if (!velox) {
+            return base;
+        }
+
+        if (const auto id = velox["vehicle_id"]) {
+            base.vehicle_id = id.as<int>();
+        }
+        if (const auto model = velox["model"]) {
+            base.model = ParseModelType(model.as<std::string>());
+        }
+    } catch (const std::exception& ex) {
+        fsai::sim::log::LogWarning(ex.what());
+    }
+
+    return base;
 }
 
 VeloxVehicleDynamics::VeloxVehicleDynamics()
