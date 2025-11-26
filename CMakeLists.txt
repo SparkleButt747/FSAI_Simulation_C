@@ -365,7 +365,7 @@ file(GLOB_RECURSE CONTROL_RUNTIME_SOURCES CONFIGURE_DEPENDS
 if(CONTROL_RUNTIME_SOURCES)
   add_library(fsai_control_runtime STATIC ${CONTROL_RUNTIME_SOURCES})
   target_include_directories(fsai_control_runtime PUBLIC ${HEADER_DIRS})
-  target_link_libraries(fsai_control_runtime PUBLIC fsai_sim)
+  target_link_libraries(fsai_control_runtime PUBLIC fsai_sim fsai_telemetry)
   if(UNIX)
     target_link_libraries(fsai_control_runtime PUBLIC dl)
   endif()
