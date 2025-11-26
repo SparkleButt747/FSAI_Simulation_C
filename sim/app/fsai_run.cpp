@@ -1739,6 +1739,7 @@ int main(int argc, char* argv[]) {
                        "Initializing Velox dynamics with model=%s vehicle_id=%d",
                        model_name, dynamics_cfg.vehicle_id);
   fsai::vehicle::VeloxVehicleDynamics vehicle_dynamics(dynamics_cfg);
+  const double velox_wheel_radius = vehicle_dynamics.wheel_radius();
   // =============================
   // WORLD + VEHICLE DYNAMICS SECTION
   // Bind the vehicle model into the World subsystem so it can handle track
@@ -1954,7 +1955,7 @@ int main(int argc, char* argv[]) {
   if (can_cfg.mode == fsai::control::runtime::CanIface::Mode::kFsAiApi) {
     can_cfg.enable_loopback = false;
   }
-  can_cfg.wheel_radius_m = vehicle_param.tire.radius;
+  can_cfg.wheel_radius_m = velox_wheel_radius > 0.0 ? velox_wheel_radius : vehicle_param.tire.radius;
 
   fsai::control::runtime::CanIface can_interface;
   if (!can_interface.Initialize(can_cfg)) {
