@@ -1,4 +1,5 @@
 #pragma once
+#include "common/include/common/types.h"
 #include <vector>
 #include <opencv2/opencv.hpp>
 #include <opencv2/features2d.hpp>
@@ -23,15 +24,12 @@ struct PseudoFeature{
 // NEW: Structure to group matched features by their originating cone (bounding box)
 struct ConeMatches {
     int cone_index;                 // Index matching the input vector of BoxBounds
+    fsai::types::ConeSide side; 
     fsai::types::BoxBound bound;   // The bounding box these matches belong to
-    std::vector<Feature> matches;
-    FsaiConeSide side;  // The list of stereo matched features for this specific cone
+    std::vector<Feature> matches; // The list of stereo matched features for this specific cone
 };
 
 // --- Function Declarations ---
 
 // Main entry point: matching features for specific objects (cones)
-std::vector<ConeMatches> match_features_per_cone(
-    const cv::Mat& left_frame,
-    const cv::Mat& right_frame,
-    const std::vector<fsai::types::BoxBound>& box_bounds);
+std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, const cv::Mat& right_frame, const std::vector<fsai::types::BoxBound>& box_bounds, const cv::Ptr<cv::SIFT> sift_detector);

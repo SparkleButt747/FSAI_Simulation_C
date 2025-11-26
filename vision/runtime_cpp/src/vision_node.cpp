@@ -20,6 +20,10 @@
 #include <iostream>
 #include <chrono>
 
+#include <opencv2/opencv.hpp>
+#include <opencv2/features2d.hpp>  // For SIFT and other feature detectors
+#include <opencv2/imgproc.hpp>
+
 const char* PATH_TO_MODEL = "../vision/models/cone_model.onnx";
 constexpr std::chrono::milliseconds kIdleSleep(5);
 
@@ -154,6 +158,8 @@ void VisionNode::runProcessingLoop(){
     
     // FIX 2: Add the main "while(running_)" loop
     
+    const cv::Ptr<cv::SIFT> sift_detector = cv::SIFT::create(); // create SIFT detector outside loop 
+    
     while(running_){
 
         // We use tryGetLatestFrame() for a non-blocking loop.
@@ -220,7 +226,7 @@ void VisionNode::runProcessingLoop(){
         std::vector<ConeMatches> matched_features;
         try {
             // This is the line causing the crash
-            matched_features = match_features_per_cone(left_mat, right_mat, detections);
+            matched_features = match_features_per_cone(left_mat, right_mat, detections, sift_detector);
         } 
         catch (const cv::Exception& e) {
             // If a crop fails, log it and skip this frame instead of killing the OS process
