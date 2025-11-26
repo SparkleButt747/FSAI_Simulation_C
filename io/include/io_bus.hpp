@@ -6,15 +6,10 @@
 #include <queue>
 #include <random>
 #include <utility>
-<<<<<<< HEAD
-#include "../../../common/include/common/types.h"
-#include "../../sim/svcu/link.hpp"
-=======
 
 #include "common/types.h"
 #include "link.hpp"
 #include "sim/architecture/WorldDebug.hpp"
->>>>>>> dev
 
 namespace fsai::io {
 

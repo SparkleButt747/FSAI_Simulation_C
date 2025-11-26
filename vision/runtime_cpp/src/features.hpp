@@ -26,8 +26,7 @@ struct ConeMatches {
     int cone_index;                 // Index matching the input vector of BoxBounds
     fsai::types::ConeSide side; 
     fsai::types::BoxBound bound;   // The bounding box these matches belong to
-    std::vector<Feature> matches;
-    FsaiConeSide side;  // The list of stereo matched features for this specific cone
+    std::vector<Feature> matches; // The list of stereo matched features for this specific cone
 };
 
 // --- Function Declarations ---
