@@ -621,7 +621,7 @@ void removePassedCones(
 
         if (dot_product < 0) {
             // Check if cone is far enough behind
-            if (std::hypot(cone_to_carX, cone_to_carY) > 1.0) { // 1m threshold
+            if (std::hypot(cone_to_carX, cone_to_carY) < 5.0) { // 1m threshold
                 vertices_to_remove.push_back(v_it);
             }
         }
