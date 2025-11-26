@@ -100,26 +100,26 @@ struct SimulationTelemetry {
     AxleTelemetry         rear_axle{};
     DerivedTelemetry      totals{};
     double                detector_severity{0.0};
-    simulation::SafetyStage safety_stage{simulation::SafetyStage::Normal};
+    velox::simulation::SafetyStage safety_stage{velox::simulation::SafetyStage::Normal};
     bool                  detector_forced{false};
     bool                  low_speed_engaged{false};
 };
 
 SimulationTelemetry compute_simulation_telemetry(
-    simulation::ModelType model,
+    velox::simulation::ModelType model,
     const models::VehicleParameters& params,
     const std::vector<double>& state,
     const controllers::longitudinal::ControllerOutput& accel_output,
     const controllers::SteeringWheel::Output& steering_wheel_output,
     const controllers::FinalSteerController::Output& steering_output,
-    const simulation::LowSpeedSafety* safety,
+    const velox::simulation::LowSpeedSafety* safety,
     double measured_speed,
     double cumulative_distance_m,
     double cumulative_energy_j,
     double cumulative_sim_time_s);
 
 std::string to_json(const SimulationTelemetry& telemetry);
-const char*  safety_stage_to_string(simulation::SafetyStage stage);
+const char*  safety_stage_to_string(velox::simulation::SafetyStage stage);
 
 } // namespace velox::telemetry
 
