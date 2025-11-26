@@ -668,6 +668,57 @@ bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) 
     const Vec2d curr{static_cast<double>(current.x), static_cast<double>(current.y)};
 
     if (leftCones.empty() || rightCones.empty()) {
+        /*
+        No physical gate from cones available. If we have a planned path from beamSearch, 
+        use its first edge as a virtual gate between consecutive path nodes. Otherwise 
+        fall back to the old distance-based checkpoint trigger.
+        */
+        if (!bestPathEdges.empty()) {
+            const auto& gate = bestPathEdges.front();
+            const Vec2d left{static_cast<double>(gate.first.x),
+                             static_cast<double>(gate.first.y)};
+            const Vec2d right{static_cast<double>(gate.second.x),
+                              static_cast<double>(gate.second.y)};
+
+            // Check if the segment [prev, curr] (car motion) intersects the gate segment [left, right] (gate).
+            const double o1 = orientation(prev, curr, left);
+            const double o2 = orientation(prev, curr, right);
+            const double o3 = orientation(left, right, prev);
+            const double o4 = orientation(left, right, curr);
+
+            auto diffSigns = [](double a, double b)
+            {
+                return (a > kEpsilon && b < -kEpsilon) || (a < -kEpsilon && b > kEpsilon);
+            };
+
+            // Proper intersection
+            if (diffSigns(o1, o2) && diffSigns(o3, o4))
+            {
+                return true;
+            }
+
+            // Collinear / edge cases: one of the endpoints lies on the other segment
+            if (std::abs(o1) <= kEpsilon && onSegment(prev, curr, left))
+            {
+                return true;
+            }
+            if (std::abs(o2) <= kEpsilon && onSegment(prev, curr, right))
+            {
+                return true;
+            }
+            if (std::abs(o3) <= kEpsilon && onSegment(left, right, prev))
+            {
+                return true;
+            }
+            if (std::abs(o4) <= kEpsilon && onSegment(left, right, curr))
+            {
+                return true;
+            }
+
+            return false;
+        }
+        
+        // Fallback: still allow simple "pass near checkpoint" detection when no path edges are available
         if (checkpointPositions.empty()) {
             return false;
         }
@@ -755,6 +806,11 @@ void World::moveNextCheckpointToLast() {
     }
     if (!gateSegments_.empty()) {
         std::rotate(gateSegments_.begin(), gateSegments_.begin() + 1, gateSegments_.end());
+    }
+    if (!bestPathEdges.empty()) {
+        std::rotate(bestPathEdges.begin(),
+                    bestPathEdges.begin() + 1,
+                    bestPathEdges.end());
     }
 }
 
