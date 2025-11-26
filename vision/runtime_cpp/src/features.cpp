@@ -34,45 +34,49 @@ int hamming_dist(cv::Mat left_descriptor, cv::Mat right_descriptor){
 std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, 
                                                  const cv::Mat& right_frame, 
                                                  const std::vector<fsai::types::BoxBound>& box_bounds,
-                                                 const cv::Ptr<cv::SIFT> sift_detector) {
+                                                 const cv::Ptr<cv::ORB> detector) {
     std::vector<ConeMatches> all_cone_matches;
     all_cone_matches.reserve(box_bounds.size());
     
     std::vector<PseudoFeature> left_features; 
     
     left_features.clear();
+   
     
-    for (int i = 0; i < box_bounds.size(); ++i){
-        // get information about the box 
-        fsai::types::BoxBound box_i = box_bounds[i]; 
-        int box_index = i; 
-        
-        // get roi 
-        cv::Rect box_rect(box_i.x, box_i.y, box_i.w, box_i.h); 
-        cv::Mat box_roi; 
-        if (!is_safe_roi(left_frame, box_rect)){continue;}
-        box_roi = left_frame(box_rect); 
-        std::vector<cv::KeyPoint> left_keypoints; 
-        cv::Mat left_descriptors; 
-        
-        sift_detector->detectAndCompute(box_roi, cv::noArray(), left_keypoints, left_descriptors); 
-
-        for (int j = 0; j < left_keypoints.size(); ++j){
-            left_keypoints[j].pt.x += box_i.x;
-            left_keypoints[j].pt.y += box_i.y;
-
-            PseudoFeature left_feature;
-            left_feature.cone_index = box_index;
-            left_feature.x = left_keypoints[j].pt.x; 
-            left_feature.y = left_keypoints[j].pt.y; 
-            left_feature.descriptor = left_descriptors.row(j).clone(); 
-            left_features.push_back(left_feature); 
-        }
+    std::vector<cv::KeyPoint> left_keypoints; 
+    cv::Mat left_descriptors; 
+    detector->detectAndCompute(left_frame, cv::noArray(), left_keypoints, left_descriptors); 
+    
+    for (int i = 0; i < left_keypoints.size(); i++){
+    	cv::KeyPoint left_keypoint_i = left_keypoints[i]; 
+    	int cone_index = 0; 
+    	
+    	bool is_cone_kp = false; 
+    	
+    	for (int j = 0; j < box_bounds.size(); j++){
+    	    fsai::types::BoxBound box_j = box_bounds[j]; 
+            int box_index = j; 
+            cv::Rect box_rect(box_j.x, box_j.y, box_j.w, box_j.h); 
+            if (box_rect.contains(left_keypoint_i.pt)){
+            	is_cone_kp = true; 
+            	cone_index = j; 
+            	break;
+            }
+    	}
+    	
+    	if (is_cone_kp){
+    	    PseudoFeature left_feature; 
+    	    left_feature.x = left_keypoint_i.pt.x;
+    	    left_feature.y = left_keypoint_i.pt.y;
+    	    left_feature.descriptor = left_descriptors.row(i).clone(); 
+    	    left_feature.cone_index = cone_index;
+    	    left_features.push_back(left_feature);
+    	}
     }
     
     std::vector<cv::KeyPoint> right_keypoints;
     cv::Mat right_descriptors;
-    sift_detector->detectAndCompute(right_frame, cv::noArray(), right_keypoints, right_descriptors);
+    detector->detectAndCompute(right_frame, cv::noArray(), right_keypoints, right_descriptors);
 
     std::unordered_map<int, std::vector<PseudoFeature>> y_map;
 
@@ -82,7 +86,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         PseudoFeature right_feature;
         right_feature.x = right_keypoints[i].pt.x;
         right_feature.y = right_keypoints[i].pt.y; 
-        right_feature.descriptor = right_descriptors.row(i); 
+        right_feature.descriptor = right_descriptors.row(i).clone(); 
         right_feature.cone_index = 0; 
         
         y_map[right_feature.y].push_back(right_feature);  
@@ -106,7 +110,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
             
             for (int k = 0; k < possible_matches.size(); ++k){
             	PseudoFeature possible_match = possible_matches[k];
-            	float score = L2_score(left_descriptor, possible_match.descriptor);
+            	int score = hamming_dist(left_descriptor, possible_match.descriptor);
             	if (score < minScore){
             	    minScore = score;
             	    best_match = possible_match;

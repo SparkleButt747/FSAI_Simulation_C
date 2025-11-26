@@ -158,7 +158,7 @@ void VisionNode::runProcessingLoop(){
     
     // FIX 2: Add the main "while(running_)" loop
     
-    cv::Ptr<cv::SIFT> sift_detector = cv::SIFT::create();
+    cv::Ptr<cv::ORB> detector = cv::ORB::create();  // detector for feature matching
     
     while(running_){
 
@@ -223,7 +223,7 @@ void VisionNode::runProcessingLoop(){
 
         // 2. Feature matching
         auto t3 = std::chrono::high_resolution_clock::now();
-        std::vector<ConeMatches> matched_features = match_features_per_cone(left_mat,right_mat,detections, sift_detector);
+        std::vector<ConeMatches> matched_features = match_features_per_cone(left_mat,right_mat,detections, detector);
 
         // 3. Stereo triangulation
         auto t4 = std::chrono::high_resolution_clock::now();

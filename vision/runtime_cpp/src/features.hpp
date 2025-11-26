@@ -32,4 +32,4 @@ struct ConeMatches {
 // --- Function Declarations ---
 
 // Main entry point: matching features for specific objects (cones)
-std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, const cv::Mat& right_frame, const std::vector<fsai::types::BoxBound>& box_bounds, const cv::Ptr<cv::SIFT> detector);
+std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, const cv::Mat& right_frame, const std::vector<fsai::types::BoxBound>& box_bounds, const cv::Ptr<cv::ORB> detector);
