@@ -4,6 +4,7 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/features2d.hpp>
 #include "detect.hpp"
+#include "common/types.h"
 
 // Structure for a matched pair of features across stereo frames
 struct Feature
@@ -25,7 +26,8 @@ struct ConeMatches {
     int cone_index;                 // Index matching the input vector of BoxBounds
     fsai::types::ConeSide side; 
     fsai::types::BoxBound bound;   // The bounding box these matches belong to
-    std::vector<Feature> matches;   // The list of stereo matched features for this specific cone
+    std::vector<Feature> matches;
+    FsaiConeSide side;  // The list of stereo matched features for this specific cone
 };
 
 // --- Function Declarations ---

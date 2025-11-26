@@ -2,6 +2,13 @@
 
 #include <cmath>
 
+// IO SUBSYSTEM: InProcessIoBus glues simulated telemetry, commands, and stereo
+// frames together inside a single process. The agent publishes ground-truth
+// telemetry from Vehicle Dynamics into this bus, optionally adds noise, then
+// fans it out to the Control and Vision frontends via callbacks or buffered
+// reads. The same object also carries Control commands back into the sim and
+// Vision stereo frames into the Vision pipeline.
+
 namespace fsai::io {
 namespace {
 
@@ -27,8 +34,15 @@ void InProcessIoBus::set_telemetry_sink(TelemetrySink sink) {
 
 void InProcessIoBus::set_stereo_sink(StereoSink sink) { stereo_sink_ = std::move(sink); }
 
+void InProcessIoBus::set_debug_sink(WorldDebugSink sink) {
+  debug_sink_ = std::move(sink);
+}
+
 fsai::sim::svcu::TelemetryPacket InProcessIoBus::apply_noise(
     const fsai::sim::svcu::TelemetryPacket& raw) {
+  // BACKEND NOISE MODEL: perturb ground-truth telemetry before sending it to
+  // the Control/Vision consumers to approximate realistic sensors. All values
+  // are zeroed today but the plumbing is ready for future tuning.
   fsai::sim::svcu::TelemetryPacket noisy = raw;
   noisy.steer_angle_rad += static_cast<float>(sample_noise(rng_, noise_.steer_rad_stddev));
   noisy.front_axle_torque_nm +=
@@ -52,6 +66,9 @@ fsai::sim::svcu::TelemetryPacket InProcessIoBus::apply_noise(
 void InProcessIoBus::publish_telemetry(const fsai::sim::svcu::TelemetryPacket& raw) {
   raw_telemetry_ = raw;
   noisy_telemetry_ = apply_noise(raw);
+  // IO->CONTROL/VISION: push the noisy packet downstream via the optional
+  // callback hook (used by Control) while keeping the latest copy for GUI
+  // panels and Vision side reads.
   if (telemetry_sink_) {
     telemetry_sink_(*noisy_telemetry_);
   }
@@ -66,6 +83,8 @@ std::optional<fsai::sim::svcu::TelemetryPacket> InProcessIoBus::latest_noisy_tel
 }
 
 void InProcessIoBus::push_command(const fsai::sim::svcu::CommandPacket& cmd) {
+  // CONTROL->IO->VEHICLE: enqueue the latest actuator command so the vehicle
+  // dynamics adapter can pick it up on the next tick.
   latest_command_ = cmd;
 }
 
@@ -75,12 +94,37 @@ std::optional<fsai::sim::svcu::CommandPacket> InProcessIoBus::latest_command() {
 
 void InProcessIoBus::publish_stereo_frame(const FsaiStereoFrame& frame) {
   last_frame_ = frame;
+  // WORLD/GRAPHICS->VISION: forward simulated stereo images into the Vision
+  // frame ring buffer or previews to keep the perception pipeline fed.
   if (stereo_sink_) {
     stereo_sink_(frame);
   }
 }
 
 std::optional<FsaiStereoFrame> InProcessIoBus::latest_stereo_frame() { return last_frame_; }
+
+void InProcessIoBus::publish_world_debug(
+    const fsai::world::WorldDebugPacket& packet) {
+  last_debug_ = packet;
+  // WORLD->IO->VISION/CONTROL: broadcast debug overlays (ground truth cones,
+  // controller path, detections) so both the GUI and downstream systems can
+  // visualize shared context.
+  if (debug_sink_) {
+    debug_sink_(packet);
+  }
+}
+
+std::optional<fsai::world::WorldDebugPacket> InProcessIoBus::latest_world_debug() {
+  return last_debug_;
+}
+
+void InProcessIoBus::clear_state() {
+  raw_telemetry_.reset();
+  noisy_telemetry_.reset();
+  latest_command_.reset();
+  last_frame_.reset();
+  last_debug_.reset();
+}
 
 }  // namespace fsai::io
 

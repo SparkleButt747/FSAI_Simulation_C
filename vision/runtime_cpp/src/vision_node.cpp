@@ -190,8 +190,7 @@ void VisionNode::runProcessingLoop(){
         // get car telem at start
         CarState car_state = {0.0, 0.0, 0.0};
         Eigen::Vector2d vehicle_pos {0.0, 0.0};
-        //double car_yaw_rad = 0.0;       - Ryan - why is this here
-        double car_yaw_rad = 0.0f;
+        double car_yaw_rad = 0.0;
 
         if(pose_provider_){
             std::pair<Eigen::Vector2d, double> pose = pose_provider_();
@@ -255,14 +254,6 @@ void VisionNode::runProcessingLoop(){
         }
         // 5. Recovering global position
         //apply rigid body transformation and translation
-        vehicle_pos = {0.0,0.0};
-        car_yaw_rad = 0.0f;
-        if(pose_provider_){
-            auto pose = pose_provider_();
-            vehicle_pos = pose.first;
-            car_yaw_rad = pose.second;
-        }
-        // std::cout << "Vision Received Car Pos:" << vehicle_pos.x() << vehicle_pos.y() << std::endl;
 
         Eigen::Isometry2d car_to_global = Eigen::Isometry2d::Identity();
         car_to_global.translation() << vehicle_pos.x(), vehicle_pos.y();
@@ -301,10 +292,27 @@ void VisionNode::runProcessingLoop(){
                     glob_det.z = 0.0f;
                     glob_det.side = cluster.side;
                     glob_det.conf =0.8f;
-                    new_detections.dets[new_detections.n] = glob_det;
-                    new_detections.n++;
+                    raw_global_cones.push_back(glob_det);
                 }
             }
+        }
+        //update the covariances
+        mapper_.updateMap(raw_global_cones, car_state);
+        //compute new map
+        std::vector<fsai::vision::MapCone> validated_map = mapper_.getValidatedMap();
+
+        for(const auto& map_cone : validated_map){
+            if(new_detections.n >= 100) break; // Safety check for buffer size
+
+            FsaiConeDet out_det;
+            out_det.x = static_cast<float>(map_cone.x);
+            out_det.y = static_cast<float>(map_cone.y);
+            out_det.z = 0.0f;
+            out_det.side = map_cone.side;
+            out_det.conf = static_cast<float>(map_cone.trust_score); // Or normalize this
+
+            new_detections.dets[new_detections.n] = out_det;
+            new_detections.n++;
         }
         auto t_end = std::chrono::high_resolution_clock::now();
         auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count();

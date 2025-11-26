@@ -58,10 +58,9 @@ void Graphics_HandleWindowEvent(Graphics* g, const SDL_Event* event) {
     }
 }
 
-// Clears the screen with a white background.
+// Clears the screen with a black background to keep overlays readable.
 void Graphics_Clear(Graphics* g) {
-    //printf("Clearing screen...\n");
-    SDL_SetRenderDrawColor(g->renderer, 255, 255, 255, 255);
+    SDL_SetRenderDrawColor(g->renderer, 0, 0, 0, 255);
     SDL_RenderClear(g->renderer);
 }
 
@@ -93,25 +92,29 @@ void Graphics_DrawFilledCircle(Graphics* g, int centreX, int centreY, int radius
     }
 }
 
-// Draws a filled circle representing the car with a heading line.
+// Draws the car as a small yellow triangle aligned with heading.
 void Graphics_DrawCar(Graphics* g, float x, float y, float radius, float yaw) {
-    // Draw the car (blue filled circle).
-    SDL_SetRenderDrawColor(g->renderer, 0, 0, 255, 255);
-    drawFilledCircle(g->renderer, (int)x, (int)y, (int)radius);
+    const float tip_x = x + radius * cosf(yaw);
+    const float tip_y = y + radius * sinf(yaw);
 
-    // Draw heading: a red line from the center extending in the yaw direction.
-    float lineLength = radius;
-    int x2 = (int)(x + lineLength * cos(yaw));
-    int y2 = (int)(y + lineLength * sin(yaw));
-    SDL_SetRenderDrawColor(g->renderer, 255, 0, 0, 255);
-    SDL_RenderDrawLine(g->renderer, (int)x, (int)y, x2, y2);
+    const float base_angle = 2.0f * 3.14159265358979323846f / 3.0f;
+    const float left_x = x + radius * cosf(yaw + base_angle);
+    const float left_y = y + radius * sinf(yaw + base_angle);
+    const float right_x = x + radius * cosf(yaw - base_angle);
+    const float right_y = y + radius * sinf(yaw - base_angle);
+
+    SDL_SetRenderDrawColor(g->renderer, 255, 215, 0, 255);
+    SDL_RenderDrawLineF(g->renderer, tip_x, tip_y, left_x, left_y);
+    SDL_RenderDrawLineF(g->renderer, left_x, left_y, right_x, right_y);
+    SDL_RenderDrawLineF(g->renderer, right_x, right_y, tip_x, tip_y);
 }
 
-void Graphics_DrawSegment(Graphics* g, float x1, float y1,  float x2, float y2, int red, int green, int blue) {
-    x1 = x1 * K_RENDER_SCALE + g->width / 2.0f;
-    y1 = y1 * K_RENDER_SCALE + g->height / 2.0f;
-    x2 = x2 * K_RENDER_SCALE + g->width / 2.0f;
-    y2 = y2 * K_RENDER_SCALE + g->height / 2.0f;
+void Graphics_DrawSegment(Graphics* g, float x1, float y1,  float x2, float y2,
+                          float render_scale, int red, int green, int blue) {
+    x1 = x1 * render_scale + g->width / 2.0f;
+    y1 = y1 * render_scale + g->height / 2.0f;
+    x2 = x2 * render_scale + g->width / 2.0f;
+    y2 = y2 * render_scale + g->height / 2.0f;
     SDL_SetRenderDrawColor(g->renderer, red, green, blue, 255);
     SDL_RenderDrawLine(g->renderer, x1, y1, x2, y2);
 }

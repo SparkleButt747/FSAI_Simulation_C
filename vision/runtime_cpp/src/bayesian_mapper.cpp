@@ -15,7 +15,7 @@ void BayesianMapper::updateMap(const std::vector<FsaiConeDet>& global_detections
         // Input: det.x (Global East), det.z (Global North)
         // Map:   x, y
         double meas_x = static_cast<double>(det.x);
-        double meas_y = static_cast<double>(det.z);
+        double meas_y = static_cast<double>(det.y);
 
         // 2. Calculate Variance Heuristic (Since upstream cov is empty)
 

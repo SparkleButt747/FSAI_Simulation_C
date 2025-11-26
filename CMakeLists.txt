@@ -158,12 +158,6 @@ endif()
 # ------------------------------------------------------------------------------
 # Dependencies
 # ------------------------------------------------------------------------------
-include_directories(${ORT_ROOT}/include)
-find_library(ORT_LIB
-    NAMES onnxruntime
-    PATHS ${ORT_ROOT}/lib
-    NO_DEFAULT_PATH
-)
 find_package(Eigen3 REQUIRED NO_MODULE)
 find_package(PkgConfig REQUIRED)
 find_package(SDL2 QUIET CONFIG)
@@ -205,7 +199,7 @@ find_package(yaml-cpp REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(OpenCV REQUIRED)
 
-# CGAL and its components
+# CGAL and its componentsx
 find_package(CGAL QUIET COMPONENTS)
 find_package(CGAL REQUIRED OPTIONAL_COMPONENTS)
 if ( NOT CGAL_FOUND )
@@ -243,6 +237,14 @@ foreach(h ${ALL_HEADERS})
   endif()
 endforeach()
 list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
+list(APPEND HEADER_DIRS
+  "${CMAKE_SOURCE_DIR}/common/include"
+  "${CMAKE_SOURCE_DIR}/control/include"
+  "${CMAKE_SOURCE_DIR}/io/include"
+  "${CMAKE_SOURCE_DIR}/sim/include"
+  "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+  "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+)
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
 # ------------------------------------------------------------------------------
@@ -272,7 +274,7 @@ target_include_directories(fsai_vision_runtime PUBLIC
 )
 target_link_libraries(fsai_vision_runtime PUBLIC
     Eigen3::Eigen
-    ${ORT_LIB}
+    onnxruntime::onnxruntime
     ${OpenCV_LIBRARIES}
     Threads::Threads
 )
@@ -321,18 +323,6 @@ target_link_libraries(fsai_sim PUBLIC
   ${OpenCV_LIBRARIES}
 )
 
-target_link_libraries(fsai_sim
-  PUBLIC
-    Eigen3::Eigen
-    yaml-cpp::yaml-cpp
-    OpenGL::GL
-    Threads::Threads
-    CGAL::CGAL
-    m
-    ${ORT_LIB}
-    ${OpenCV_LIBRARIES}
-)
-
 
 add_library(fsai_ctrl STATIC
   ${SIM_C_SOURCES}
@@ -346,6 +336,14 @@ target_link_libraries(fsai_ctrl PUBLIC
   m
   yaml-cpp::yaml-cpp
 )
+
+file(GLOB SIM_UNIT_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/sim/src/tests/*.cpp")
+if(SIM_UNIT_TEST_SOURCES)
+  add_executable(sim_unit_tests ${SIM_UNIT_TEST_SOURCES})
+  target_link_libraries(sim_unit_tests PRIVATE fsai_sim Threads::Threads)
+  target_compile_definitions(sim_unit_tests PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
+  add_test(NAME sim_unit_tests COMMAND sim_unit_tests)
+endif()
 
 if(SDL2_IMPORTED_TARGET)
   target_link_libraries(fsai_sim  PUBLIC ${SDL2_IMPORTED_TARGET})
@@ -390,6 +388,7 @@ target_include_directories(fsai_run PRIVATE
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+    "${CMAKE_SOURCE_DIR}/common/include"
 )
 target_compile_definitions(fsai_run PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
