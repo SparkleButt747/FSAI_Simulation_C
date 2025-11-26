@@ -72,6 +72,10 @@ input_ranges:
     max: 0.3665191
     min: -0.3665191
 
+velox:
+  model: st
+  vehicle_id: 5
+
 physics:
   h_cg: 0.25       # m
   c_rr: 0.012      # rolling resistance coefficient
