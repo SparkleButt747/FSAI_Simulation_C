@@ -47,15 +47,23 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
                                    controlConfig_.pathSearchBeamWidth);
     auto pathNodes = searchResult.first;
     bestPathEdges_ = searchResult.second;
-    auto checkpoints = pathNodesToCheckpoints(pathNodes);
+    auto beamSearchedCheckpoints = pathNodesToCheckpoints(pathNodes);
     lookaheadIndices = Controller_GetLookaheadIndices(
-        static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
-    throttle_out = Controller_GetThrottleInput(
-        checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
-        carSpeed, &carTransform, &racingConfig, dt);
-    steering_out = Controller_GetSteeringInput(
-        checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
-        carSpeed, &carTransform, &racingConfig, dt);
+            static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
+    if (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration &&
+        !pathNodes.empty()) {
+        throttle_out = Controller_GetThrottleInput(
+            beamSearchedCheckpoints, static_cast<int>(pathNodes.size()),
+            carSpeed, &carTransform, &racingConfig, dt);
+        steering_out = Controller_GetSteeringInput(beamSearchedCheckpoints, static_cast<int>(pathNodes.size()), carSpeed, &carTransform, &racingConfig, dt);
+    } else {
+        throttle_out = Controller_GetThrottleInput(
+            checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
+            carSpeed, &carTransform, &racingConfig, dt);
+        steering_out = Controller_GetSteeringInput(
+            checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
+            carSpeed, &carTransform, &racingConfig, dt);
+    }
     return true;
 }
 
