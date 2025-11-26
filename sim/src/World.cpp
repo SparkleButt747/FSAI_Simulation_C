@@ -7,6 +7,7 @@
 #include <utility>
 #include <limits>
 #include <string>
+#include "../include/logging.hpp"
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "centerline.hpp"
@@ -162,6 +163,10 @@ void World::update(double dt) {
         return;
     }
 
+    if (trackGenerationFailed_) {
+        return;
+    }
+
     if (checkpointPositions.empty()) {
         std::printf("No checkpoints available. Resetting simulation.\n");
         const auto resetReason = fsai::sim::WorldRuntime::ResetReason::kTrackRegeneration;
@@ -313,12 +318,20 @@ void World::moveNextCheckpointToLast() {
 }
 
 void World::reset(const ResetDecision& decision) {
+    trackGenerationFailed_ = false;
     if (decision.regenerateTrack) {
         std::printf("Regenerating track due to reset.\n");
         if (mission_.trackSource == fsai::sim::TrackSource::kRandom) {
             mission_.track = {};
         }
-        trackState_ = buildTrackState();
+        try {
+            trackState_ = buildTrackState();
+        } catch (const std::exception& e) {
+            fsai::sim::log::LogWarning(
+                std::string("Track regeneration failed: ") + e.what());
+            trackGenerationFailed_ = true;
+            return;
+        }
     } else {
         std::printf("Resetting simulation without regenerating track.\n");
     }
