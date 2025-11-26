@@ -194,7 +194,7 @@ fsai::sim::MissionDescriptor ResolveMissionSelection(
 #ifndef FSAI_PROJECT_ROOT
 #define FSAI_PROJECT_ROOT "."
 #endif
- 
+
 std::filesystem::path MakeProjectRelativePath(const std::filesystem::path& path) {
   if (path.is_absolute()) {
     return path;
@@ -202,7 +202,7 @@ std::filesystem::path MakeProjectRelativePath(const std::filesystem::path& path)
 
   return std::filesystem::path(FSAI_PROJECT_ROOT) / path;
 }
- 
+
 std::filesystem::path MakeProjectRelativePath(const std::string& path) {
   return MakeProjectRelativePath(std::filesystem::path(path));
 }
@@ -416,6 +416,8 @@ std::string MissionRunStatusLabel(fsai::sim::MissionRunStatus status, bool stop_
         return "Stop Commanded";
       }
       return "Running";
+    case fsai::sim::MissionRunStatus::kBraking:
+      return "Braking";
     case fsai::sim::MissionRunStatus::kCompleted:
       return stop_commanded ? "Completed (Stop Commanded)" : "Completed";
   }
@@ -443,6 +445,8 @@ ImVec4 MissionStatusColor(fsai::sim::MissionRunStatus status, bool stop_commande
         return Rgba255(239, 108, 0);
       }
       return Rgba255(255, 213, 79);
+    case fsai::sim::MissionRunStatus::kBraking:
+      return Rgba255(239, 108, 0);
     case fsai::sim::MissionRunStatus::kCompleted:
       return stop_commanded ? Rgba255(102, 187, 106) : Rgba255(76, 175, 80);
   }

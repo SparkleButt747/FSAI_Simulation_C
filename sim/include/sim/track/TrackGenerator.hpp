@@ -6,8 +6,8 @@
 #include <complex>
 
 struct TrackResult {
-    // Large orange cones marking the start line (two pairs).
     std::vector<Transform> startCones;
+    std::vector<Transform> smallOrangeCones;
     std::vector<Transform> leftCones;
     std::vector<Transform> rightCones;
     std::vector<Transform> checkpoints;

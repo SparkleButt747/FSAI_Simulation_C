@@ -164,7 +164,7 @@ void World::update(double dt) {
     // policies. All data used by fsai_run (telemetry, render snapshot, reset
     // flags) flows out after this call.
     const auto& dynamics = vehicleDynamics();
-    runtime_.BeginStep(dt);
+    runtime_.BeginStep(dt, dynamics.state());
 
     if (vehicleResetPending_) {
         return;
@@ -226,9 +226,11 @@ void World::configureTrackState(const TrackBuildResult& track) {
     startCones = track.startCones;
     leftCones = track.leftCones;
     rightCones = track.rightCones;
+    orangeCones = track.orangeCones;
     startConePositions_ = track.startConePositions;
     leftConePositions_ = track.leftConePositions;
     rightConePositions_ = track.rightConePositions;
+    orangeConePositions_ = track.orangeConePositions;
     gateSegments_ = track.gateSegments;
     boundarySegments_ = track.boundarySegments;
 
@@ -309,14 +311,32 @@ void World::moveNextCheckpointToLast() {
     if (!checkpointPositions.empty()) {
         std::rotate(checkpointPositions.begin(), checkpointPositions.begin() + 1, checkpointPositions.end());
     }
+    if (!startCones.empty()) {
+        std::rotate(startCones.begin(), startCones.begin() + 1, startCones.end());
+    }
     if (!leftCones.empty()) {
         std::rotate(leftCones.begin(), leftCones.begin() + 1, leftCones.end());
     }
     if (!rightCones.empty()) {
         std::rotate(rightCones.begin(), rightCones.begin() + 1, rightCones.end());
     }
+    if (!orangeCones.empty()) {
+        std::rotate(orangeCones.begin(), orangeCones.begin() + 1, orangeCones.end());
+    }
     if (!gateSegments_.empty()) {
         std::rotate(gateSegments_.begin(), gateSegments_.begin() + 1, gateSegments_.end());
+    }
+    if (!startConePositions_.empty()) {
+        std::rotate(startConePositions_.begin(), startConePositions_.begin() + 1, startConePositions_.end());
+    }
+    if (!leftConePositions_.empty()) {
+        std::rotate(leftConePositions_.begin(), leftConePositions_.begin() + 1, leftConePositions_.end());
+    }
+    if (!rightConePositions_.empty()) {
+        std::rotate(rightConePositions_.begin(), rightConePositions_.begin() + 1, rightConePositions_.end());
+    }
+    if (!orangeConePositions_.empty()) {
+        std::rotate(orangeConePositions_.begin(), orangeConePositions_.begin() + 1, orangeConePositions_.end());
     }
 }
 
@@ -349,6 +369,7 @@ void World::publish_debug_state() const {
     packet.start_cones = startConePositions_;
     packet.left_cones = leftConePositions_;
     packet.right_cones = rightConePositions_;
+    packet.orange_cones = orangeConePositions_;
     packet.checkpoints = checkpointPositions;
     packet.controller_path_edges = bestPathEdges_;
     packet.detections = coneDetections_;

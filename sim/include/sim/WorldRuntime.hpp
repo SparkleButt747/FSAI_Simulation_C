@@ -46,7 +46,7 @@ class WorldRuntime {
   void Configure(const MissionDefinition& mission, const Config& config);
   void UpdateTrackContext(const std::vector<Vector3>& checkpoints);
   void NotifySpawnApplied(const Transform& transform);
-  void BeginStep(double dt_seconds);
+  void BeginStep(double dt_seconds, const VehicleState& vehicle_state);
   void AccumulateDistance(double delta_distance_m);
   std::optional<LapEvent> EvaluateLapTransition(const Transform& transform);
   void UpdateStraightLineProgress(const Transform& transform);
