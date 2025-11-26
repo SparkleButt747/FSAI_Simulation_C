@@ -355,7 +355,7 @@ target_include_directories(fsai_run PRIVATE
     "${CMAKE_SOURCE_DIR}/sim/include"
 )
 target_compile_definitions(fsai_run PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
-target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
+target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui fsai_telemetry)
 if(TARGET fsai_vision_runtime)
   target_link_libraries(fsai_run PRIVATE fsai_vision_runtime)
 endif()
