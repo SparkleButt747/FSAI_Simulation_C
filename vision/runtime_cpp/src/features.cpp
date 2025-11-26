@@ -26,6 +26,11 @@ float L2_score(cv::Mat left_descriptor, cv::Mat right_descriptor){
     return dist;
 }
 
+int hamming_dist(cv::Mat left_descriptor, cv::Mat right_descriptor){
+    int dist = cv::norm(left_descriptor,  right_descriptor, cv::NORM_HAMMING); 
+    return dist; 
+}
+
 std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, 
                                                  const cv::Mat& right_frame, 
                                                  const std::vector<fsai::types::BoxBound>& box_bounds,
@@ -53,8 +58,6 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         sift_detector->detectAndCompute(box_roi, cv::noArray(), left_keypoints, left_descriptors); 
 
         for (int j = 0; j < left_keypoints.size(); ++j){
-            // IMPORTANT: Adjust relative to the CLIPPED rect, not the original box_i
-            // If the box was chopped on the left, box_i.x is wrong, clipped_rect.x is right.
             left_keypoints[j].pt.x += box_i.x;
             left_keypoints[j].pt.y += box_i.y;
 
