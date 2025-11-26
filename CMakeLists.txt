@@ -189,6 +189,17 @@ list(APPEND HEADER_DIRS
 )
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
+# Centralized telemetry implementation (console + structured)
+add_library(fsai_telemetry STATIC
+  ${CMAKE_SOURCE_DIR}/common/src/telemetry/Telemetry.cpp
+  ${CMAKE_SOURCE_DIR}/velox/lib/telemetry/telemetry.cpp
+)
+target_include_directories(fsai_telemetry PUBLIC
+  ${CMAKE_SOURCE_DIR}/common/include
+  ${VELOX_HEADER_DIR}
+  ${HEADER_DIRS}
+)
+
 # ------------------------------------------------------------------------------
 # Vision-test libraries  [UNCHANGED]
 # ------------------------------------------------------------------------------
@@ -220,6 +231,7 @@ target_link_libraries(fsai_vision_runtime PUBLIC
     onnxruntime::onnxruntime
     ${OpenCV_LIBRARIES}
     Threads::Threads
+    fsai_telemetry
 )
 
 # ------------------------------------------------------------------------------
@@ -245,6 +257,8 @@ list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision_test/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
+# Use the velox telemetry implementation via the dedicated library
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/common/src/telemetry/telemetry.cpp$")
 
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
 file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/fsai_plan.cpp")
@@ -266,6 +280,7 @@ target_link_libraries(fsai_sim PUBLIC
   m
   onnxruntime::onnxruntime
   ${OpenCV_LIBRARIES}
+  fsai_telemetry
 )
 target_compile_definitions(fsai_sim PUBLIC VELOX_PARAM_ROOT="${VELOX_PARAM_ROOT_DIR}")
 
@@ -281,6 +296,7 @@ target_link_libraries(fsai_ctrl PUBLIC
   CGAL::CGAL
   m
   yaml-cpp::yaml-cpp
+  fsai_telemetry
 )
 target_compile_definitions(fsai_ctrl PUBLIC VELOX_PARAM_ROOT="${VELOX_PARAM_ROOT_DIR}")
 
