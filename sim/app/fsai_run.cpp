@@ -36,7 +36,7 @@
 #include "budget.h"
 #include "fsai_clock.h"
 #include "csv_logger.hpp"
-#include "logging.hpp"
+#include "sim/include/logging.hpp"
 #include "stereo_display.hpp"
 #include "edge_preview.hpp"
 #include "vision/frame_ring_buffer.hpp"
