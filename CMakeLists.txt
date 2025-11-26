@@ -185,7 +185,6 @@ list(APPEND HEADER_DIRS
   "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
   "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
   "${VELOX_HEADER_DIR}"
-  "${VELOX_HEADER_DIR}/telemetry"
 )
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
