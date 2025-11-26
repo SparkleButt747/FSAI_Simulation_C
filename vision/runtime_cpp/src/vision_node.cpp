@@ -20,6 +20,10 @@
 #include <iostream>
 #include <chrono>
 
+#include <opencv2/opencv.hpp>
+#include <opencv2/features2d.hpp>  // For SIFT and other feature detectors
+#include <opencv2/imgproc.hpp>
+
 const char* PATH_TO_MODEL = "../vision/models/cone_model.onnx";
 constexpr std::chrono::milliseconds kIdleSleep(5);
 
@@ -154,6 +158,8 @@ void VisionNode::runProcessingLoop(){
     
     // FIX 2: Add the main "while(running_)" loop
     
+    cv::Ptr<cv::SIFT> sift_detector = cv::SIFT::create();
+    
     while(running_){
 
         // We use tryGetLatestFrame() for a non-blocking loop.
@@ -218,7 +224,7 @@ void VisionNode::runProcessingLoop(){
 
         // 2. Feature matching
         auto t3 = std::chrono::high_resolution_clock::now();
-        std::vector<ConeMatches> matched_features = match_features_per_cone(left_mat,right_mat,detections);
+        std::vector<ConeMatches> matched_features = match_features_per_cone(left_mat,right_mat,detections, sift_detector);
 
         // 3. Stereo triangulation
         auto t4 = std::chrono::high_resolution_clock::now();

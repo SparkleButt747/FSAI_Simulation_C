@@ -27,11 +27,10 @@ float L2_score(cv::Mat left_descriptor, cv::Mat right_descriptor){
 
 std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, 
                                                  const cv::Mat& right_frame, 
-                                                 const std::vector<fsai::types::BoxBound>& box_bounds) {
+                                                 const std::vector<fsai::types::BoxBound>& box_bounds,
+                                                 const cv::Ptr<cv::SIFT> sift_detector) {
     std::vector<ConeMatches> all_cone_matches;
     all_cone_matches.reserve(box_bounds.size());
-    
-    cv::Ptr<cv::SIFT> sift_detector = cv::SIFT::create(); 
     
     std::vector<PseudoFeature> left_features; 
     std::vector<PseudoFeature> right_features; 
@@ -60,7 +59,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
             left_feature.cone_index = box_index;
             left_feature.x = left_keypoints[j].pt.x; 
             left_feature.y = left_keypoints[j].pt.y; 
-            left_feature.descriptor = left_descriptors.row(j); 
+            left_feature.descriptor = left_descriptors.row(j).clone(); 
             left_features.push_back(left_feature); 
         }
         
@@ -91,7 +90,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     for (int i = 0; i < left_features.size(); ++i){
         PseudoFeature left_feature_i = left_features[i]; 
         int y = left_feature_i.y; 
-        cv::Mat left_descriptor = left_feature_i.descriptor; 
+        const auto& left_descriptor = left_feature_i.descriptor;   // try changing cv::Mat to const auto &
         float minScore = std::numeric_limits<float>::max();   // init value 
         PseudoFeature best_match; 
         
@@ -99,7 +98,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
             bool key_exists = y_map.find(j) != y_map.end(); 
             if (!key_exists){continue;}
             
-            std::vector<PseudoFeature> possible_matches = y_map[j]; 
+            const auto& possible_matches = y_map[j]; 
             
             for (int k = 0; k < possible_matches.size(); ++k){
             	PseudoFeature possible_match = possible_matches[k]; 
