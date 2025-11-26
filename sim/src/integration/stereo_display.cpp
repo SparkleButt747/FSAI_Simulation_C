@@ -1,6 +1,6 @@
 #include "stereo_display.hpp"
 
-#include "sim/include/logging.hpp"
+#include "../../include/logging.hpp"
 
 #include <cstdio>
 

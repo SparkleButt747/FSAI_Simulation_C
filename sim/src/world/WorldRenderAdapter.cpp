@@ -1,6 +1,6 @@
 #include "WorldRenderAdapter.hpp"
 
-#include "sim/include/logging.hpp"
+#include "../../include/logging.hpp"
 
 #include <algorithm>
 #include <array>

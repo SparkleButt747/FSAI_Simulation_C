@@ -5,7 +5,7 @@
  * Calculate glob coordinate
  */
 #include "vision/vision_node.hpp"
-#include "sim/include/logging.hpp"
+#include "../../../sim/include/logging.hpp"
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
