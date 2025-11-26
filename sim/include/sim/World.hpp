@@ -8,7 +8,7 @@
 #include <Eigen/Dense>
 #include "types.h"
 #include "VehicleState.hpp"
-#include "Telemetry.hpp"
+#include "common/telemetry/Telemetry.hpp"
 #include "controller.prot.h"
 #include "Transform.h"
 #include "Vector.h"

@@ -1,4 +1,4 @@
-#include "Telemetry.hpp"
+#include "common/telemetry/Telemetry.hpp"
 #include "fsai_clock.h"
 #include <cstdio>
 

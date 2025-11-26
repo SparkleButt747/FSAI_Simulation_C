@@ -195,7 +195,6 @@ add_library(fsai_telemetry STATIC
 )
 target_include_directories(fsai_telemetry PUBLIC
   ${CMAKE_SOURCE_DIR}/common/include
-  ${VELOX_HEADER_DIR}
   ${HEADER_DIRS}
 )
 
