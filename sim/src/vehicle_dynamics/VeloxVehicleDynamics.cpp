@@ -3,11 +3,16 @@
 #include <algorithm>
 #include <cmath>
 
-#include "common/logging.hpp"
+#include "../../include/logging.hpp"
 
 namespace fsai::vehicle {
 namespace {
 constexpr double kTwoPi = 2.0 * M_PI;
+}
+
+VeloxVehicleDynamics::VeloxVehicleDynamics()
+    : VeloxVehicleDynamics(Config{})
+{
 }
 
 VeloxVehicleDynamics::VeloxVehicleDynamics(const Config& config)
@@ -30,7 +35,7 @@ VeloxVehicleDynamics::VeloxVehicleDynamics(const Config& config)
     try {
         telemetry_ = daemon_.snapshot().telemetry;
     } catch (const std::exception& ex) {
-        velox::logging::log_warning("VeloxVehicleDynamics", ex.what());
+        fsai::sim::log::LogWarning(ex.what());
     }
     sync_from_telemetry();
 }

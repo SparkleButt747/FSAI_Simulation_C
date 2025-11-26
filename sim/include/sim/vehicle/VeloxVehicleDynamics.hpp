@@ -23,7 +23,8 @@ public:
         int vehicle_id{1};
     };
 
-    explicit VeloxVehicleDynamics(const Config& config = Config());
+    VeloxVehicleDynamics();
+    explicit VeloxVehicleDynamics(const Config& config);
 
     void set_command(float throttle, float brake, float steer) override;
     void step(double dt_seconds) override;
