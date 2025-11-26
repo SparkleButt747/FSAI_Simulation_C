@@ -12,16 +12,16 @@ namespace {
 constexpr double kGravity = 9.81;
 constexpr double kEpsilon = 1e-6;
 
-double yaw_rate_from_state(simulation::ModelType model, const std::vector<double>& state, double v_long, double steer_angle, double wheelbase)
+double yaw_rate_from_state(velox::simulation::ModelType model, const std::vector<double>& state, double v_long, double steer_angle, double wheelbase)
 {
     (void)v_long;
     (void)steer_angle;
     (void)wheelbase;
 
     switch (model) {
-        case simulation::ModelType::ST:
-        case simulation::ModelType::STD:
-        case simulation::ModelType::MB:
+        case velox::simulation::ModelType::ST:
+        case velox::simulation::ModelType::STD:
+        case velox::simulation::ModelType::MB:
             if (state.size() > 5) {
                 return state[5];
             }
@@ -37,14 +37,14 @@ double axle_slip_angle(double v_lat, double v_long, double yaw_rate, double offs
     return std::atan2(lateral_velocity, safe_longitudinal) - steer_angle;
 }
 
-const char* safety_stage_name(simulation::SafetyStage stage)
+const char* safety_stage_name(velox::simulation::SafetyStage stage)
 {
     switch (stage) {
-        case simulation::SafetyStage::Normal:
+        case velox::simulation::SafetyStage::Normal:
             return "normal";
-        case simulation::SafetyStage::Transition:
+        case velox::simulation::SafetyStage::Transition:
             return "transition";
-        case simulation::SafetyStage::Emergency:
+        case velox::simulation::SafetyStage::Emergency:
             return "emergency";
     }
     return "unknown";
@@ -108,13 +108,13 @@ void populate_axle(AxleTelemetry& axle,
 } // namespace
 
 SimulationTelemetry compute_simulation_telemetry(
-    simulation::ModelType model,
+    velox::simulation::ModelType model,
     const models::VehicleParameters& params,
     const std::vector<double>& state,
     const controllers::longitudinal::ControllerOutput& accel_output,
     const controllers::SteeringWheel::Output& steering_wheel_output,
     const controllers::FinalSteerController::Output& steering_output,
-    const simulation::LowSpeedSafety* safety,
+    const velox::simulation::LowSpeedSafety* safety,
     double measured_speed,
     double cumulative_distance_m,
     double cumulative_energy_j,
@@ -131,7 +131,7 @@ SimulationTelemetry compute_simulation_telemetry(
     double beta   = 0.0;
 
     switch (model) {
-        case simulation::ModelType::ST:
+        case velox::simulation::ModelType::ST:
             if (state.size() >= 7) {
                 v_long = state[3];
                 yaw    = state[4];
@@ -139,7 +139,7 @@ SimulationTelemetry compute_simulation_telemetry(
             }
             break;
 
-        case simulation::ModelType::STD:
+        case velox::simulation::ModelType::STD:
             if (state.size() >= 9) {
                 v_long = state[3];
                 yaw    = state[4];
@@ -147,7 +147,7 @@ SimulationTelemetry compute_simulation_telemetry(
             }
             break;
 
-        case simulation::ModelType::MB:
+        case velox::simulation::ModelType::MB:
             if (state.size() >= 11) {
                 v_long = state[3];
                 v_lat  = state[10];
@@ -178,13 +178,13 @@ SimulationTelemetry compute_simulation_telemetry(
 
     telemetry.acceleration.longitudinal = accel_output.acceleration;
     switch (model) {
-        case simulation::ModelType::MB:
+        case velox::simulation::ModelType::MB:
             if (state.size() > 5) {
                 telemetry.acceleration.lateral = v_long * state[5];
             }
             break;
-        case simulation::ModelType::ST:
-        case simulation::ModelType::STD:
+        case velox::simulation::ModelType::ST:
+        case velox::simulation::ModelType::STD:
             if (state.size() > 5) {
                 telemetry.acceleration.lateral = v_long * state[5];
             }
@@ -288,7 +288,7 @@ SimulationTelemetry compute_simulation_telemetry(
     return telemetry;
 }
 
-const char* safety_stage_to_string(simulation::SafetyStage stage)
+const char* safety_stage_to_string(velox::simulation::SafetyStage stage)
 {
     return safety_stage_name(stage);
 }

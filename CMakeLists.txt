@@ -174,9 +174,9 @@ foreach(h ${ALL_HEADERS})
     list(APPEND HEADER_DIRS "${hdir}")
   endif()
 endforeach()
+list(PREPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/common/include")
 list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
 list(APPEND HEADER_DIRS
-  "${CMAKE_SOURCE_DIR}/common/include"
   "${CMAKE_SOURCE_DIR}/control/include"
   "${CMAKE_SOURCE_DIR}/io/include"
   "${CMAKE_SOURCE_DIR}/sim/include"
@@ -191,6 +191,7 @@ list(REMOVE_DUPLICATES HEADER_DIRS)
 # ------------------------------------------------------------------------------
 add_subdirectory(vision_test/runtime_cpp/src)
 target_include_directories(fsai_vision_runtime PUBLIC
+    "${CMAKE_SOURCE_DIR}/common/include"
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
     "${CMAKE_SOURCE_DIR}"
 
@@ -327,11 +328,11 @@ file(GLOB_RECURSE SIM_APP_SOURCES CONFIGURE_DEPENDS
 )
 add_executable(fsai_run ${SIM_APP_SOURCES})
 target_include_directories(fsai_run PRIVATE
+    "${CMAKE_SOURCE_DIR}/common/include"
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
-    "${CMAKE_SOURCE_DIR}/common/include"
     "${CMAKE_SOURCE_DIR}/sim/include"
 )
 target_compile_definitions(fsai_run PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
