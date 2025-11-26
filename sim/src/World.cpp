@@ -153,50 +153,50 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
 
     triangulationEdges = getVisibleTriangulationEdges(triangulation_, coneToSide_, vehicleState(), getLeftCones(), getRightCones());
 
-    
-    // --- NEW: cache path; only recompute when we reach a new checkpoint ---
-    static bool hasCachedPath = false;
-    static std::vector<PathNode> cachedPathNodes;
-    static Vector3* cachedCheckpoints = nullptr;
-    static Vector3 lastPathCheckpoint{};  // checkpoint the cached path was planned from
 
-    const Vector3& currentCheckpoint = checkpointPositions.front();
-    const bool needNewPath =
-        !hasCachedPath ||
-        currentCheckpoint.x != lastPathCheckpoint.x ||
-        currentCheckpoint.y != lastPathCheckpoint.y ||
-        currentCheckpoint.z != lastPathCheckpoint.z;
+    // // --- NEW: cache path; only recompute when we reach a new checkpoint ---
+    // static bool hasCachedPath = false;
+    // static std::vector<PathNode> cachedPathNodes;
+    // static Vector3* cachedCheckpoints = nullptr;
+    // static Vector3 lastPathCheckpoint{};  // checkpoint the cached path was planned from
 
-    if (needNewPath) {
-        std::cout<<'\n'<<'\n'<<'\n'<<"COMPUTING!!!!"<<'\n'<<'\n'<<'\n';
-        auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
-        auto searchResult = beamSearch(adj, nodes, carFront, 7, 2, 20);
+    // const Vector3& currentCheckpoint = checkpointPositions.front();
+    // const bool needNewPath =
+    //     !hasCachedPath ||
+    //     currentCheckpoint.x != lastPathCheckpoint.x ||
+    //     currentCheckpoint.y != lastPathCheckpoint.y ||
+    //     currentCheckpoint.z != lastPathCheckpoint.z;
 
-        cachedPathNodes = std::move(searchResult.first);
-        bestPathEdges   = std::move(searchResult.second);  // still used for visualisation
+    // if (needNewPath) {
+    //     std::cout<<'\n'<<'\n'<<'\n'<<"COMPUTING!!!!"<<'\n'<<'\n'<<'\n';
+    //     auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
+    //     auto searchResult = beamSearch(adj, nodes, carFront, 7, 2, 20);
 
-        cachedCheckpoints   = pathNodesToCheckpoints(cachedPathNodes);
-        lastPathCheckpoint  = currentCheckpoint;
-        hasCachedPath       = !cachedPathNodes.empty();
-    }
+    //     cachedPathNodes = std::move(searchResult.first);
+    //     bestPathEdges   = std::move(searchResult.second);  // still used for visualisation
 
-    if (!hasCachedPath || cachedPathNodes.empty() || cachedCheckpoints == nullptr) {
-        // No valid path available => do not override control this frame
-        return false;
-    }
+    //     cachedCheckpoints   = pathNodesToCheckpoints(cachedPathNodes);
+    //     lastPathCheckpoint  = currentCheckpoint;
+    //     hasCachedPath       = !cachedPathNodes.empty();
+    // }
 
-    lookaheadIndices = Controller_GetLookaheadIndices(
-        static_cast<int>(cachedPathNodes.size()), carSpeed, &racingConfig);
-    throttle_out = Controller_GetThrottleInput(
-        cachedCheckpoints, static_cast<int>(cachedPathNodes.size()),
-        carSpeed, &carTransform, &racingConfig, dt);
-    steering_out = Controller_GetSteeringInput(
-        cachedCheckpoints, static_cast<int>(cachedPathNodes.size()),
-        carSpeed, &carTransform, &racingConfig, dt);
+    // if (!hasCachedPath || cachedPathNodes.empty() || cachedCheckpoints == nullptr) {
+    //     // No valid path available => do not override control this frame
+    //     return false;
+    // }
 
-    return true;
-    
-    /*
+    // lookaheadIndices = Controller_GetLookaheadIndices(
+    //     static_cast<int>(cachedPathNodes.size()), carSpeed, &racingConfig);
+    // throttle_out = Controller_GetThrottleInput(
+    //     cachedCheckpoints, static_cast<int>(cachedPathNodes.size()),
+    //     carSpeed, &carTransform, &racingConfig, dt);
+    // steering_out = Controller_GetSteeringInput(
+    //     cachedCheckpoints, static_cast<int>(cachedPathNodes.size()),
+    //     carSpeed, &carTransform, &racingConfig, dt);
+
+    // return true;
+
+
     auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
     auto searchResult = beamSearch(adj, nodes, carFront, 7, 4, 64);
     auto pathNodes = searchResult.first;
@@ -210,7 +210,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     steering_out = Controller_GetSteeringInput(
         checkpoints, static_cast<int>(pathNodes.size()),
         carSpeed, &carTransform, &racingConfig, dt);
-    return true;*/
+    return true;
 }
 
 void World::setSvcuCommand(float throttle, float brake, float steer) {
@@ -669,8 +669,8 @@ bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) 
 
     if (leftCones.empty() || rightCones.empty()) {
         /*
-        No physical gate from cones available. If we have a planned path from beamSearch, 
-        use its first edge as a virtual gate between consecutive path nodes. Otherwise 
+        No physical gate from cones available. If we have a planned path from beamSearch,
+        use its first edge as a virtual gate between consecutive path nodes. Otherwise
         fall back to the old distance-based checkpoint trigger.
         */
         if (!bestPathEdges.empty()) {
@@ -717,7 +717,7 @@ bool World::crossesCurrentGate(const Vector2& previous, const Vector2& current) 
 
             return false;
         }
-        
+
         // Fallback: still allow simple "pass near checkpoint" detection when no path edges are available
         if (checkpointPositions.empty()) {
             return false;
