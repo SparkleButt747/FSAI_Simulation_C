@@ -23,7 +23,7 @@ public:
         int vehicle_id{1};
 
         static Config FromVehicleConfig(const std::filesystem::path& vehicle_config,
-                                        Config base = Config{});
+                                        Config base);
     };
 
     VeloxVehicleDynamics();
