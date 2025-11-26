@@ -33,6 +33,12 @@ void MissionRuntimeState::Reset(const MissionDefinition& definition) {
   run_status_ = MissionRunStatus::kRunning;
   stop_commanded_ = false;
 
+  if (mission_.descriptor.type == MissionType::kSkidpad) {
+    skidpad_state = SkidpadState::Approach;
+  } else {
+    skidpad_state = SkidpadState::NotSkidpad;
+  }
+
   ConfigureSegments();
 
   total_target_laps_ = 0;
@@ -112,20 +118,12 @@ void MissionRuntimeState::ConfigureSegments() {
       break;
     }
     case MissionType::kSkidpad: {
-      const std::size_t warmup_laps = mission_.targetLaps >= 3 ? 1 : 0;
-      const std::size_t exit_laps = mission_.targetLaps >= 3 ? 1 : 0;
-      const std::size_t timed_laps = mission_.targetLaps > warmup_laps + exit_laps
-                                         ? mission_.targetLaps - warmup_laps - exit_laps
-                                         : 0;
-      if (warmup_laps > 0) {
-        segments_.push_back(MakeSegment(MissionSegmentType::kWarmup, warmup_laps));
-      }
-      if (timed_laps > 0) {
-        segments_.push_back(MakeSegment(MissionSegmentType::kTimed, timed_laps));
-      }
-      if (exit_laps > 0) {
-        segments_.push_back(MakeSegment(MissionSegmentType::kExit, exit_laps));
-      }
+      // A full skidpad event is 2 laps on the left circle, and 2 on the right.
+      // We will add 1 warmup lap for each.
+      segments_.push_back(MakeSegment(MissionSegmentType::kWarmup, 1)); // Warmup Right
+      segments_.push_back(MakeSegment(MissionSegmentType::kTimed, 2));  // Timed Right
+      segments_.push_back(MakeSegment(MissionSegmentType::kWarmup, 1)); // Warmup Left
+      segments_.push_back(MakeSegment(MissionSegmentType::kTimed, 2));  // Timed Left
       break;
     }
     case MissionType::kAutocross:

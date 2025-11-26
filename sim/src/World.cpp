@@ -1,4 +1,3 @@
-
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -175,6 +174,21 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
         currentCheckpoint.z != lastPathCheckpoint.z;
 
     if (needNewPath) {
+        if (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad) {
+            const auto skidpad_state = missionState_.skidpad_state;
+            setSkidpadMode(true);
+            if (skidpad_state == fsai::sim::SkidpadState::WarmupLeft || skidpad_state == fsai::sim::SkidpadState::TimedLeft) {
+                setDesiredSkidpadDirection(1); // Left
+            } else if (skidpad_state == fsai::sim::SkidpadState::WarmupRight || skidpad_state == fsai::sim::SkidpadState::TimedRight) {
+                setDesiredSkidpadDirection(-1); // Right
+            } else if (skidpad_state == fsai::sim::SkidpadState::Approach || skidpad_state == fsai::sim::SkidpadState::TransitionToCircle) {
+                setDesiredSkidpadDirection(0); // No preference, drive straight
+            } else { // Fallback for NotSkidpad or Exit states
+                setDesiredSkidpadDirection(0); // No preference
+            }
+        } else {
+            setSkidpadMode(false);
+        }
         std::cout<<'\n'<<'\n'<<'\n'<<"COMPUTING!!!!"<<'\n'<<'\n'<<'\n';
         auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
         auto searchResult = beamSearch(adj, nodes, carFront, 7, 2, 20);
@@ -330,6 +344,11 @@ void World::update(double dt) {
         totalTime += dt;
     }
 
+    if (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad) {
+        UpdateSkidpadState();
+        std::cout << "Current Skidpad State: " << static_cast<int>(missionState_.skidpad_state) << std::endl;
+    }
+
     handleMissionCompletion();
 
     telemetry();
@@ -426,6 +445,100 @@ void World::telemetry() const {
                      missionState_);
 }
 
+void World::UpdateSkidpadState() {
+    const float x = carTransform.position.x;
+    const float z = carTransform.position.z;
+
+    auto currentState = missionState_.skidpad_state;
+
+    // Define the geometry of the skidpad
+    const float rightCircleX = 9.25f;
+    const float leftCircleX = -9.25f;
+    const float circleZ = 0.0f;
+    const float circleRadius = 9.0f;
+    const float entryCorridorZ = 15.0f;
+    const float exitCorridorZ = -15.0f;
+
+    // Define a threshold for transitioning into the circle's turning phase
+    constexpr float kSkidpadCircleEntryThreshold = 5.0f; // Meters distance from circleZ
+
+    fsai::sim::SkidpadState newSkidpadState = missionState_.skidpad_state; // Start with current state
+
+    auto* segment = missionState_.current_segment(); // Get current segment once
+
+    switch (missionState_.skidpad_state) {
+        case fsai::sim::SkidpadState::NotSkidpad:
+        case fsai::sim::SkidpadState::Exit:
+            if (z > entryCorridorZ) {
+                newSkidpadState = fsai::sim::SkidpadState::Approach;
+            }
+            break;
+
+        case fsai::sim::SkidpadState::Approach:
+            // Transition to TransitionToCircle when entering the zone before the actual turn
+            if (z <= entryCorridorZ && z > (circleZ - kSkidpadCircleEntryThreshold)) {
+                newSkidpadState = fsai::sim::SkidpadState::TransitionToCircle;
+            }
+            // If car somehow goes past the exit corridor during approach
+            else if (z < exitCorridorZ) {
+                newSkidpadState = fsai::sim::SkidpadState::Exit;
+            }
+            break;
+
+        case fsai::sim::SkidpadState::TransitionToCircle:
+            // Transition from TransitionToCircle to Warmup/Timed when at or past the circle entry point
+            if (z <= (circleZ - kSkidpadCircleEntryThreshold)) {
+                if (segment != nullptr) {
+                    if (missionState_.completed_laps() < 2) { // First two laps are right turns
+                        newSkidpadState = (segment->spec.type == fsai::sim::MissionSegmentType::kWarmup)
+                                            ? fsai::sim::SkidpadState::WarmupRight
+                                            : fsai::sim::SkidpadState::TimedRight;
+                    } else if (missionState_.completed_laps() < 4) { // Next two laps are left turns
+                        newSkidpadState = (segment->spec.type == fsai::sim::MissionSegmentType::kWarmup)
+                                            ? fsai::sim::SkidpadState::WarmupLeft
+                                            : fsai::sim::SkidpadState::TimedLeft;
+                    } else { // All laps completed, or error in lap counting, transition to Exit
+                        newSkidpadState = fsai::sim::SkidpadState::Exit;
+                    }
+                } else {
+                    newSkidpadState = fsai::sim::SkidpadState::Exit; // No segment, so exit
+                }
+            }
+            // If car somehow re-enters approach zone or goes past exit corridor
+            else if (z > entryCorridorZ) {
+                newSkidpadState = fsai::sim::SkidpadState::Approach;
+            } else if (z < exitCorridorZ) {
+                newSkidpadState = fsai::sim::SkidpadState::Exit;
+            }
+            break;
+
+        case fsai::sim::SkidpadState::WarmupLeft:
+        case fsai::sim::SkidpadState::TimedLeft:
+        case fsai::sim::SkidpadState::WarmupRight:
+        case fsai::sim::SkidpadState::TimedRight:
+            // If car goes past exit corridor from a turning state
+            if (z < exitCorridorZ) {
+                newSkidpadState = fsai::sim::SkidpadState::Exit;
+            } else if (z > entryCorridorZ) { // If car somehow ends up back in approach zone (e.g., going reverse)
+                newSkidpadState = fsai::sim::SkidpadState::Approach;
+            }
+            // Otherwise, stay in current turning state
+            break;
+
+        default:
+            // Handle any uninitialized or unexpected states, default to Exit
+            newSkidpadState = fsai::sim::SkidpadState::Exit;
+            break;
+    }
+
+    if (missionState_.skidpad_state != newSkidpadState) {
+        missionState_.skidpad_state = newSkidpadState;
+        std::cout << "Skidpad state changed to: " << static_cast<int>(missionState_.skidpad_state) << std::endl;
+    }
+
+}
+
+
 // Add this debug code to World::configureTrackState() in World.cpp
 // Place it right after loading the cones from track data
 
@@ -457,85 +570,11 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
         rightCones.push_back(makeCone(rc, ConeType::Right));
 
     bool isSkidpad = (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad);
-
-    // =========================================================================
-    // DEBUG: Print orange cone positions
-    // =========================================================================
-    // Add this to World::configureTrackState() in the skidpad section
-    if (isSkidpad)
-    {
-        // Keep existing orange cones (the 4 big ones at top)
-        // Now ADD corridor cones (entrance/exit) as orange
-
-        // Circle centers based on your data:
-        // Left circle: center around X=-9.25, Z=0
-        // Right circle: center around X=9.25, Z=0
-        const double leftCircleCenterX = -9.25;
-        const double rightCircleCenterX = 9.25;
-        const double circleCenterZ = 0.0;
-        const double circleRadius = 9.0; // Approximate radius from data
-        const double corridorMargin = 2.5; // Distance outside circle to consider "corridor"
-
-        auto moveCorridorConesToOrange = [&](std::vector<Cone>& list) {
-            std::vector<Cone> keep;
-            for (auto& c : list) {
-                // Calculate distance from both circle centers
-                double distLeft = std::hypot(c.position.x - leftCircleCenterX,
-                                            c.position.z - circleCenterZ);
-                double distRight = std::hypot(c.position.x - rightCircleCenterX,
-                                            c.position.z - circleCenterZ);
-
-                // If cone is NOT part of either circle (too far from both centers)
-                // then it's a corridor cone
-                bool isCorridorCone = (distLeft > circleRadius + corridorMargin) &&
-                                    (distRight > circleRadius + corridorMargin);
-
-                if (isCorridorCone) {
-                    c.type = ConeType::Start;  // Make it ORANGE
-                    startCones.push_back(c);
-                } else {
-                    keep.push_back(c);
-                }
-            }
-            list = keep;
-        };
-
-        moveCorridorConesToOrange(leftCones);
-        moveCorridorConesToOrange(rightCones);
-
-        // Sort orange cones by Z so entrance (bottom) comes first
-        std::sort(startCones.begin(), startCones.end(),
-                [](const Cone& a, const Cone& b) {
-                    return a.position.z < b.position.z;
-                });
-
-        std::printf("After processing: Total orange cones = %zu\n", startCones.size());
-
-        // Mirror the entire track along Z axis (flip upside down)
-        // So entrance moves from top to bottom
-        auto flipZ = [](std::vector<Cone>& cones) {
-            for (auto& c : cones) {
-                c.position.z = -c.position.z;
-            }
-        };
-
-        flipZ(startCones);
-        flipZ(leftCones);
-        flipZ(rightCones);
-
-        // Also flip checkpoints
-        for (auto& cp : checkpointPositions) {
-            cp.z = -cp.z;
-        }
-
-        std::printf("Track flipped: entrance now at bottom (negative Z)\n");
-
-        // Swap blue and yellow cones
-        std::swap(leftCones, rightCones);
-
-        std::printf("Blue and yellow cones swapped\n");
+    setSkidpadMode(isSkidpad);
+    if (!isSkidpad) {
+        setDesiredSkidpadDirection(0);   // No preferred direction
     }
-    // =========================================================================
+
 
     // Rest of your original code continues here...
     if (!leftCones.empty() && !rightCones.empty()) {
@@ -570,7 +609,7 @@ void World::configureTrackState(const fsai::sim::TrackData& track) {
 
     // Update last checkpoint
     if (!track.checkpoints.empty())
-        lastCheckpoint = transformToVector3(track.checkpoints.back());
+        lastCheckpoint = transformToVector3(track.checkpoints.front());
     else
         lastCheckpoint = {0.0f, 0.0f, 0.0f};
 }
