@@ -149,6 +149,8 @@ std::optional<fsai::types::Detections> VisionNode::getLatestDetections(){
         std::lock_guard<std::mutex> lock(detection_mutex_);
         return latest_detections_;
     }
+
+    return std::nullopt;
 }
 
 void VisionNode::runProcessingLoop(){
