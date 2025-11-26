@@ -180,6 +180,7 @@ private:
     fsai::sim::MissionDefinition mission_{};
     TrackBuilderConfig trackBuilderConfig_{};
     TrackBuildResult trackState_{};
+    bool trackGenerationFailed_{false};
     CollisionService collisionService_{CollisionService::Config{}};
     ResetPolicy resetPolicy_{WorldControlConfig{}};
     fsai::sim::WorldRuntime runtime_{};
