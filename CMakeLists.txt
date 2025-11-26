@@ -170,25 +170,6 @@ find_package(SDL2 QUIET CONFIG)
 find_package(Threads REQUIRED)
 
 # onnx required by vision
-<<<<<<< HEAD
-find_package(onnxruntime QUIET CONFIG)
-if(NOT onnxruntime_FOUND)
-  find_package(ONNXRuntime QUIET CONFIG)
-endif()
-if(NOT (onnxruntime_FOUND OR ONNXRuntime_FOUND))
-  message(FATAL_ERROR
-    "onnxruntime not found.\n"
-    "Set one of:\n"
-    "  -Donnxruntime_DIR=/path/to/lib/cmake/onnxruntime\n"
-    "  -DONNXRUNTIME_ROOT=/path/to/onnxruntime (with include/ and lib/)\n"
-    "  or place a version under /opt/homebrew/onnxruntime/<version> on macOS."
-  )
-else()
-  message(STATUS "ONNX Runtime located via CMake package config.")
-endif()
-
-=======
->>>>>>> dev-connect-vis-ctrl
 set(SDL2_IMPORTED_TARGET "")
 set(SDL2_INCLUDE_DIRS "")
 if(TARGET SDL2::SDL2)
@@ -323,22 +304,6 @@ target_link_libraries(fsai_sim PUBLIC
   ${OpenCV_LIBRARIES}
 )
 
-<<<<<<< HEAD
-target_link_libraries(fsai_sim
-  PUBLIC
-    Eigen3::Eigen
-    yaml-cpp::yaml-cpp
-    OpenGL::GL
-    Threads::Threads
-    CGAL::CGAL
-    m
-    ${ORT_LIB}
-    ${OpenCV_LIBRARIES}
-)
-
-
-=======
->>>>>>> dev
 add_library(fsai_ctrl STATIC
   ${SIM_C_SOURCES}
   ${SIM_CPP_SOURCES}
