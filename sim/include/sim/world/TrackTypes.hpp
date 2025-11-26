@@ -6,7 +6,6 @@ enum class ConeType {
     Start,
     Left,
     Right,
-    Orange,
 };
 
 struct Cone {

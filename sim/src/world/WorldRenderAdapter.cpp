@@ -178,8 +178,6 @@ void WorldRenderAdapter::drawScene(
       debug_packet ? debug_packet->left_cones : snapshot.left_cones;
   const auto& right_cones =
       debug_packet ? debug_packet->right_cones : snapshot.right_cones;
-  const auto& orange_cones =
-      debug_packet ? debug_packet->orange_cones : snapshot.orange_cones;
   const auto& checkpoints =
       debug_packet ? debug_packet->checkpoints : snapshot.checkpoints;
   const auto& controller_path_edges =
@@ -312,19 +310,6 @@ void WorldRenderAdapter::drawScene(
                       color);
   }
 
-  const SDL_Color orange_base{255, 165, 0, 255};
-  for (size_t i = 0; i < orange_cones.size(); ++i) {
-    SDL_Color color = orange_base;
-    const auto& cone = orange_cones[i];
-    const int cone_x = static_cast<int>(cone.x * render_scale +
-                                        graphics_.width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * render_scale +
-                                        graphics_.height / 2.0f);
-    DrawConeCrosshair(&graphics_, cone_x, cone_y,
-                      fsai::sim::kSmallConeRadiusMeters * 2.0f, render_scale,
-                      color);
-  }
-
   const auto& transform = snapshot.vehicle_transform;
   const float car_screen_x = transform.position.x * render_scale +
                              graphics_.width / 2.0f;
@@ -400,8 +385,7 @@ void WorldRenderAdapter::publishStereoFrame(
   cone_instances_.clear();
   const std::size_t cone_count = snapshot.start_cones.size() +
                                  snapshot.left_cones.size() +
-                                 snapshot.right_cones.size() +
-                                 snapshot.orange_cones.size();
+                                 snapshot.right_cones.size();
   cone_instances_.reserve(cone_count);
 
   const float color_scale = 1.0f / 255.0f;
@@ -416,8 +400,6 @@ void WorldRenderAdapter::publishStereoFrame(
   const auto left_stripe = makeColor(50, 50, 50);
   const auto right_body = makeColor(0, 102, 204);
   const auto right_stripe = makeColor(255, 255, 255);
-  const auto orange_body = makeColor(255, 165, 0);
-  const auto orange_stripe = makeColor(255, 255, 255);
 
   auto appendCone = [&](const Vector3& pos, float base_width, float height,
                         const std::array<float, 3>& body_color,
@@ -444,10 +426,6 @@ void WorldRenderAdapter::publishStereoFrame(
   for (const auto& cone : snapshot.right_cones) {
     appendCone(cone, fsai::sim::kSmallConeRadiusMeters * 2.0f,
                fsai::sim::kSmallConeHeightMeters, right_body, right_stripe, 1);
-  }
-  for (const auto& cone : snapshot.orange_cones) {
-    appendCone(cone, fsai::sim::kSmallConeRadiusMeters * 2.0f,
-               fsai::sim::kSmallConeHeightMeters, orange_body, orange_stripe, 1);
   }
 
   stereo_source_->setCones(cone_instances_);

@@ -7,7 +7,6 @@ GuiWorldSnapshot GuiWorldAdapter::snapshot() const {
   snap.start_cones = world_.start_cones();
   snap.left_cones = world_.left_cones();
   snap.right_cones = world_.right_cones();
-  snap.orange_cones = world_.orange_cones();
   snap.checkpoints = world_.checkpoint_positions();
   snap.lookahead = world_.lookahead_indices();
   snap.vehicle_transform = world_.vehicle_transform();

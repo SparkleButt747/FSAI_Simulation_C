@@ -16,7 +16,6 @@ enum class TrackSource {
 
 struct TrackData {
   std::vector<Transform> startCones;
-  std::vector<Transform> smallOrangeCones;
   std::vector<Transform> leftCones;
   std::vector<Transform> rightCones;
   std::vector<Transform> checkpoints;
@@ -27,7 +26,6 @@ struct TrackData {
 struct MissionDefinition {
   MissionDescriptor descriptor{};
   TrackData track{};
-  double track_length_m{0.0};
   std::size_t targetLaps{1};
   bool allowRegeneration{true};
   TrackSource trackSource{TrackSource::kRandom};
@@ -36,7 +34,6 @@ struct MissionDefinition {
 inline TrackData TrackData::FromTrackResult(const TrackResult& track) {
   TrackData data;
   data.startCones = track.startCones;
-  data.smallOrangeCones = track.smallOrangeCones;
   data.leftCones = track.leftCones;
   data.rightCones = track.rightCones;
   data.checkpoints = track.checkpoints;

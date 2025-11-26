@@ -34,7 +34,6 @@ class IWorldView {
   virtual const std::vector<Vector3>& start_cones() const = 0;
   virtual const std::vector<Vector3>& left_cones() const = 0;
   virtual const std::vector<Vector3>& right_cones() const = 0;
-  virtual const std::vector<Vector3>& orange_cones() const = 0;
   virtual const LookaheadIndices& lookahead_indices() const = 0;
   // --- Mission/runtime bookkeeping ---
   virtual const fsai::sim::MissionRuntimeState& mission_runtime() const = 0;
