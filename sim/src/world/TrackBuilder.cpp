@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "logging.hpp"
+#include "../../include/logging.hpp"
 #include "sim/mission/TrackCsvLoader.hpp"
 #include "cone_constants.hpp"
 #include "PathGenerator.hpp"
@@ -181,7 +181,7 @@ fsai::sim::TrackData TrackBuilder::generateRandomTrack() const {
     LogWarning("Random track generation failed after retries; using fallback CSV track");
     try {
         const std::filesystem::path fallbackPath{kFallbackRandomTrack};
-        fsai::sim::TrackResult track = fsai::sim::LoadTrackFromCsv(fallbackPath);
+        TrackResult track = fsai::sim::LoadTrackFromCsv(fallbackPath);
         fsai::sim::TrackData fallback = fsai::sim::TrackData::FromTrackResult(track);
         if (hasCheckpoints(fallback)) {
             return fallback;

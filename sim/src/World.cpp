@@ -7,7 +7,7 @@
 #include <utility>
 #include <limits>
 #include <string>
-#include "logging.hpp"
+#include "../include/logging.hpp"
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "centerline.hpp"
