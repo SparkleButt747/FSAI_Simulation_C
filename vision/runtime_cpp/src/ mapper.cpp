@@ -79,5 +79,9 @@ void SimpleMap::update(const std::vector<FsaiConeDet>& new_detections, const Eig
     }
 }
 
+/**
+ * @brief clears the current map
+ */
+void SimpleMap::clearMap(){cones.clear();}
 } // namespace vision
 } // namespace fsai

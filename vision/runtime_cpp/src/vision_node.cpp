@@ -136,8 +136,6 @@ inline bool VisionNode::triangulatePoint(const Feature& feat, Eigen::Vector3d& r
     // Calculate coordinates directly into the result vector
     result.x() = (feat.x_1 - cameraParams_.cx) * Q;
     
-    result.z() = cameraParams_.fx * Q;
-
     result.y() = (feat.y_1 - cameraParams_.cy) * result.z() / cameraParams_.fy;
 
     return true;
@@ -333,7 +331,7 @@ void VisionNode::runProcessingLoop(){
         out_msg.n = 0;
 
         for(const auto& c : mapper_.cones){
-            if(out_msg.n >= 100) break;
+            if(out_msg.n >= 512) break;
             
             FsaiConeDet d;
             d.x = c.x;
@@ -348,7 +346,8 @@ void VisionNode::runProcessingLoop(){
         detection_buffer_->push(out_msg);
         auto t_end = std::chrono::high_resolution_clock::now();
         auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count();
-        fsai::sim::log::LogInfo("[VISION]: MAPPED " + std::to_string(new_detections.n) + " CONES IN " + std::to_string(duration_ms) + " ms");
+        fsai::sim::log::LogInfo("[VISION]: DETECTED " + std::to_string(detections.size()));
+        fsai::sim::log::LogInfo("[VISION]: MAPPED " + std::to_string(out_msg.n) + " CONES IN " + std::to_string(duration_ms) + " ms");
         auto ms_conv = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
         auto ms_yolo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
         auto ms_match = std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count();
@@ -362,7 +361,7 @@ void VisionNode::runProcessingLoop(){
             "Match: " + std::to_string(ms_match) + " | " +
             "Post: " + std::to_string(ms_rest)
         );
-        detection_buffer_->push(new_detections);
+        fsai::sim::log::LogInfo("[VISION/CTRL] SIZE OF BUFFER " + std::to_string(detection_buffer_->size()));
     }
 }
 }

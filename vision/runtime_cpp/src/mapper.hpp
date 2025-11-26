@@ -27,13 +27,13 @@ public:
      * @param car_pos Current car position (x, y) for proximity weighting
      */
     void update(const std::vector<FsaiConeDet>& new_detections, const Eigen::Vector2d& car_pos);
-
+    void clearMap();
     // Direct access to the map for the main loop to read from
     std::vector<MapCone> cones;
 
 private:
     // --- Tunable Parameters ---
-    const float MERGE_RADIUS = 1.2f;   // Meters. Cones closer than this are merged.
+    const float MERGE_RADIUS = 2.5f;   // Meters. Cones closer than this are merged.
     const float MAX_CONF_CAP = 10.0f;  // Maximum weight a cone can accumulate.
     const float REF_DIST = 10.0f;      // Distance at which weight is halved (for proximity calculation)
 };

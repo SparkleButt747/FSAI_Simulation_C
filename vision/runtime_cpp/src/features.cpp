@@ -31,7 +31,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     std::vector<ConeMatches> all_cone_matches;
     all_cone_matches.reserve(box_bounds.size());
 
-    cv::Ptr<cv::SIFT> sift_detector = cv::SIFT::create();
+    static cv::Ptr<cv::SIFT> sift_detector = cv::SIFT::create();
 
     std::vector<PseudoFeature> left_features;
     std::vector<PseudoFeature> right_features;
@@ -68,7 +68,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
             left_feature.cone_index = box_index;
             left_feature.x = left_keypoints[j].pt.x;
             left_feature.y = left_keypoints[j].pt.y;
-            left_feature.descriptor = left_descriptors.row(j);
+            left_feature.descriptor = left_descriptors.row(j).clone();
             left_features.push_back(left_feature);
         }
     }
