@@ -43,6 +43,9 @@
 #include "vision/frame_ring_buffer.hpp"
 #include "vision/vision_node.hpp"
 #include "vision/detection_preview.hpp"
+#include "vision/shared_ring_buffer.hpp"
+#include "io_bus.hpp"
+#include "vision/detection_buffer_registry.hpp"
 #include "types.h"
 #include "World.hpp"
 #include "sim/cone_constants.hpp"
@@ -54,7 +57,7 @@
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
 #include "runtime_telemetry.hpp"
-#include "centerline.prot.hpp"
+#include "centerline.hpp"
 
 namespace {
 constexpr std::size_t kDefaultMissionIndex = 2;
@@ -188,6 +191,22 @@ fsai::sim::MissionDescriptor ResolveMissionSelection(
   }
 }
 
+#ifndef FSAI_PROJECT_ROOT
+#define FSAI_PROJECT_ROOT "."
+#endif
+ 
+std::filesystem::path MakeProjectRelativePath(const std::filesystem::path& path) {
+  if (path.is_absolute()) {
+    return path;
+  }
+
+  return std::filesystem::path(FSAI_PROJECT_ROOT) / path;
+}
+ 
+std::filesystem::path MakeProjectRelativePath(const std::string& path) {
+  return MakeProjectRelativePath(std::filesystem::path(path));
+}
+
 fsai::sim::MissionDefinition BuildMissionDefinition(
     const fsai::sim::MissionDescriptor& descriptor) {
   fsai::sim::MissionDefinition definition;
@@ -195,7 +214,7 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
 
   switch (descriptor.type) {
     case fsai::sim::MissionType::kAcceleration: {
-      const std::filesystem::path csv_path{"../configs/tracks/acceleration.csv"};
+      const std::filesystem::path csv_path = MakeProjectRelativePath(std::filesystem::path("configs/tracks/acceleration.csv"));
       definition.track =
           fsai::sim::TrackData::FromTrackResult(fsai::sim::LoadTrackFromCsv(csv_path));
       definition.targetLaps = 1;
@@ -204,7 +223,7 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
       break;
     }
     case fsai::sim::MissionType::kSkidpad: {
-      const std::filesystem::path csv_path{"../configs/tracks/skidpad.csv"};
+      const std::filesystem::path csv_path = MakeProjectRelativePath(std::filesystem::path("configs/tracks/skidpad.csv"));
       definition.track =
           fsai::sim::TrackData::FromTrackResult(fsai::sim::LoadTrackFromCsv(csv_path));
       definition.targetLaps = 4;
@@ -229,6 +248,7 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
   return definition;
 }
 
+
 constexpr double kDefaultDt = 0.01;
 constexpr int kWindowWidth = 800;
 constexpr int kWindowHeight = 600;
@@ -241,7 +261,7 @@ constexpr double kAckLagWarningSeconds = 0.25;
 constexpr double kBaseLatitudeDeg = 37.4275;
 constexpr double kBaseLongitudeDeg = -122.1697;
 constexpr double kMetersPerDegreeLat = 111111.0;
-constexpr const char* kDefaultSensorConfig = "../configs/sim/sensors.yaml";
+constexpr const char* kDefaultSensorConfig = "configs/sim/sensors.yaml";
 
 
 template <size_t Capacity>
@@ -1260,10 +1280,10 @@ void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
 
 void DrawDetectionPreviewPanel(fsai::vision::DetectionPreview& preview, uint64_t now_ns) {
   // Force position and size every frame to guarantee visibility
-  ImGui::SetNextWindowPos(ImVec2(100, 400), ImGuiCond_Always);
+  // ImGui::SetNextWindowPos(ImVec2(100, 400), ImGuiCond_Always);
   // ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_Always);
 
-  if (ImGui::Begin("Cone detection", nullptr, ImGuiWindowFlags_NoCollapse)) {
+  if (ImGui::Begin("Cone detection", nullptr)) {
       ImGui::Text("Model used: Yolov8 ");
       ImGui::Separator();
 
@@ -1422,10 +1442,27 @@ void DrawWorldScene(Graphics* graphics, const World& world,
   Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
 
-
-  std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.getLeftCones(), world.getRightCones());
+    for (auto cone : world.coneDetections) {
+          // printf("\n\n cone conf %f \n\n", cone.conf);
+          int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
+                                        graphics->width / 2.0f);
+          int cone_y = static_cast<int>(cone.y * K_RENDER_SCALE +
+                                        graphics->height / 2.0f);
+          if (cone.side == FSAI_CONE_LEFT) {
+            SDL_SetRenderDrawColor(graphics->renderer, 5, 200, 5, 255);
+          } else if (cone.side == FSAI_CONE_RIGHT) {
+            SDL_SetRenderDrawColor(graphics->renderer, 200, 5, 5, 255);
+          } else if (cone.side == FSAI_CONE_UNKNOWN) {
+            SDL_SetRenderDrawColor(graphics->renderer, 150, 150, 150, 250);
+          }
+          Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 5);
+    }
+  std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.getLeftCones(), world.getRightCones()).second;
   for (auto edge: triangulationEdges) {
-    Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y);
+    Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
+  }
+  for (auto edge: world.bestPathEdges) {
+    Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 255, 50, 50);
   }
 }
 
@@ -1586,11 +1623,12 @@ SensorNoiseConfig LoadSensorNoiseConfig(const std::string& path) {
 }
 
 struct ThreadSafeTelemetry {
+
     std::mutex mutex;
     Eigen::Vector2d position{0.0, 0.0};
     double yaw_rad = 0.0;
-};
-}  // namespace
+
+};}  // namespace
 
 int main(int argc, char* argv[]) {
   std::srand(static_cast<unsigned>(std::time(nullptr)));
@@ -1702,7 +1740,7 @@ int main(int argc, char* argv[]) {
                        track_source, mission_definition.targetLaps,
                        mission_definition.allowRegeneration ? "enabled" : "disabled");
 
-  SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(sensor_config_path);
+  SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(MakeProjectRelativePath(sensor_config_path).string());
   bool edge_preview_enabled = sensor_cfg.edge_preview_enabled;
   if (edge_preview_override.has_value()) {
     edge_preview_enabled = *edge_preview_override;
@@ -1725,6 +1763,19 @@ int main(int argc, char* argv[]) {
     std::normal_distribution<double> dist(0.0, stddev);
     return dist(noise_rng);
   };
+
+  auto io_bus = std::make_shared<fsai::io::InProcessIoBus>();
+  fsai::io::TelemetryNoiseConfig bus_noise{};
+  constexpr double kDegToRad = std::numbers::pi / 180.0;
+  bus_noise.steer_rad_stddev = sensor_cfg.steering_deg.noise_std * kDegToRad;
+  bus_noise.axle_torque_stddev =
+      std::max(sensor_cfg.drive_torque.front_noise_std_nm,
+               sensor_cfg.drive_torque.rear_noise_std_nm);
+  bus_noise.wheel_rpm_stddev = sensor_cfg.wheel_rpm.noise_std;
+  bus_noise.brake_bar_stddev = sensor_cfg.brake_pct.noise_std * 0.01;
+  bus_noise.imu_stddev = sensor_cfg.imu.accel_longitudinal_std;
+  bus_noise.gps_speed_stddev = sensor_cfg.gps.speed_std_mps;
+  io_bus->set_noise_config(bus_noise);
 
   fsai_clock_config clock_cfg{};
   clock_cfg.mode = FSAI_CLOCK_MODE_SIMULATED;
@@ -1783,8 +1834,14 @@ int main(int argc, char* argv[]) {
       FSAI_BUDGET_SUBSYSTEM_CAN,
       "CAN transport not wired; pending hardware integration.");
 
+  const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
+  const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
+  VehicleDynamics vehicle_dynamics(vehicle_param);
   World world;
-  world.init("../configs/vehicle/configDry.yaml", mission_definition);
+  world.init(vehicle_dynamics, mission_definition);
+  vehicle_dynamics.setState(world.vehicleSpawnState().state,
+                            world.vehicleSpawnState().transform);
+  world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
 
   Graphics graphics{};
   if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,
@@ -1866,16 +1923,28 @@ int main(int argc, char* argv[]) {
     }
   }
 
+  io_bus->set_stereo_sink([stereo_frame_buffer, &stereo_display](const FsaiStereoFrame& frame) {
+    if (stereo_frame_buffer) {
+      while (!stereo_frame_buffer->tryPush(frame)) {
+        if (!stereo_frame_buffer->tryPop().has_value()) {
+          break;
+        }
+      }
+    }
+    if (stereo_display) {
+      stereo_display->present(frame);
+    }
+  });
+
 
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Starting VisionNode...");
   ThreadSafeTelemetry shared_telemetry;
   try {
     vision_node = std::make_shared<fsai::vision::VisionNode>();
     vision_node->setPoseProvider([&shared_telemetry]() {
-    std::lock_guard<std::mutex> lock(shared_telemetry.mutex);
-    // Return current shared state
-    return std::make_pair(shared_telemetry.position, shared_telemetry.yaw_rad);
-    }); 
+      std::lock_guard<std::mutex> lock(shared_telemetry.mutex);
+      return std::make_pair(shared_telemetry.position, shared_telemetry.yaw_rad);
+    });
     vision_node->start();
     fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "VisionNode started successfully.");
   } catch (const std::exception& e) {
@@ -1911,8 +1980,6 @@ int main(int argc, char* argv[]) {
   std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
-
-  const VehicleParam& vehicle_param = world.model().param();
 
   fsai::control::runtime::CanIface::Config can_cfg{};
   can_cfg.endpoint = can_iface;
@@ -1962,6 +2029,10 @@ int main(int argc, char* argv[]) {
     Graphics_Cleanup(&graphics);
     return EXIT_FAILURE;
   }
+  io_bus->set_telemetry_sink(
+      [&telemetry_tx](const fsai::sim::svcu::TelemetryPacket& pkt) {
+        telemetry_tx.send(&pkt, sizeof(pkt));
+      });
 
   float tmp_brake_front_bias = static_cast<float>(vehicle_param.brakes.front_bias);
   float tmp_brake_rear_bias = static_cast<float>(vehicle_param.brakes.rear_bias);
@@ -1993,7 +2064,6 @@ int main(int argc, char* argv[]) {
   fsai::control::runtime::Ai2VcuCommandSet last_ai2vcu_commands{};
   bool has_last_ai_command = false;
 
-  std::optional<fsai::sim::svcu::CommandPacket> latest_command;
   const uint64_t stale_threshold_ns =
       fsai_clock_from_seconds(kCommandStaleSeconds);
 
@@ -2048,7 +2118,7 @@ int main(int argc, char* argv[]) {
     fsai::sim::svcu::CommandPacket command_packet{};
     while (auto bytes = command_rx.receive(&command_packet, sizeof(command_packet))) {
       if (*bytes == sizeof(command_packet)) {
-        latest_command = command_packet;
+        io_bus->push_command(command_packet);
       }
     }
 
@@ -2065,6 +2135,7 @@ int main(int argc, char* argv[]) {
     float appliedBrake = autopBrake;
     float appliedSteer = autopSteer;
     bool ai_command_applied = false;
+    auto latest_command = io_bus->latest_command();
     const bool ai_command_enabled = latest_command && latest_command->enabled != 0;
     if (latest_command) {
       if (latest_command->t_ns <= now_ns &&
@@ -2141,9 +2212,17 @@ int main(int argc, char* argv[]) {
     world.brakeInput = appliedBrake;
     world.steeringAngle = appliedSteer;
 
+    vehicle_dynamics.setCommand(appliedThrottle, appliedBrake, appliedSteer);
+    vehicle_dynamics.step(step_seconds);
+
     {
       fsai::time::ControlStageTimer control_timer("world_update");
       world.update(step_seconds);
+    }
+    if (world.vehicleResetPending()) {
+      vehicle_dynamics.setState(world.vehicleSpawnState().state,
+                                world.vehicleSpawnState().transform);
+      world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
     }
     const double sim_time_s = fsai_clock_to_seconds(now_ns);
 
@@ -2332,15 +2411,12 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.mode.runtime_mode = mode;
     {
     std::lock_guard<std::mutex> lock(shared_telemetry.mutex);
-    // Use the telemetry values as requested by your colleague
     shared_telemetry.position.x() = runtime_telemetry.pose.position_x_m;
     shared_telemetry.position.y() = runtime_telemetry.pose.position_y_m;
-
     // CRITICAL: Convert Telemetry degrees back to radians for Eigen rotation
     constexpr double kDegToRad = std::numbers::pi / 180.0;
     shared_telemetry.yaw_rad = runtime_telemetry.pose.yaw_deg * kDegToRad;
     }
-
     DrawMissionPanel(runtime_telemetry);
     DrawSimulationPanel(runtime_telemetry);
     DrawControlPanel(runtime_telemetry);
@@ -2563,7 +2639,7 @@ int main(int argc, char* argv[]) {
         std::sqrt(vehicle_state.velocity.x() * vehicle_state.velocity.x() +
                   vehicle_state.velocity.y() * vehicle_state.velocity.y()));
     telemetry.status_flags = static_cast<uint8_t>(world.useController ? 0x3 : 0x1);
-    telemetry_tx.send(&telemetry, sizeof(telemetry));
+    io_bus->publish_telemetry(telemetry);
 
     logger.logState(sim_time_s, world.vehicleState());
     logger.logControl(sim_time_s, world.throttleInput, world.steeringAngle);
@@ -2632,15 +2708,18 @@ int main(int argc, char* argv[]) {
       }
       stereo_source->setCones(cone_positions);
       const FsaiStereoFrame& frame = stereo_source->capture(now_ns);
-      if (stereo_frame_buffer) {
-        while (!stereo_frame_buffer->tryPush(frame)) {
-          if (!stereo_frame_buffer->tryPop().has_value()) {
-            break;
-          }
-        }
-      }
-      if (stereo_display) {
-        stereo_display->present(frame);
+      io_bus->publish_stereo_frame(frame);
+    }
+
+    std::shared_ptr<fsai::vision::DetectionRingBuffer> detection_buffer = fsai::vision::getActiveDetectionBuffer();
+    if (detection_buffer == nullptr) {
+      printf("Detection Buffer not initialised");
+      exit(-1);
+    }
+    auto detections = detection_buffer->tryPop();
+    if (detections != std::nullopt) {
+        for (int i = 0; i < detections->n; i++) {
+          world.coneDetections.push_back(detections->dets[i]);
       }
     }
 

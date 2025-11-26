@@ -19,13 +19,16 @@ Install the build toolchain and runtime libraries before configuring the project
 - **Common:** CMake (3.20+), a C/C++ compiler, `pkg-config`.
 - **Math/geometry:** Eigen3, CGAL (with the Qt6 viewer component).
 - **Graphics:** SDL2, OpenGL development headers.
-- **Config/data:** yaml-cpp.
+- **Computer Vision:** ONNXRuntime, OpenCV
+- **Config/data:** yaml.
+- **Computer Vision:** ONNXRuntime, OpenCV
+- **Config/data:** yaml.
 
 Ubuntu/Debian example:
 
 ```sh
 sudo apt-get update
-sudo apt-get install build-essential cmake pkg-config libsdl2-dev libyaml-cpp-dev \
+sudo apt-get install build-essential cmake pkg-config libsdl2-dev libyaml-dev \
      libeigen3-dev libopengl-dev libcgal-dev libcgal-qt6-dev qt6-base-dev
 ```
 
@@ -34,6 +37,8 @@ macOS (Homebrew) example:
 ```sh
 brew install cmake sdl2 yaml-cpp eigen cgal
 ```
+
+To install ONNXRuntime and OpenCV, follow instructions online.
 
 ### Configure & build
 

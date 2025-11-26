@@ -1,4 +1,5 @@
 #include "features.hpp"
+#include "common/include/common/types.h"
 #include "detect.hpp"
 #include <vector>
 #include <opencv2/opencv.hpp>
@@ -7,6 +8,7 @@
 #include <unordered_map>
 #include <limits> 
 #include <iostream>
+#include "common/types.h"
 
 // TUNING: Epipolar search margin (pixels up/down to look in right image)
 static const int kEpipolarMargin = 2;
@@ -25,7 +27,7 @@ float L2_score(cv::Mat left_descriptor, cv::Mat right_descriptor){
 
 std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, 
                                                  const cv::Mat& right_frame, 
-                                                 const std::vector<fsai::vision::BoxBound>& box_bounds) {
+                                                 const std::vector<fsai::types::BoxBound>& box_bounds) {
     std::vector<ConeMatches> all_cone_matches;
     all_cone_matches.reserve(box_bounds.size());
     
@@ -36,15 +38,14 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     
     for (int i = 0; i < box_bounds.size(); ++i){
         // get information about the box 
-        fsai::vision::BoxBound box_i = box_bounds[i]; 
+        fsai::types::BoxBound box_i = box_bounds[i]; 
         int box_index = i; 
         
         // get roi 
         cv::Rect box_rect(box_i.x, box_i.y, box_i.w, box_i.h); 
         cv::Mat box_roi; 
-        box_roi = left_frame(box_rect); 
         if (!is_safe_roi(left_frame, box_rect)){continue;}
-        
+        box_roi = left_frame(box_rect); 
         std::vector<cv::KeyPoint> left_keypoints; 
         cv::Mat left_descriptors; 
         
@@ -140,6 +141,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         tempConeMatch.cone_index = cone_index; 
         tempConeMatch.bound = box_bounds[cone_index];
         tempConeMatch.matches = pair.second; 
+        tempConeMatch.side = box_bounds[cone_index].side;
         
         all_cone_matches.push_back(tempConeMatch);
     }

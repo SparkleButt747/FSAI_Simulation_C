@@ -4,13 +4,15 @@
 
 TEST(WorldGateTest, AdvancesCheckpointOnCrossing) {
     World world;
+    VehicleDynamics dynamics;
+    world.setVehicleDynamics(dynamics);
     WorldTestHelper::ConfigureSimpleGate(world);
     const auto initial = WorldTestHelper::Checkpoints(world);
 
     const Vector2 prev{0.0f, 4.0f};
     const Vector2 curr{0.0f, 6.0f};
     WorldTestHelper::SetPrev(world, prev);
-    WorldTestHelper::SetCarPosition(world, curr.x, curr.y);
+    WorldTestHelper::SetCarPosition(world, dynamics, curr.x, curr.y);
 
     const bool crossed = WorldTestHelper::CrossesGate(world, prev, curr);
     EXPECT_TRUE(crossed);
@@ -23,13 +25,15 @@ TEST(WorldGateTest, AdvancesCheckpointOnCrossing) {
 
 TEST(WorldGateTest, GateIgnoresNonCrossingMotion) {
     World world;
+    VehicleDynamics dynamics;
+    world.setVehicleDynamics(dynamics);
     WorldTestHelper::ConfigureSimpleGate(world);
     const auto initial = WorldTestHelper::Checkpoints(world);
 
     const Vector2 prev{3.0f, 4.0f};
     const Vector2 curr{3.0f, 6.0f};
     WorldTestHelper::SetPrev(world, prev);
-    WorldTestHelper::SetCarPosition(world, curr.x, curr.y);
+    WorldTestHelper::SetCarPosition(world, dynamics, curr.x, curr.y);
 
     const bool crossed = WorldTestHelper::CrossesGate(world, prev, curr);
     EXPECT_FALSE(crossed);

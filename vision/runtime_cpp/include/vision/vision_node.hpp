@@ -5,8 +5,8 @@
 #include "common/include/common/types.h"
 #include "detect.hpp"
 #include "features.hpp"
-#include "vision/detection_ring_buffer.hpp"
-
+#include "shared_ring_buffer.hpp"
+#include "bayesian_mapper.hpp"
 
 #include <atomic>
 #include <memory>
@@ -14,6 +14,7 @@
 #include <optional>
 #include <thread>
 #include <vector>
+#include <limits>
 
 #include <opencv2/opencv.hpp>
 #include <Eigen/Core>
@@ -23,13 +24,15 @@ namespace fsai{
 namespace vision{
 struct RenderableFrame {
     cv::Mat image;
-    std::vector<BoxBound> boxes;
+    std::vector<types::BoxBound> boxes;
     uint64_t timestamp_ns = 0;
     bool valid = false;
 };
 struct ConeCluster{
     int coneId;
     std::vector<Eigen::Vector3d> points;
+    FsaiConeSide side;
+    Eigen::Vector2d centre;
 };
 // struct Point3D{
 //     double X,Y,Z;
@@ -96,7 +99,16 @@ class VisionNode{
     std::mutex render_mutex_;
     RenderableFrame latest_renderable_frame_;
 
+    int invalid_dets_ = 0;
+    float max_area_ = std::numeric_limits<float>::min();
+    float min_area_ = std::numeric_limits<float>::max();
 
+    //Add ring buffer type 
+    using DetectionsRingBuffer = fsai::vision::GenericRingBuffer<fsai::types::Detections>;
+    std::shared_ptr<DetectionsRingBuffer> detection_buffer_;
+
+    //Bayesian mapping
+    BayesianMapper mapper_;
 };
 }
 }
