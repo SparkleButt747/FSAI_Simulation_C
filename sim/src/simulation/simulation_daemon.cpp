@@ -17,9 +17,6 @@
 #include "vehicle_parameters.hpp"
 
 namespace velox::simulation {
-
-using telemetry = ::velox::telemetry;
-
 UserInputLimits UserInputLimits::from_vehicle(const controllers::SteeringWheel* steering_wheel,
                                               const controllers::FinalSteerController* final_steer,
                                               const models::VehicleParameters& params,
@@ -384,7 +381,7 @@ void SimulationDaemon::reset(const ResetParams& params)
     }
 }
 
-telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
+::velox::telemetry::SimulationTelemetry SimulationDaemon::step(const UserInput& input)
 {
     try {
         if (!simulator_ || !accel_controller_ || !steering_wheel_ || !final_steer_ || !safety_) {
@@ -487,9 +484,10 @@ void SimulationDaemon::set_drift_enabled(bool enabled)
     }
 }
 
-std::vector<telemetry::SimulationTelemetry> SimulationDaemon::step(const std::vector<UserInput>& batch_inputs)
+std::vector<::velox::telemetry::SimulationTelemetry>
+    SimulationDaemon::step(const std::vector<UserInput>& batch_inputs)
 {
-    std::vector<telemetry::SimulationTelemetry> telemetry;
+    std::vector<::velox::telemetry::SimulationTelemetry> telemetry;
     telemetry.reserve(batch_inputs.size());
     for (std::size_t i = 0; i < batch_inputs.size(); ++i) {
         try {
@@ -608,7 +606,7 @@ double SimulationDaemon::direct_acceleration_from_torque(const std::vector<doubl
     return total_torque / (params_.m * params_.R_w);
 }
 
-telemetry::SimulationTelemetry SimulationDaemon::compute_telemetry(
+::velox::telemetry::SimulationTelemetry SimulationDaemon::compute_telemetry(
     const controllers::longitudinal::ControllerOutput& accel_output,
     const controllers::SteeringWheel::Output& steering_input,
     const controllers::FinalSteerController::Output& steering_output) const
@@ -618,17 +616,17 @@ telemetry::SimulationTelemetry SimulationDaemon::compute_telemetry(
     const auto& state         = simulator_ptr ? simulator_ptr->state() : std::vector<double>{};
     const double measured_speed = simulator_ptr ? simulator_ptr->speed() : 0.0;
 
-    return telemetry::compute_simulation_telemetry(model_,
-                                                   params_,
-                                                   state,
-                                                   accel_output,
-                                                   steering_input,
-                                                   steering_output,
-                                                   safety_ptr,
-                                                   measured_speed,
-                                                   cumulative_distance_m_,
-                                                   cumulative_energy_j_,
-                                                   timing_.cumulative_time());
+    return ::velox::telemetry::compute_simulation_telemetry(model_,
+                                                            params_,
+                                                            state,
+                                                            accel_output,
+                                                            steering_input,
+                                                            steering_output,
+                                                            safety_ptr,
+                                                            measured_speed,
+                                                            cumulative_distance_m_,
+                                                            cumulative_energy_j_,
+                                                            timing_.cumulative_time());
 }
 
 void SimulationDaemon::log_warning(const std::string& message) const
