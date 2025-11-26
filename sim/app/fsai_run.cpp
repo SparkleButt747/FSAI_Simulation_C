@@ -2571,22 +2571,36 @@ int main(int argc, char* argv[]) {
       has_gps_meas = true;
     }
 
-    const float steer_for_msg = has_steer_meas ? steer_meas_deg : 0.0f;
+    const float steer_for_msg = has_steer_meas ? steer_meas_deg : actual_steer_deg;
     const std::array<float, 4> wheel_for_msg = has_wheel_meas ? wheel_meas_rpm
-                                                              : std::array<float, 4>{0.0f, 0.0f, 0.0f, 0.0f};
-    const TorqueSample torque_for_msg = has_torque_meas ? torque_meas : TorqueSample{};
-    const BrakeSample brake_for_msg = has_brake_meas ? brake_meas : BrakeSample{};
+                                                              : telemetry_wheel_rpm;
+    const TorqueSample torque_for_msg = has_torque_meas
+                                            ? torque_meas
+                                            : TorqueSample{static_cast<float>(front_axle_torque_nm),
+                                                           static_cast<float>(rear_axle_torque_nm)};
+    BrakeSample brake_for_msg = has_brake_meas ? brake_meas : BrakeSample{};
+    if (!has_brake_meas) {
+      brake_for_msg.front_pct = static_cast<float>(front_brake_pct);
+      brake_for_msg.rear_pct = static_cast<float>(rear_brake_pct);
+      brake_for_msg.front_req_pct = has_last_ai_command ? last_ai2vcu_commands.brake.front_pct : 0.0f;
+      brake_for_msg.rear_req_pct = has_last_ai_command ? last_ai2vcu_commands.brake.rear_pct : 0.0f;
+    }
     const float speed_for_msg_kph = has_speed_meas ? speed_meas_kph : actual_speed_kph;
 
     fsai::sim::svcu::dbc::Vcu2AiStatus status_msg{};
     status_msg.handshake = true;
     status_msg.as_switch_on = true;
     status_msg.ts_switch_on = true;
-    status_msg.go_signal = true;
+    status_msg.go_signal = !mission_state.stop_commanded();
     status_msg.as_state = world.useController
                               ? fsai::sim::svcu::dbc::AsState::kDriving
                               : fsai::sim::svcu::dbc::AsState::kReady;
     status_msg.steering_status = fsai::sim::svcu::dbc::SteeringStatus::kActive;
+    status_msg.mission_complete = mission_state.mission_complete();
+    status_msg.mission_status = mission_state.run_status() == fsai::sim::MissionRunStatus::kCompleted
+                                    ? fsai::sim::svcu::dbc::MissionStatus::kFinished
+                                    : fsai::sim::svcu::dbc::MissionStatus::kRunning;
+    status_msg.mission_id = static_cast<uint8_t>(static_cast<int>(mission_definition.descriptor.type) + 1);
 
     fsai::sim::svcu::dbc::Vcu2AiSteer steer_msg{};
     steer_msg.angle_deg = steer_for_msg;
@@ -2650,6 +2664,17 @@ int main(int argc, char* argv[]) {
     dyn_msg.drive_trq_actual_pct = torque_to_pct(total_actual_torque_nm);
     dyn_msg.drive_trq_target_pct = torque_to_pct(total_req_torque_nm);
 
+    const fsai::sim::svcu::dbc::Ai2LogDynamics2 imu_for_msg{
+        .accel_longitudinal_mps2 = has_imu_meas ? imu_meas.accel_longitudinal_mps2
+                                                : static_cast<float>(velox_telemetry.acceleration.longitudinal),
+        .accel_lateral_mps2 = has_imu_meas ? imu_meas.accel_lateral_mps2
+                                           : static_cast<float>(velox_telemetry.acceleration.lateral),
+        .yaw_rate_degps = has_imu_meas
+                              ? imu_meas.yaw_rate_degps
+                              : static_cast<float>(velox_telemetry.velocity.yaw_rate *
+                                                   fsai::sim::svcu::dbc::kRadToDeg),
+    };
+
     auto send_sim_frame = [&](const can_frame& frame) {
       if (!can_interface.SendSimulationFrame(frame)) {
         fsai::sim::log::Logf(fsai::sim::log::Level::kError,
@@ -2664,7 +2689,7 @@ int main(int argc, char* argv[]) {
     send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2ai_speeds(speed_msg));
     send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2ai_brake(brake_msg));
     send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2log_dynamics1(dyn_msg));
-    send_sim_frame(fsai::sim::svcu::dbc::encode_ai2log_dynamics2(imu_meas));
+    send_sim_frame(fsai::sim::svcu::dbc::encode_ai2log_dynamics2(imu_for_msg));
 
     if (has_gps_meas) {
       can_interface.SetSimulationGpsSample(gps_meas.lat_deg, gps_meas.lon_deg,
