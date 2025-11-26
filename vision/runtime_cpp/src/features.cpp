@@ -33,10 +33,8 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     all_cone_matches.reserve(box_bounds.size());
     
     std::vector<PseudoFeature> left_features; 
-    std::vector<PseudoFeature> right_features; 
     
     left_features.clear();
-    right_features.clear();
     
     for (int i = 0; i < box_bounds.size(); ++i){
         // get information about the box 
@@ -82,7 +80,6 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         right_feature.y = right_keypoints[i].pt.y; 
         right_feature.descriptor = right_descriptors.row(i); 
         right_feature.cone_index = 0; 
-        right_features.push_back(right_feature); 
         
         y_map[right_feature.y].push_back(right_feature);  
     }
@@ -95,7 +92,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         int y = left_feature_i.y; 
         const auto& left_descriptor = left_feature_i.descriptor;   // try changing cv::Mat to const auto &
         float minScore = std::numeric_limits<float>::max();   // init value 
-        const PseudoFeature best_match; 
+        PseudoFeature best_match; 
         
         for (int j = y - kEpipolarMargin; j < y + kEpipolarMargin; ++j){
             bool key_exists = y_map.find(j) != y_map.end(); 
@@ -104,7 +101,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
             const auto& possible_matches = y_map[j]; 
             
             for (int k = 0; k < possible_matches.size(); ++k){
-            	const PseudoFeature possible_match = possible_matches[k]; 
+            	PseudoFeature possible_match = possible_matches[k]; 
             	float score = L2_score(left_descriptor, possible_match.descriptor); 
             	if (score < minScore){
             	    minScore = score; 
