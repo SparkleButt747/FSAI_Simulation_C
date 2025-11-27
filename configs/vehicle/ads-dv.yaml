@@ -73,7 +73,7 @@ input_ranges:
     min: -0.3665191
 
 velox:
-  model: st
+  model: std
   # Vehicle ID hardcoded to ADS-DV (5); other vehicles are removed.
 
 physics:

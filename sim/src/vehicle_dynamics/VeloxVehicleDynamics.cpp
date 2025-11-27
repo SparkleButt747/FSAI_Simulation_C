@@ -134,6 +134,13 @@ void VeloxVehicleDynamics::set_command(const Command& cmd) {
     applied.brake = finite_or_zero(cmd.brake, "brake");
     applied.steer_rad = finite_or_zero(cmd.steer_rad, "steer_rad");
 
+    const bool bypass = true;
+
+    if (!bypass) {
+        // In bypass mode, we skip torque mode processing.
+        applied.throttle = std::clamp(applied.throttle, 0.0f, 1.0f);
+        applied.brake = std::clamp(applied.brake, 0.0f, 1.0f);
+
     const bool torque_mode =
         (cmd.front_axle_torque_nm.has_value() || cmd.rear_axle_torque_nm.has_value()) &&
         std::abs(cmd.throttle) <= kCmdEpsilon && std::abs(cmd.brake) <= kCmdEpsilon;
@@ -182,13 +189,11 @@ void VeloxVehicleDynamics::set_command(const Command& cmd) {
         fsai::sim::log::LogWarning("Throttle/brake both requested; projecting onto single axis.");
     }
 
-    log_if_clamped(requested, applied);
+        log_if_clamped(requested, applied);
 
-    //Since we are using keyboard input mode, we just set the commands directly, swapping steer to normalized again.
-    std::printf("Steering before %f", applied.steer_rad);
-    std::printf("Steering limit %f", steer_limit_rad());
-    applied.steer_rad = static_cast<float>(applied.steer_rad / 0.36f);
+    }
 
+    applied.steer_rad = applied.steer_rad / 0.366519f;  // No clamping needed here; done above.
 
     std::printf("Received Velox Command - Throttle: %f, Brake: %f, Steer(rad): %f\n",
             applied.throttle,
@@ -196,7 +201,7 @@ void VeloxVehicleDynamics::set_command(const Command& cmd) {
             applied.steer_rad);
 
     throttle_command_ = applied.throttle;
-    brake_command_ = applied.brake;
+    brake_command_ = applied.brake * 1.5f;  // temp fix Scale brake to match expected behavior.
     steer_command_ = applied.steer_rad;
 }
 

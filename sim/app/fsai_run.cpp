@@ -2618,6 +2618,10 @@ int main(int argc, char* argv[]) {
     if (!vehicle_dynamics.healthy()) {
       stage_dynamics.detail += " (dynamics unhealthy)";
     }
+    adapted_cmd.velox_command.throttle = requestedThrottle;
+    adapted_cmd.velox_command.brake = requestedBrake;
+    adapted_cmd.velox_command.steer_rad = requestedSteer;
+    
     vehicle_dynamics.set_command(adapted_cmd.velox_command);
     vehicle_dynamics.step(step_seconds);
 
