@@ -227,6 +227,7 @@ void VisionNode::runProcessingLoop(){
         try {
             // This is the line causing the crash
             matched_features = match_features_per_cone(left_mat, right_mat, detections, sift_detector);
+            fsai::sim::log::LogInfo("Features extracted: " + std::to_string(matched_features.size()));
         } 
         catch (const cv::Exception& e) {
             // If a crop fails, log it and skip this frame instead of killing the OS process
@@ -278,6 +279,7 @@ void VisionNode::runProcessingLoop(){
             cluster.side = cone.side;
             for(const auto& feat: cone.matches ){
                 //determine depth for each match and update cone cluster
+                fsai::sim::log::LogInfo("Features per cone: " + std::to_string(cone.matches.size()));
                 Eigen::Vector3d res;
                 if(triangulatePoint(feat,res)){
                     cluster.points.push_back(res);
