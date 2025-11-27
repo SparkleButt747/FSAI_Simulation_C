@@ -33,6 +33,7 @@ VisionNode::VisionNode(){
     detector_ = std::make_unique<fsai::vision::ConeDetector>(PATH_TO_MODEL);
     constexpr size_t DETECTION_BUFFER_CAPACITY = 10; // Choose a suitable size
     detection_buffer_ = std::make_shared<DetectionsRingBuffer>(DETECTION_BUFFER_CAPACITY);
+    sift_detector_ = cv::SIFT::create();
 
     setActiveDetectionBuffer(detection_buffer_);
 
@@ -212,7 +213,7 @@ void VisionNode::runProcessingLoop(){
         std::vector<ConeMatches> matched_features;
         try {
             // This is the line causing the crash
-            matched_features = match_features_per_cone(left_mat, right_mat, detections);
+            matched_features = match_features_per_cone(left_mat, right_mat, detections,sift_detector_);
         } 
         catch (const cv::Exception& e) {
             // If a crop fails, log it and skip this frame instead of killing the OS process
