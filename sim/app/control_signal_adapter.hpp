@@ -27,12 +27,14 @@ struct ControlSignalAdapterResult {
   std::vector<std::string> errors;
 };
 
+// The adapter assumes AI control is continuously enabled; any disable condition
+// must be detected and surfaced by the caller so that telemetry reports a hard
+// failure instead of silently honoring manual inputs.
 class ControlSignalAdapter {
  public:
   explicit ControlSignalAdapter(ControlSignalAdapterConfig config);
 
-  ControlSignalAdapterResult Adapt(const fsai::types::ControlCmd& raw,
-                                   bool enabled) const;
+  ControlSignalAdapterResult Adapt(const fsai::types::ControlCmd& raw) const;
 
  private:
   ControlSignalAdapterConfig config_;

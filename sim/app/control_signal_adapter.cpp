@@ -37,8 +37,10 @@ float clamp_and_note(float value, float lo, float hi, const char* name,
 }
 }  // namespace
 
+// The AI command stream is assumed to stay enabled; disable conditions must be
+// handled before calling Adapt so that failures are raised explicitly.
 ControlSignalAdapterResult ControlSignalAdapter::Adapt(
-    const fsai::types::ControlCmd& raw, bool enabled) const {
+    const fsai::types::ControlCmd& raw) const {
   ControlSignalAdapterResult result{};
   result.clamped_cmd = raw;
   result.velox_command.steer_rad = raw.steer_rad;
@@ -62,10 +64,6 @@ ControlSignalAdapterResult ControlSignalAdapter::Adapt(
   const float brake = std::clamp(-net, 0.0f, config_.max_brake);
   result.clamped_cmd.throttle = throttle;
   result.clamped_cmd.brake = brake;
-
-  if (!enabled) {
-    result.warnings.emplace_back("AI command disabled; honoring manual/hold inputs");
-  }
 
   result.velox_command.throttle = result.clamped_cmd.throttle;
   result.velox_command.brake = result.clamped_cmd.brake;

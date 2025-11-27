@@ -580,11 +580,11 @@ fsai::types::ControlCmd StageCommandFromVelox(
 
 std::string StageDetailFromAdapter(const fsai::sim::app::ControlSignalAdapterResult& adapter,
                                    bool fallback_to_manual) {
-  if (fallback_to_manual) {
-    return "Fallback to controller";
-  }
   if (!adapter.errors.empty()) {
     return "Error: " + adapter.errors.back();
+  }
+  if (fallback_to_manual) {
+    return "Fallback to controller";
   }
   if (!adapter.warnings.empty()) {
     return "Warning: " + adapter.warnings.back();
@@ -2326,6 +2326,7 @@ int main(int argc, char* argv[]) {
 
   bool ai_command_stale_reported = false;
   bool ai_command_missing_reported = false;
+  bool ai_command_disabled_reported = false;
 
 
   while (running) {
@@ -2448,9 +2449,13 @@ int main(int argc, char* argv[]) {
     std::string ai_command_status;
     auto latest_command = io_bus->latest_command();
     const bool ai_command_enabled = latest_command && latest_command->enabled != 0;
+    const bool ai_command_disabled = latest_command && latest_command->enabled == 0;
+    // The AI control stream is assumed to stay enabled; a zero bit is a hard
+    // error that must be surfaced via telemetry.
 
     fsai::sim::app::RuntimeTelemetry::TimedSample<fsai::types::ControlCmd>
         ai_command_sample{};
+    std::string ai_command_disable_reason;
     if (latest_command) {
       ai_command_sample.valid = true;
       ai_command_sample.value.steer_rad = latest_command->steer_rad;
@@ -2461,28 +2466,43 @@ int main(int argc, char* argv[]) {
 
       const bool fresh = latest_command->t_ns <= now_ns &&
                          now_ns - latest_command->t_ns <= stale_threshold_ns;
-      if (fresh) {
+      const bool apply_ai_command = fresh && ai_command_enabled;
+      if (apply_ai_command) {
         requestedThrottle = latest_command->throttle;
         requestedBrake = latest_command->brake;
         requestedSteer = latest_command->steer_rad;
         ai_command_applied = true;
         ai_command_stale = false;
         ai_command_status.clear();
-        if (ai_command_stale_reported || ai_command_missing_reported) {
+        if (ai_command_stale_reported || ai_command_missing_reported ||
+            ai_command_disabled_reported) {
           fsai::sim::log::LogInfo("AI command stream healthy; applying AI inputs");
           ai_command_stale_reported = false;
           ai_command_missing_reported = false;
+          ai_command_disabled_reported = false;
         }
       } else {
         ai_command_stale = true;
-        ai_command_status =
-            "AI command stale (age " + std::to_string(ai_command_sample.age_s) +
-            " s); controller continuing onboard plan";
-        if (ai_command_enabled && !ai_command_stale_reported) {
-          fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
-                               "AI command stale (age %.3f s); continuing controller outputs",
-                               ai_command_sample.age_s);
-          ai_command_stale_reported = true;
+        if (ai_command_enabled && !fresh) {
+          ai_command_status =
+              "AI command stale (age " + std::to_string(ai_command_sample.age_s) +
+              " s); controller continuing onboard plan";
+          if (!ai_command_stale_reported) {
+            fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                                 "AI command stale (age %.3f s); continuing controller outputs",
+                                 ai_command_sample.age_s);
+            ai_command_stale_reported = true;
+          }
+        }
+        if (ai_command_disabled) {
+          ai_command_disable_reason =
+              "AI command stream disabled; manual/hold inputs detected";
+          ai_command_status = ai_command_disable_reason;
+          if (!ai_command_disabled_reported) {
+            fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                                 "AI command stream disabled; manual hold requested");
+            ai_command_disabled_reported = true;
+          }
         }
       }
     } else {
@@ -2500,7 +2520,8 @@ int main(int argc, char* argv[]) {
         }
       }
     }
-    const bool fallback_to_manual = ai_command_enabled && !ai_command_applied;
+    const bool fallback_to_manual =
+        (ai_command_enabled && !ai_command_applied) || ai_command_disabled;
 
     fsai::types::ControlCmd raw_cmd{};
     raw_cmd.throttle = requestedThrottle;
@@ -2508,7 +2529,10 @@ int main(int argc, char* argv[]) {
     raw_cmd.steer_rad = requestedSteer;
     raw_cmd.t_ns = now_ns;
 
-    const auto adapted_cmd = control_signal_adapter.Adapt(raw_cmd, ai_command_enabled);
+    auto adapted_cmd = control_signal_adapter.Adapt(raw_cmd);
+    if (!ai_command_disable_reason.empty()) {
+      adapted_cmd.errors.emplace_back(ai_command_disable_reason);
+    }
     fsai::types::ControlCmd control_cmd = adapted_cmd.clamped_cmd;
     stage_adapted.command = control_cmd;
     stage_adapted.timestamp_ns = now_ns;
