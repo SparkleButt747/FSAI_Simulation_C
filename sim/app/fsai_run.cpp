@@ -748,8 +748,8 @@ void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   ImGui::Text("Runtime mode: %s",
               telemetry.mode.runtime_mode.empty() ? "N/A"
                                                   : telemetry.mode.runtime_mode.c_str());
-  ImGui::Text("Control mode: %s",
-              telemetry.mode.use_controller ? "automatic" : "manual");
+  ImGui::Text("Controller readiness: %s",
+              telemetry.control.controller_ready ? "healthy" : "standby");
   ImGui::Text("Simulation time: %.2f s", telemetry.physics.simulation_time_s);
 
   if (ImGui::CollapsingHeader("Vehicle Pose", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -885,8 +885,8 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   const bool ai_applied = telemetry.control.ai_command_applied;
   const bool fallback_manual = telemetry.control.fallback_to_manual;
 
-  ImGui::Text("Control mode: %s",
-              telemetry.mode.use_controller ? "automatic" : "manual");
+  ImGui::Text("Controller health: %s",
+              telemetry.control.controller_ready ? "healthy" : "standby");
   ImGui::Text("AI command stream: %s", ai_enabled ? "enabled" : "disabled");
   if (telemetry.control.ai_command_stale) {
     const ImVec4 stale_color{0.95f, 0.6f, 0.15f, 1.0f};
@@ -920,12 +920,15 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
 
   if (fallback_manual) {
     ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f),
-                       "Falling back to manual inputs");
+                       "AI stream degraded; controller running autonomously");
   } else if (ai_applied) {
     ImGui::TextColored(ImVec4(0.2f, 0.75f, 0.2f, 1.0f), "AI command applied");
+  } else if (telemetry.control.controller_ready) {
+    ImGui::TextColored(ImVec4(0.2f, 0.55f, 0.95f, 1.0f),
+                       "Controller running without AI overrides");
   } else {
-    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.25f, 1.0f),
-                       "Manual control active");
+    ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f),
+                       "Controller offline");
   }
 
   ImGui::Separator();
@@ -935,7 +938,8 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
               telemetry.control.applied_brake,
               telemetry.control.applied_steer_rad *
                   fsai::sim::svcu::dbc::kRadToDeg);
-  ImGui::Text("Source: %s", ai_applied ? "AI" : "Manual");
+  ImGui::Text("Source: %s",
+              ai_applied ? "AI command" : "controller planner");
   const ImVec4 velox_color =
       telemetry.control.velox_healthy ? ImVec4(0.2f, 0.75f, 0.2f, 1.0f)
                                       : ImVec4(0.9f, 0.3f, 0.3f, 1.0f);
@@ -2179,23 +2183,24 @@ int main(int argc, char* argv[]) {
 
     can_interface.Poll(fsai_clock_now());
 
-    float autopThrottle = world.throttleInput;
-    float autopBrake = world.brakeInput;
-    float autopSteer = world.steeringAngle;
-    if (world.useController) {
-      float raThrottle = 0.0f;
-      float raSteer = 0.0f;
-      if (world.computeRacingControl(step_seconds, raThrottle, raSteer)) {
-        autopSteer = raSteer;
-        if (raThrottle >= 0.0f) {
-          autopThrottle = raThrottle;
-          autopBrake = 0.0f;
-        } else {
-          autopThrottle = 0.0f;
-          autopBrake = -raThrottle;
-        }
+    float requestedThrottle = world.throttleInput;
+    float requestedBrake = world.brakeInput;
+    float requestedSteer = world.steeringAngle;
+    float controllerThrottle = 0.0f;
+    float controllerSteer = world.steeringAngle;
+    const bool controller_ready =
+        world.computeRacingControl(step_seconds, controllerThrottle, controllerSteer);
+    if (controller_ready) {
+      requestedSteer = controllerSteer;
+      if (controllerThrottle >= 0.0f) {
+        requestedThrottle = controllerThrottle;
+        requestedBrake = 0.0f;
+      } else {
+        requestedThrottle = 0.0f;
+        requestedBrake = -controllerThrottle;
       }
     }
+    world.useController = controller_ready ? 1 : 0;
 
     const VehicleState& veh_state = world.vehicle_state();
     const double vx = veh_state.velocity.x();
@@ -2223,9 +2228,6 @@ int main(int argc, char* argv[]) {
       return static_cast<double>(now_ns - timestamp_ns) * 1e-9;
     };
 
-    float requestedThrottle = autopThrottle;
-    float requestedBrake = autopBrake;
-    float requestedSteer = autopSteer;
     bool ai_command_applied = false;
     bool ai_command_stale = false;
     std::string ai_command_status;
@@ -2259,10 +2261,11 @@ int main(int argc, char* argv[]) {
       } else {
         ai_command_stale = true;
         ai_command_status =
-            "AI command stale (age " + std::to_string(ai_command_sample.age_s) + " s)";
+            "AI command stale (age " + std::to_string(ai_command_sample.age_s) +
+            " s); controller continuing onboard plan";
         if (ai_command_enabled && !ai_command_stale_reported) {
           fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
-                               "AI command stale (age %.3f s); holding manual inputs",
+                               "AI command stale (age %.3f s); continuing controller outputs",
                                ai_command_sample.age_s);
           ai_command_stale_reported = true;
         }
@@ -2271,13 +2274,14 @@ int main(int argc, char* argv[]) {
       ai_command_sample.age_s = std::numeric_limits<double>::infinity();
       if (ai_command_enabled && !ai_command_missing_reported) {
         fsai::sim::log::LogWarning(
-            "AI command stream enabled but no commands received; reverting to manual inputs");
+            "AI command stream enabled but no commands received; continuing controller outputs");
         ai_command_missing_reported = true;
       }
       if (ai_command_enabled) {
         ai_command_stale = true;
         if (ai_command_status.empty()) {
-          ai_command_status = "AI command stream missing";
+          ai_command_status =
+              "AI command stream missing; controller running autonomously";
         }
       }
     }
@@ -2553,6 +2557,7 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.control.applied_throttle = control_cmd.throttle;
     runtime_telemetry.control.applied_brake = control_cmd.brake;
     runtime_telemetry.control.applied_steer_rad = control_cmd.steer_rad;
+    runtime_telemetry.control.controller_ready = controller_ready;
     runtime_telemetry.control.ai_command = ai_command_sample;
     runtime_telemetry.control.ai_command_enabled = ai_command_enabled;
     runtime_telemetry.control.ai_command_applied = ai_command_applied;
@@ -2571,7 +2576,7 @@ int main(int argc, char* argv[]) {
       runtime_telemetry.control.last_command = last_ai2vcu_commands;
     }
 
-    runtime_telemetry.mode.use_controller = world.useController != 0;
+    runtime_telemetry.mode.use_controller = controller_ready;
     runtime_telemetry.mode.runtime_mode = mode;
     {
     std::lock_guard<std::mutex> lock(shared_telemetry.mutex);
@@ -2696,7 +2701,7 @@ int main(int argc, char* argv[]) {
     status_msg.as_switch_on = true;
     status_msg.ts_switch_on = true;
     status_msg.go_signal = !mission_state.stop_commanded();
-    status_msg.as_state = world.useController
+    status_msg.as_state = controller_ready
                               ? fsai::sim::svcu::dbc::AsState::kDriving
                               : fsai::sim::svcu::dbc::AsState::kReady;
     status_msg.steering_status = fsai::sim::svcu::dbc::SteeringStatus::kActive;
@@ -2821,7 +2826,7 @@ int main(int argc, char* argv[]) {
     telemetry.gps_lat_deg = static_cast<float>(metersToLatitude(velox_telemetry.pose.y));
     telemetry.gps_lon_deg = static_cast<float>(metersToLongitude(velox_telemetry.pose.x));
     telemetry.gps_speed_mps = static_cast<float>(velox_telemetry.velocity.speed);
-    telemetry.status_flags = static_cast<uint8_t>(world.useController ? 0x3 : 0x1);
+    telemetry.status_flags = static_cast<uint8_t>(controller_ready ? 0x3 : 0x1);
     io_bus->publish_telemetry(telemetry);
 
     logger.logState(sim_time_s, world.vehicle_state());

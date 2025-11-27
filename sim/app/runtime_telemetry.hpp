@@ -117,6 +117,7 @@ struct RuntimeTelemetry {
     bool ai_command_enabled{false};
     bool ai_command_applied{false};
     bool ai_command_stale{false};
+    bool controller_ready{false};
     bool fallback_to_manual{false};
     std::string ai_command_status;
     bool velox_healthy{true};

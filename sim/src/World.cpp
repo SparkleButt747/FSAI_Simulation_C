@@ -25,7 +25,7 @@ World::World() {
 }
 
 bool World::computeRacingControl(double dt, float& throttle_out, float& steering_out) {
-    if (!useController || checkpointPositions.empty()) {
+    if (checkpointPositions.empty()) {
         return false;
     }
 
