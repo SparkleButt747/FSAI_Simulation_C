@@ -220,6 +220,13 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
       definition.targetLaps = 1;
       definition.allowRegeneration = false;
       definition.trackSource = fsai::sim::TrackSource::kCsv;
+      if (definition.track.checkpoints.size() >= 2) {
+        const auto& start = definition.track.checkpoints.front();
+        const auto& finish = definition.track.checkpoints.back();
+        const float dx = finish.position.x - start.position.x;
+        const float dz = finish.position.z - start.position.z;
+        definition.track_length_m = std::sqrt(dx * dx + dz * dz);
+      }
       break;
     }
     case fsai::sim::MissionType::kSkidpad: {
@@ -2113,8 +2120,16 @@ int main(int argc, char* argv[]) {
     if (world.useController) {
       float raThrottle = 0.0f;
       float raSteer = 0.0f;
-      if (world.computeRacingControl(step_seconds, raThrottle, raSteer)) {
-        autopSteer = raSteer;
+      autopSteer = raSteer;
+      if (world.missionRunStatus() == fsai::sim::MissionRunStatus::kBraking) {
+        autopBrake = 1.0f;
+        autopThrottle = 0.0f;
+
+        const auto& state = world.vehicle_state();
+        if (state.velocity.norm() < 0.1) {
+            world.runtime_controller().MarkMissionCompleted();
+        }
+      } else if (world.computeRacingControl(step_seconds, raThrottle, raSteer)) {
         if (raThrottle >= 0.0f) {
           autopThrottle = raThrottle;
           autopBrake = 0.0f;

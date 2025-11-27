@@ -60,6 +60,8 @@ class WorldRuntime {
   void MarkResetPending(ResetReason reason);
   void AcknowledgeResetRequest();
 
+  void MarkMissionCompleted();
+
   const MissionRuntimeState& mission_state() const { return mission_state_; }
   double lap_time_seconds() const { return lap_time_s_; }
   double lap_distance_meters() const { return lap_distance_m_; }

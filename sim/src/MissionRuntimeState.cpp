@@ -49,14 +49,10 @@ void MissionRuntimeState::Update(double dt_seconds, const VehicleState& vehicle_
   if (auto* segment = ActiveSegment(); segment != nullptr) {
     segment->elapsed_time_s += dt_seconds;
   }
-
-  if (mission_.descriptor.type == MissionType::kAcceleration) {
+    if (mission_.descriptor.type == MissionType::kAcceleration) {
     printf("\n\nAcceleration mission: checking for braking condition, track length=%.2f, progress=%.2f\n\n", mission_.track_length_m, straight_line_progress_m_);
-    if (run_status_ == MissionRunStatus::kBraking) {
-      if (vehicle_state.velocity.norm() < 0.1) {
-        run_status_ = MissionRunStatus::kCompleted;
-      }
-    } else if (mission_.track_length_m > 0.0 && straight_line_progress_m_ >= mission_.track_length_m) {
+
+    if (mission_.track_length_m > 0.0 && straight_line_progress_m_ >= mission_.track_length_m) {
       run_status_ = MissionRunStatus::kBraking;
     }
   }
@@ -112,6 +108,7 @@ void MissionRuntimeState::MarkCompleted() {
 void MissionRuntimeState::ConfigureSegments() {
   switch (mission_.descriptor.type) {
     case MissionType::kAcceleration: {
+      segments_.push_back(MakeSegment(MissionSegmentType::kTimed, 1));
       break;
     }
     case MissionType::kSkidpad: {
