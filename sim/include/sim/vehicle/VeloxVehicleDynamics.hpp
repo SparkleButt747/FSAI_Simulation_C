@@ -31,7 +31,7 @@ public:
         std::filesystem::path config_root{"velox/config"};
         std::filesystem::path parameter_root{"velox/parameters"};
         velox::simulation::ModelType model{velox::simulation::ModelType::MB};
-        int vehicle_id{1};
+        int vehicle_id{velox::models::kAdsDvVehicleId};
         double max_steer_rad{fsai::sim::svcu::dbc::kMaxSteerDeg * fsai::sim::svcu::dbc::kDegToRad};
         float front_axle_max_torque_nm{fsai::sim::svcu::dbc::kMaxAxleTorqueNm};
         float rear_axle_max_torque_nm{fsai::sim::svcu::dbc::kMaxAxleTorqueNm};

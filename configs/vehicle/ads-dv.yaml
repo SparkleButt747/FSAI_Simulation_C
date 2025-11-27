@@ -74,11 +74,10 @@ input_ranges:
 
 velox:
   model: st
-  vehicle_id: 5
+  # Vehicle ID hardcoded to ADS-DV (5); other vehicles are removed.
 
 physics:
   h_cg: 0.25       # m
   c_rr: 0.012      # rolling resistance coefficient
   tau_throttle: 0.06   # s (actuator time constant)
   tau_brake: 0.03      # s
-

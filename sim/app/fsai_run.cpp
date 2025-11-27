@@ -1910,7 +1910,7 @@ int main(int argc, char* argv[]) {
       FSAI_BUDGET_SUBSYSTEM_CAN,
       "CAN transport not wired; pending hardware integration.");
 
-  const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
+  const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/ads-dv.yaml"));
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
   fsai::vehicle::VeloxVehicleDynamics::Config dynamics_cfg{};
   dynamics_cfg.config_root = MakeProjectRelativePath(std::filesystem::path("velox/config"));
@@ -1933,7 +1933,7 @@ int main(int argc, char* argv[]) {
     return "unknown";
   }();
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
-                       "Initializing Velox dynamics with model=%s vehicle_id=%d",
+                       "Initializing Velox ADS-DV dynamics (model=%s vehicle_id=%d)",
                        model_name, dynamics_cfg.vehicle_id);
   fsai::vehicle::VeloxVehicleDynamics vehicle_dynamics(dynamics_cfg);
   const double velox_wheel_radius = vehicle_dynamics.wheel_radius();

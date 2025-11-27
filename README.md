@@ -58,7 +58,7 @@ To install ONNXRuntime and OpenCV, follow instructions online.
 
 ## Runtime GUI and controls
 
-Launch the simulator GUI from the build directory so that assets such as `configDry.yaml` resolve correctly:
+Launch the simulator GUI from the build directory so that assets such as `ads-dv.yaml` resolve correctly:
 
 ```sh
 ./fsai_run

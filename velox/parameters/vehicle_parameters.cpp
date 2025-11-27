@@ -186,6 +186,10 @@ VehicleParameters setup_vehicle_parameters(int vehicle_id,
         ? fs::path(VELOX_PARAM_ROOT)
         : fs::path(dir_params);
 
+    if (vehicle_id != kAdsDvVehicleId) {
+        throw std::runtime_error("Unsupported vehicle_id: only ADS-DV (5) is available.");
+    }
+
     // Vehicle and tire YAML paths
     fs::path vehicle_yaml = root / "vehicle" /
         ("parameters_vehicle" + std::to_string(vehicle_id) + ".yaml");

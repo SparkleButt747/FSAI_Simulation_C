@@ -2,7 +2,7 @@
 #
 # These values approximate the lightweight ADS-DV EV platform using a
 # dynamic single-track model. Steering limits are aligned with the
-# control configuration in configs/vehicle/configDry.yaml.
+# control configuration in configs/vehicle/ads-dv.yaml.
 
 # vehicle body dimensions
 l: 2.0

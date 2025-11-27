@@ -102,7 +102,7 @@ int main()
 {
     vsim::SimulationDaemon::InitParams init{};
     init.model      = vsim::ModelType::STD;
-    init.vehicle_id = 1;
+    init.vehicle_id = velox::models::kAdsDvVehicleId;
 
     vsim::SimulationDaemon daemon(init);
 

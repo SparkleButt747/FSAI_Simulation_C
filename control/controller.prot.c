@@ -114,8 +114,8 @@ float Controller_GetThrottleInput(const Vector3* checkpointPositions, int nCheck
 
     // Compute acceleration needed to reach expected speed.
     float speed = (float)carVelocity;
-    if (fabsf(speed) < EPSILON)
-        speed = 0.1f; // Prevent division by zero.
+    if (fabsf(speed) < 2)
+        speed = 10.0f; // Prevent division by zero.
     float accelerationNeeded = (expectedSpeed - speed) / (distanceToCheckpoint / speed);
     if (fabsf(accelerationNeeded) < EPSILON)
         accelerationNeeded = 1.0f;

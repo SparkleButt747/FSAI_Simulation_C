@@ -10,7 +10,7 @@ int main()
 
     SimulationDaemon::InitParams init{};
     init.model          = ModelType::ST;
-    init.vehicle_id     = 1;
+    init.vehicle_id     = velox::models::kAdsDvVehicleId;
     init.config_root    = "config";
     init.parameter_root = "parameters";
     init.use_default_log_sink();

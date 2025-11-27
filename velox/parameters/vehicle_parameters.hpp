@@ -96,16 +96,19 @@ struct VehicleParameters {
  * Creates a VehicleParameters object holding all vehicle parameters for a given vehicle type ID.
  * Parameters are read from YAML files in a parameter directory.
  *
- * @param vehicle_id  CommonRoad vehicle ID (1..4 as in the reference paper)
+ * @param vehicle_id  Only ADS-DV (ID 5) is supported.
  * @param dir_params  Optional path to the parameter directory containing subfolders
  *                    "vehicle/" and "tire/". If empty, a compiled-in default is used
  *                    (typically "parameters").
  *
  * @return VehicleParameters object populated from YAML.
  *
- * Throws std::runtime_error if required files are missing or cannot be parsed.
- */
+ * Throws std::runtime_error if required files are missing, cannot be parsed, or if
+ * `vehicle_id` is not ADS-DV (5).
+*/
 VehicleParameters setup_vehicle_parameters(int vehicle_id,
                                            const std::string& dir_params = {});
+
+constexpr int kAdsDvVehicleId = 5;
 
 } // namespace velox::models

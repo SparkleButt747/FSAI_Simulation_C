@@ -38,7 +38,7 @@ struct SimulationSnapshot {
     public:
         struct InitParams {
             ModelType                 model{ModelType::MB};
-            int                       vehicle_id{1};
+            int                       vehicle_id{velox::models::kAdsDvVehicleId};
             std::filesystem::path     config_root{};
             std::filesystem::path     parameter_root{};
             logging::LogSinkPtr       log_sink{};
@@ -150,4 +150,3 @@ private:
 };
 
 } // namespace velox::simulation
-
