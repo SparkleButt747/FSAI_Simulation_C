@@ -57,6 +57,7 @@
 #include "can_link.hpp"
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
+#include "control_signal_adapter.hpp"
 #include "runtime_telemetry.hpp"
 #include "human/IUserInput.hpp"
 
@@ -887,6 +888,16 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   ImGui::Text("Control mode: %s",
               telemetry.mode.use_controller ? "automatic" : "manual");
   ImGui::Text("AI command stream: %s", ai_enabled ? "enabled" : "disabled");
+  if (telemetry.control.ai_command_stale) {
+    const ImVec4 stale_color{0.95f, 0.6f, 0.15f, 1.0f};
+    const std::string& status =
+        telemetry.control.ai_command_status.empty()
+            ? "AI commands stale or missing"
+            : telemetry.control.ai_command_status;
+    ImGui::TextColored(stale_color, "%s", status.c_str());
+  } else if (!telemetry.control.ai_command_status.empty()) {
+    ImGui::Text("%s", telemetry.control.ai_command_status.c_str());
+  }
 
   ImGui::Separator();
   ImGui::Text("AI request");
@@ -925,6 +936,22 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
               telemetry.control.applied_steer_rad *
                   fsai::sim::svcu::dbc::kRadToDeg);
   ImGui::Text("Source: %s", ai_applied ? "AI" : "Manual");
+  const ImVec4 velox_color =
+      telemetry.control.velox_healthy ? ImVec4(0.2f, 0.75f, 0.2f, 1.0f)
+                                      : ImVec4(0.9f, 0.3f, 0.3f, 1.0f);
+  ImGui::TextColored(velox_color, "Velox dynamics: %s",
+                     telemetry.control.velox_healthy ? "healthy" : "error");
+  if (!telemetry.control.velox_status.empty()) {
+    ImGui::TextWrapped("Velox note: %s", telemetry.control.velox_status.c_str());
+  }
+  const bool io_stale = telemetry.control.io_command_stale || telemetry.control.io_telemetry_stale;
+  const ImVec4 io_color =
+      io_stale ? ImVec4(0.95f, 0.6f, 0.15f, 1.0f) : ImVec4(0.2f, 0.75f, 0.2f, 1.0f);
+  ImGui::TextColored(io_color, "IO health (cmd/telemetry age [s]): %.3f / %.3f",
+                     telemetry.control.io_command_age_s, telemetry.control.io_telemetry_age_s);
+  if (!telemetry.control.io_status.empty()) {
+    ImGui::TextWrapped("IO note: %s", telemetry.control.io_status.c_str());
+  }
 
   if (telemetry.control.has_last_command && telemetry.control.last_command) {
     const auto& last = *telemetry.control.last_command;
@@ -1647,6 +1674,7 @@ int main(int argc, char* argv[]) {
   };
 
   auto io_bus = std::make_shared<fsai::io::InProcessIoBus>();
+  fsai::io::InProcessIoBus::Health io_health{};
   fsai::io::TelemetryNoiseConfig bus_noise{};
   constexpr double kDegToRad = std::numbers::pi / 180.0;
   bus_noise.steer_rad_stddev = sensor_cfg.steering_deg.noise_std * kDegToRad;
@@ -1658,6 +1686,13 @@ int main(int argc, char* argv[]) {
   bus_noise.imu_stddev = sensor_cfg.imu.accel_longitudinal_std;
   bus_noise.gps_speed_stddev = sensor_cfg.gps.speed_std_mps;
   io_bus->set_noise_config(bus_noise);
+  io_bus->set_staleness_thresholds(kCommandStaleSeconds, kAckLagWarningSeconds);
+  io_bus->set_health_sink([&](const fsai::io::InProcessIoBus::Health& health) {
+    io_health = health;
+    if (!health.last_error.empty()) {
+      fsai::sim::log::LogWarning(health.last_error);
+    }
+  });
 
   fsai_clock_config clock_cfg{};
   clock_cfg.mode = FSAI_CLOCK_MODE_SIMULATED;
@@ -1727,6 +1762,13 @@ int main(int argc, char* argv[]) {
   dynamics_cfg.parameter_root = MakeProjectRelativePath(std::filesystem::path("velox/parameters"));
   dynamics_cfg = fsai::vehicle::VeloxVehicleDynamics::Config::FromVehicleConfig(vehicle_config_path,
                                                                                 dynamics_cfg);
+  dynamics_cfg.max_steer_rad = vehicle_param.input_ranges.delta.max > 0.0
+                                   ? vehicle_param.input_ranges.delta.max
+                                   : dynamics_cfg.max_steer_rad;
+  dynamics_cfg.front_axle_max_torque_nm =
+      static_cast<float>(vehicle_param.powertrain.torque_front_max_nm);
+  dynamics_cfg.rear_axle_max_torque_nm =
+      static_cast<float>(vehicle_param.powertrain.torque_rear_max_nm);
   const auto model_name = [model = dynamics_cfg.model]() {
     switch (model) {
       case velox::simulation::ModelType::MB: return "MB";
@@ -2025,7 +2067,20 @@ int main(int argc, char* argv[]) {
   adapter_cfg.max_speed_kph =
       static_cast<float>(vehicle_param.input_ranges.vel.max * 3.6);
   adapter_cfg.mission_descriptor = mission_definition.descriptor;
+  adapter_cfg = fsai::control::runtime::Ai2VcuAdapter::SanitizeConfig(adapter_cfg);
   fsai::control::runtime::Ai2VcuAdapter ai2vcu_adapter(adapter_cfg);
+
+  fsai::sim::app::ControlSignalAdapterConfig control_signal_cfg{};
+  const double steer_limit = vehicle_param.input_ranges.delta.max > 0.0
+                                 ? vehicle_param.input_ranges.delta.max
+                                 : fsai::sim::svcu::dbc::kMaxSteerDeg *
+                                       fsai::sim::svcu::dbc::kDegToRad;
+  control_signal_cfg.max_abs_steer_rad = static_cast<float>(steer_limit);
+  control_signal_cfg.front_axle_max_torque_nm = adapter_cfg.front_axle_max_torque_nm;
+  control_signal_cfg.rear_axle_max_torque_nm = adapter_cfg.rear_axle_max_torque_nm;
+  control_signal_cfg.front_torque_fraction = adapter_cfg.front_torque_fraction;
+  control_signal_cfg.rear_torque_fraction = adapter_cfg.rear_torque_fraction;
+  fsai::sim::app::ControlSignalAdapter control_signal_adapter(control_signal_cfg);
 
   fsai::control::runtime::Ai2VcuCommandSet last_ai2vcu_commands{};
   bool has_last_ai_command = false;
@@ -2066,6 +2121,9 @@ int main(int argc, char* argv[]) {
 
   const uint64_t stale_threshold_ns =
       fsai_clock_from_seconds(kCommandStaleSeconds);
+
+  bool ai_command_stale_reported = false;
+  bool ai_command_missing_reported = false;
 
 
   while (running) {
@@ -2165,21 +2223,14 @@ int main(int argc, char* argv[]) {
       return static_cast<double>(now_ns - timestamp_ns) * 1e-9;
     };
 
-    float appliedThrottle = autopThrottle;
-    float appliedBrake = autopBrake;
-    float appliedSteer = autopSteer;
+    float requestedThrottle = autopThrottle;
+    float requestedBrake = autopBrake;
+    float requestedSteer = autopSteer;
     bool ai_command_applied = false;
+    bool ai_command_stale = false;
+    std::string ai_command_status;
     auto latest_command = io_bus->latest_command();
     const bool ai_command_enabled = latest_command && latest_command->enabled != 0;
-    if (latest_command) {
-      if (latest_command->t_ns <= now_ns &&
-          now_ns - latest_command->t_ns <= stale_threshold_ns) {
-        appliedThrottle = latest_command->throttle;
-        appliedBrake = latest_command->brake;
-        appliedSteer = latest_command->steer_rad;
-        ai_command_applied = true;
-      }
-    }
 
     fsai::sim::app::RuntimeTelemetry::TimedSample<fsai::types::ControlCmd>
         ai_command_sample{};
@@ -2190,19 +2241,63 @@ int main(int argc, char* argv[]) {
       ai_command_sample.value.brake = latest_command->brake;
       ai_command_sample.value.t_ns = latest_command->t_ns;
       ai_command_sample.age_s = compute_age_seconds(latest_command->t_ns);
+
+      const bool fresh = latest_command->t_ns <= now_ns &&
+                         now_ns - latest_command->t_ns <= stale_threshold_ns;
+      if (fresh) {
+        requestedThrottle = latest_command->throttle;
+        requestedBrake = latest_command->brake;
+        requestedSteer = latest_command->steer_rad;
+        ai_command_applied = true;
+        ai_command_stale = false;
+        ai_command_status.clear();
+        if (ai_command_stale_reported || ai_command_missing_reported) {
+          fsai::sim::log::LogInfo("AI command stream healthy; applying AI inputs");
+          ai_command_stale_reported = false;
+          ai_command_missing_reported = false;
+        }
+      } else {
+        ai_command_stale = true;
+        ai_command_status =
+            "AI command stale (age " + std::to_string(ai_command_sample.age_s) + " s)";
+        if (ai_command_enabled && !ai_command_stale_reported) {
+          fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                               "AI command stale (age %.3f s); holding manual inputs",
+                               ai_command_sample.age_s);
+          ai_command_stale_reported = true;
+        }
+      }
     } else {
       ai_command_sample.age_s = std::numeric_limits<double>::infinity();
+      if (ai_command_enabled && !ai_command_missing_reported) {
+        fsai::sim::log::LogWarning(
+            "AI command stream enabled but no commands received; reverting to manual inputs");
+        ai_command_missing_reported = true;
+      }
+      if (ai_command_enabled) {
+        ai_command_stale = true;
+        if (ai_command_status.empty()) {
+          ai_command_status = "AI command stream missing";
+        }
+      }
     }
     const bool fallback_to_manual = ai_command_enabled && !ai_command_applied;
 
-    appliedThrottle = std::clamp(appliedThrottle, 0.0f, 1.0f);
-    appliedBrake = std::clamp(appliedBrake, 0.0f, 1.0f);
+    fsai::types::ControlCmd raw_cmd{};
+    raw_cmd.throttle = requestedThrottle;
+    raw_cmd.brake = requestedBrake;
+    raw_cmd.steer_rad = requestedSteer;
+    raw_cmd.t_ns = now_ns;
 
-    fsai::types::ControlCmd control_cmd{};
-    control_cmd.throttle = appliedThrottle;
-    control_cmd.brake = appliedBrake;
-    control_cmd.steer_rad = appliedSteer;
-    control_cmd.t_ns = now_ns;
+    const auto adapted_cmd = control_signal_adapter.Adapt(raw_cmd, ai_command_enabled);
+    fsai::types::ControlCmd control_cmd = adapted_cmd.clamped_cmd;
+    if (ai_command_status.empty()) {
+      if (!adapted_cmd.errors.empty()) {
+        ai_command_status = adapted_cmd.errors.back();
+      } else if (!adapted_cmd.warnings.empty()) {
+        ai_command_status = adapted_cmd.warnings.back();
+      }
+    }
 
     if (now_ns - last_ai2vcu_tx_ns >= ai2vcu_period_ns) {
       const auto& mission_state = world.missionRuntime();
@@ -2243,11 +2338,11 @@ int main(int argc, char* argv[]) {
 
     can_interface.Poll(now_ns);
 
-    world.throttleInput = appliedThrottle;
-    world.brakeInput = appliedBrake;
-    world.steeringAngle = appliedSteer;
+    world.throttleInput = control_cmd.throttle;
+    world.brakeInput = control_cmd.brake;
+    world.steeringAngle = control_cmd.steer_rad;
 
-    vehicle_dynamics.set_command(appliedThrottle, appliedBrake, appliedSteer);
+    vehicle_dynamics.set_command(adapted_cmd.velox_command);
     vehicle_dynamics.step(step_seconds);
 
     {
@@ -2455,13 +2550,22 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.can.gps = can_interface.LatestGps();
 
     runtime_telemetry.control.control_cmd = control_cmd;
-    runtime_telemetry.control.applied_throttle = appliedThrottle;
-    runtime_telemetry.control.applied_brake = appliedBrake;
-    runtime_telemetry.control.applied_steer_rad = appliedSteer;
+    runtime_telemetry.control.applied_throttle = control_cmd.throttle;
+    runtime_telemetry.control.applied_brake = control_cmd.brake;
+    runtime_telemetry.control.applied_steer_rad = control_cmd.steer_rad;
     runtime_telemetry.control.ai_command = ai_command_sample;
     runtime_telemetry.control.ai_command_enabled = ai_command_enabled;
     runtime_telemetry.control.ai_command_applied = ai_command_applied;
+    runtime_telemetry.control.ai_command_stale = ai_command_stale;
+    runtime_telemetry.control.ai_command_status = ai_command_status;
     runtime_telemetry.control.fallback_to_manual = fallback_to_manual;
+    runtime_telemetry.control.velox_healthy = vehicle_dynamics.healthy();
+    runtime_telemetry.control.velox_status = vehicle_dynamics.last_error();
+    runtime_telemetry.control.io_command_age_s = io_health.command_age_s;
+    runtime_telemetry.control.io_telemetry_age_s = io_health.telemetry_age_s;
+    runtime_telemetry.control.io_command_stale = io_health.command_stale;
+    runtime_telemetry.control.io_telemetry_stale = io_health.telemetry_stale;
+    runtime_telemetry.control.io_status = io_health.last_error;
     runtime_telemetry.control.has_last_command = has_last_ai_command;
     if (has_last_ai_command) {
       runtime_telemetry.control.last_command = last_ai2vcu_commands;

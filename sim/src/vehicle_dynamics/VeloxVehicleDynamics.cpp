@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -13,6 +14,7 @@
 namespace fsai::vehicle {
 namespace {
 constexpr double kTwoPi = 2.0 * M_PI;
+constexpr float kCmdEpsilon = 1e-5f;
 
 velox::simulation::ModelType ParseModelType(std::string_view name)
 {
@@ -77,6 +79,13 @@ VeloxVehicleDynamics::VeloxVehicleDynamics(const Config& config)
           init.use_default_log_sink();
           return init;
       }()) {
+    max_steer_config_rad_ = std::max(0.0, config.max_steer_rad);
+    front_axle_max_torque_nm_ =
+        std::clamp(config.front_axle_max_torque_nm, 0.0f,
+                   fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
+    rear_axle_max_torque_nm_ =
+        std::clamp(config.rear_axle_max_torque_nm, 0.0f,
+                   fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
     wheel_radius_ = daemon_.vehicle_parameters().R_w;
     current_input_.control_mode = velox::simulation::ControlMode::Keyboard;
     current_input_.steering_nudge = 0.0;
@@ -93,12 +102,91 @@ VeloxVehicleDynamics::VeloxVehicleDynamics(const Config& config)
 }
 
 void VeloxVehicleDynamics::set_command(float throttle, float brake, float steer) {
-    throttle_command_ = std::clamp(throttle, 0.0f, 1.0f);
-    brake_command_ = std::clamp(brake, 0.0f, 1.0f);
-    steer_command_ = steer;
+    Command cmd{};
+    cmd.throttle = throttle;
+    cmd.brake = brake;
+    cmd.steer_rad = steer;
+    set_command(cmd);
+}
+
+void VeloxVehicleDynamics::set_command(const Command& cmd) {
+    healthy_ = true;
+    last_error_.clear();
+
+    auto finite_or_zero = [&](float value, const char* field) {
+        if (!std::isfinite(value)) {
+            fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                                 "Velox command %s is not finite (%.4f); zeroing.",
+                                 field, value);
+            healthy_ = false;
+            last_error_ = "Non-finite command input";
+            return 0.0f;
+        }
+        return value;
+    };
+
+    Command applied = cmd;
+    applied.throttle = finite_or_zero(cmd.throttle, "throttle");
+    applied.brake = finite_or_zero(cmd.brake, "brake");
+    applied.steer_rad = finite_or_zero(cmd.steer_rad, "steer_rad");
+
+    const bool torque_mode =
+        (cmd.front_axle_torque_nm.has_value() || cmd.rear_axle_torque_nm.has_value()) &&
+        std::abs(cmd.throttle) <= kCmdEpsilon && std::abs(cmd.brake) <= kCmdEpsilon;
+    if (torque_mode) {
+        const float front_raw = finite_or_zero(cmd.front_axle_torque_nm.value_or(0.0f), "front_axle_torque_nm");
+        const float rear_raw = finite_or_zero(cmd.rear_axle_torque_nm.value_or(0.0f), "rear_axle_torque_nm");
+        const float front_clamped = std::clamp(front_raw, -front_axle_max_torque_nm_, front_axle_max_torque_nm_);
+        const float rear_clamped = std::clamp(rear_raw, -rear_axle_max_torque_nm_, rear_axle_max_torque_nm_);
+
+        const float max_drive_total = std::max(front_axle_max_torque_nm_, 0.0f) +
+                                      std::max(rear_axle_max_torque_nm_, 0.0f);
+        if (max_drive_total <= std::numeric_limits<float>::epsilon()) {
+            fsai::sim::log::LogError("Velox command rejected: axle torque maxima are zero");
+            healthy_ = false;
+            last_error_ = "No torque limits configured";
+            applied.throttle = 0.0f;
+            applied.brake = 1.0f;
+        } else {
+            const double drive_torque = std::max<double>(0.0, static_cast<double>(front_clamped)) +
+                                        std::max<double>(0.0, static_cast<double>(rear_clamped));
+            const double brake_torque = std::max<double>(0.0, -static_cast<double>(front_clamped)) +
+                                        std::max<double>(0.0, -static_cast<double>(rear_clamped));
+            applied.throttle = static_cast<float>(drive_torque / max_drive_total);
+            applied.brake = static_cast<float>(brake_torque / max_drive_total);
+        }
+    }
+
+    const double steer_limit = steer_limit_rad();
+    if (steer_limit > 0.0) {
+        if (applied.steer_rad < -steer_limit || applied.steer_rad > steer_limit) {
+            fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                                 "Steering request %.3f rad clamped to ±%.3f rad",
+                                 applied.steer_rad, steer_limit);
+        }
+        applied.steer_rad = static_cast<float>(
+            std::clamp(static_cast<double>(applied.steer_rad), -steer_limit, steer_limit));
+    }
+
+    const Command requested = applied;
+    applied.throttle = std::clamp(applied.throttle, 0.0f, 1.0f);
+    applied.brake = std::clamp(applied.brake, 0.0f, 1.0f);
+    if (applied.throttle + applied.brake > 1.0f) {
+        const float net = applied.throttle - applied.brake;
+        applied.throttle = std::clamp(net, 0.0f, 1.0f);
+        applied.brake = std::clamp(-net, 0.0f, 1.0f);
+        fsai::sim::log::LogWarning("Throttle/brake both requested; projecting onto single axis.");
+    }
+
+    log_if_clamped(requested, applied);
+
+    throttle_command_ = applied.throttle;
+    brake_command_ = applied.brake;
+    steer_command_ = applied.steer_rad;
 }
 
 void VeloxVehicleDynamics::step(double dt_seconds) {
+    const double previous_timestamp = timestamp_;
     timestamp_ += dt_seconds;
 
     current_input_.longitudinal.throttle = static_cast<double>(throttle_command_);
@@ -116,8 +204,25 @@ void VeloxVehicleDynamics::step(double dt_seconds) {
         current_input_.steering_nudge = steer_command_;
     }
 
-    telemetry_ = daemon_.step(current_input_);
-    sync_from_telemetry();
+    try {
+        const auto telemetry = daemon_.step(current_input_);
+        if (!validate_telemetry(telemetry)) {
+            healthy_ = false;
+            last_error_ = "Velox telemetry validation failed";
+            timestamp_ = previous_timestamp;
+            return;
+        }
+        telemetry_ = telemetry;
+        healthy_ = true;
+        last_error_.clear();
+        sync_from_telemetry();
+    } catch (const std::exception& ex) {
+        healthy_ = false;
+        last_error_ = ex.what();
+        timestamp_ = previous_timestamp;
+        fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                             "Velox step failed: %s", ex.what());
+    }
 }
 
 void VeloxVehicleDynamics::set_state(const VehicleState& state, const Transform& transform) {
@@ -203,5 +308,53 @@ void VeloxVehicleDynamics::sync_from_telemetry() {
     wheels_info_.steering = static_cast<float>(telemetry_.steering.actual_angle);
 }
 
-}  // namespace fsai::vehicle
+double VeloxVehicleDynamics::steer_limit_rad() const {
+    if (const auto* final = daemon_.steering_controller()) {
+        return final->config().max_angle;
+    }
+    if (const auto* wheel = daemon_.steering_wheel()) {
+        return wheel->config().max_angle;
+    }
+    return max_steer_config_rad_;
+}
 
+void VeloxVehicleDynamics::log_if_clamped(const Command& requested, const Command& applied) const {
+    const auto changed = [](float a, float b) { return std::abs(a - b) > 1e-6f; };
+    if (changed(requested.throttle, applied.throttle)) {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                             "Throttle clamped from %.3f to %.3f", requested.throttle, applied.throttle);
+    }
+    if (changed(requested.brake, applied.brake)) {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                             "Brake clamped from %.3f to %.3f", requested.brake, applied.brake);
+    }
+    if (changed(requested.steer_rad, applied.steer_rad)) {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                             "Steering clamped from %.3f rad to %.3f rad", requested.steer_rad, applied.steer_rad);
+    }
+}
+
+bool VeloxVehicleDynamics::validate_telemetry(
+    const velox::telemetry::SimulationTelemetry& telemetry) const {
+    const auto finite = [](double value) { return std::isfinite(value); };
+    if (!(finite(telemetry.pose.x) && finite(telemetry.pose.y) && finite(telemetry.pose.yaw))) {
+        fsai::sim::log::LogError("Invalid Velox telemetry pose (non-finite)");
+        return false;
+    }
+    if (!(finite(telemetry.velocity.global_x) && finite(telemetry.velocity.global_y) &&
+          finite(telemetry.velocity.yaw_rate))) {
+        fsai::sim::log::LogError("Invalid Velox telemetry velocity (non-finite)");
+        return false;
+    }
+    if (!(finite(telemetry.acceleration.longitudinal) && finite(telemetry.acceleration.lateral))) {
+        fsai::sim::log::LogError("Invalid Velox telemetry acceleration (non-finite)");
+        return false;
+    }
+    if (!(wheel_radius_ > 0.0) || !std::isfinite(wheel_radius_)) {
+        fsai::sim::log::LogError("Velox wheel radius must be positive/finite for telemetry conversion");
+        return false;
+    }
+    return true;
+}
+
+}  // namespace fsai::vehicle

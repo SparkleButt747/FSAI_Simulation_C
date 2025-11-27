@@ -116,7 +116,16 @@ struct RuntimeTelemetry {
     TimedSample<fsai::types::ControlCmd> ai_command{};
     bool ai_command_enabled{false};
     bool ai_command_applied{false};
+    bool ai_command_stale{false};
     bool fallback_to_manual{false};
+    std::string ai_command_status;
+    bool velox_healthy{true};
+    std::string velox_status;
+    double io_command_age_s{std::numeric_limits<double>::infinity()};
+    double io_telemetry_age_s{std::numeric_limits<double>::infinity()};
+    bool io_command_stale{true};
+    bool io_telemetry_stale{true};
+    std::string io_status;
     bool has_last_command{false};
     std::optional<fsai::control::runtime::Ai2VcuCommandSet> last_command{};
   } control;
@@ -128,4 +137,3 @@ struct RuntimeTelemetry {
 };
 
 }  // namespace fsai::sim::app
-
