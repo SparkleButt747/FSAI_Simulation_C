@@ -65,24 +65,39 @@ ControlSignalAdapterResult ControlSignalAdapter::Adapt(
   result.clamped_cmd.throttle = throttle;
   result.clamped_cmd.brake = brake;
 
-  result.velox_command.throttle = result.clamped_cmd.throttle;
-  result.velox_command.brake = result.clamped_cmd.brake;
   result.velox_command.steer_rad = result.clamped_cmd.steer_rad;
 
   const float front_drive_torque =
-      result.velox_command.throttle * front_fraction * config_.front_axle_max_torque_nm;
+      result.clamped_cmd.throttle * front_fraction * config_.front_axle_max_torque_nm;
   const float rear_drive_torque =
-      result.velox_command.throttle * rear_fraction * config_.rear_axle_max_torque_nm;
+      result.clamped_cmd.throttle * rear_fraction * config_.rear_axle_max_torque_nm;
   const float front_brake_torque =
-      result.velox_command.brake * front_fraction * config_.front_axle_max_torque_nm;
+      result.clamped_cmd.brake * front_fraction * config_.front_axle_max_torque_nm;
   const float rear_brake_torque =
-      result.velox_command.brake * rear_fraction * config_.rear_axle_max_torque_nm;
+      result.clamped_cmd.brake * rear_fraction * config_.rear_axle_max_torque_nm;
 
-  result.velox_command.front_axle_torque_nm = front_drive_torque - front_brake_torque;
-  result.velox_command.rear_axle_torque_nm = rear_drive_torque - rear_brake_torque;
+  const float front_net_torque = front_drive_torque - front_brake_torque;
+  const float rear_net_torque = rear_drive_torque - rear_brake_torque;
+
+  const float front_max_torque = config_.front_axle_max_torque_nm;
+  const float rear_max_torque = config_.rear_axle_max_torque_nm;
+  result.velox_command.front_axle_torque_nm = std::clamp(front_net_torque, -front_max_torque, front_max_torque);
+  result.velox_command.rear_axle_torque_nm = std::clamp(rear_net_torque, -rear_max_torque, rear_max_torque);
+
+  constexpr float kTorqueThreshold = 1e-6f;
+  const bool torque_mode_enabled =
+      front_max_torque > kTorqueThreshold || rear_max_torque > kTorqueThreshold;
+  if (torque_mode_enabled) {
+    result.velox_command.throttle = 0.0f;
+    result.velox_command.brake = 0.0f;
+  } else {
+    result.velox_command.throttle = result.clamped_cmd.throttle;
+    result.velox_command.brake = result.clamped_cmd.brake;
+  }
 
   log_messages(result.errors, /*is_error=*/true);
   log_messages(result.warnings, /*is_error=*/false);
+
   return result;
 }
 

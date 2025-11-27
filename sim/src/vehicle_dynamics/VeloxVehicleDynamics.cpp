@@ -11,7 +11,10 @@
 #include "../../include/logging.hpp"
 #include <yaml-cpp/yaml.h>
 
+#include "sim/app/telemetry_units.hpp"
+
 namespace fsai::vehicle {
+using fsai::sim::app::TelemetryUnits;
 namespace {
 constexpr double kTwoPi = 2.0 * M_PI;
 constexpr float kCmdEpsilon = 1e-5f;
@@ -126,6 +129,7 @@ void VeloxVehicleDynamics::set_command(const Command& cmd) {
     };
 
     Command applied = cmd;
+
     applied.throttle = finite_or_zero(cmd.throttle, "throttle");
     applied.brake = finite_or_zero(cmd.brake, "brake");
     applied.steer_rad = finite_or_zero(cmd.steer_rad, "steer_rad");
@@ -180,6 +184,11 @@ void VeloxVehicleDynamics::set_command(const Command& cmd) {
 
     log_if_clamped(requested, applied);
 
+    std::printf("Received Velox Command - Throttle: %f, Brake: %f, Steer(rad): %f\n",
+            applied.throttle,
+            applied.brake,
+            applied.steer_rad);
+
     throttle_command_ = applied.throttle;
     brake_command_ = applied.brake;
     steer_command_ = applied.steer_rad;
@@ -213,6 +222,13 @@ void VeloxVehicleDynamics::step(double dt_seconds) {
             return;
         }
         telemetry_ = telemetry;
+        std::printf("Velox Telemetry - Speed: %.3f m/s, Position: (%.3f, %.3f), Yaw: %.3f rad\n",
+                    telemetry_.velocity.speed,
+                    telemetry_.pose.x,
+                    telemetry_.pose.y,
+                    telemetry_.pose.yaw);
+
+
         healthy_ = true;
         last_error_.clear();
         sync_from_telemetry();
@@ -275,24 +291,33 @@ void VeloxVehicleDynamics::reset_input() {
 }
 
 void VeloxVehicleDynamics::sync_from_telemetry() {
-    state_.position = Eigen::Vector3d(telemetry_.pose.x, telemetry_.pose.y, 0.0);
+    // Keep the state in Velox XY coordinates so downstream systems stay aligned with telemetry.
+    state_.position = TelemetryUnits::VeloxPlanarPosition(telemetry_.pose.x, telemetry_.pose.y);
     state_.yaw = telemetry_.pose.yaw;
 
-    const double heading = telemetry_.pose.yaw + telemetry_.traction.slip_angle;
-    const double cos_heading = std::cos(heading);
-    const double sin_heading = std::sin(heading);
+    const double heading = state_.yaw + telemetry_.traction.slip_angle;
+    TelemetryUnits::ValidateRadians("telemetry.heading (yaw + slip)", heading,
+                                    TelemetryUnits::kMaxTelemetryAngleRad * 2.0);
 
-    state_.velocity = Eigen::Vector3d(telemetry_.velocity.global_x, telemetry_.velocity.global_y, 0.0);
-    state_.rotation = Eigen::Vector3d(0.0, 0.0, telemetry_.velocity.yaw_rate);
+    // Velox global velocity reports planar XY axes, so we reuse those directly.
+    state_.velocity =
+        TelemetryUnits::VeloxPlanarVelocity(telemetry_.velocity.global_x,
+                                            telemetry_.velocity.global_y);
 
-    const double ax_body = telemetry_.acceleration.longitudinal;
-    const double ay_body = telemetry_.acceleration.lateral;
-    const double ax_global = ax_body * cos_heading - ay_body * sin_heading;
-    const double ay_global = ax_body * sin_heading + ay_body * cos_heading;
-    state_.acceleration = Eigen::Vector3d(ax_global, ay_global, 0.0);
+    const double yaw_rate = telemetry_.velocity.yaw_rate;
+    TelemetryUnits::ValidateAngularRate("telemetry.velocity.yaw_rate", yaw_rate);
+    state_.rotation = Eigen::Vector3d(0.0, 0.0, yaw_rate);
 
-    transform_.position.x = static_cast<float>(state_.position.x());
-    transform_.position.z = static_cast<float>(state_.position.y());
+    // Convert body-frame acceleration (longitudinal/lateral) into the world frame.
+    state_.acceleration = TelemetryUnits::BodyAccelerationToGlobal(
+        telemetry_.acceleration.longitudinal, telemetry_.acceleration.lateral, heading);
+
+    // Velox XY → OpenGL XZ axis mapping for the renderer/world transform.
+    const Eigen::Vector3d world_position =
+        TelemetryUnits::OpenGLGroundPosition(telemetry_.pose.x, telemetry_.pose.y);
+    transform_.position.x = static_cast<float>(world_position.x());
+    transform_.position.y = static_cast<float>(world_position.y());
+    transform_.position.z = static_cast<float>(world_position.z());
     transform_.yaw = static_cast<float>(state_.yaw);
 
     const double safe_radius = std::max(wheel_radius_, 1e-6);
@@ -336,18 +361,31 @@ void VeloxVehicleDynamics::log_if_clamped(const Command& requested, const Comman
 
 bool VeloxVehicleDynamics::validate_telemetry(
     const velox::telemetry::SimulationTelemetry& telemetry) const {
-    const auto finite = [](double value) { return std::isfinite(value); };
-    if (!(finite(telemetry.pose.x) && finite(telemetry.pose.y) && finite(telemetry.pose.yaw))) {
-        fsai::sim::log::LogError("Invalid Velox telemetry pose (non-finite)");
+    if (!(TelemetryUnits::ValidateFinite("telemetry.pose.x", telemetry.pose.x) &&
+          TelemetryUnits::ValidateFinite("telemetry.pose.y", telemetry.pose.y) &&
+          TelemetryUnits::ValidateRadians("telemetry.pose.yaw", telemetry.pose.yaw))) {
         return false;
     }
-    if (!(finite(telemetry.velocity.global_x) && finite(telemetry.velocity.global_y) &&
-          finite(telemetry.velocity.yaw_rate))) {
-        fsai::sim::log::LogError("Invalid Velox telemetry velocity (non-finite)");
+    if (!TelemetryUnits::ValidateRadians("telemetry.traction.slip_angle",
+                                         telemetry.traction.slip_angle)) {
         return false;
     }
-    if (!(finite(telemetry.acceleration.longitudinal) && finite(telemetry.acceleration.lateral))) {
-        fsai::sim::log::LogError("Invalid Velox telemetry acceleration (non-finite)");
+    if (!(TelemetryUnits::ValidateFinite("telemetry.velocity.global_x",
+                                         telemetry.velocity.global_x) &&
+          TelemetryUnits::ValidateFinite("telemetry.velocity.global_y",
+                                         telemetry.velocity.global_y) &&
+          TelemetryUnits::ValidateAngularRate("telemetry.velocity.yaw_rate",
+                                              telemetry.velocity.yaw_rate))) {
+        return false;
+    }
+    if (!(TelemetryUnits::ValidateFinite("telemetry.acceleration.longitudinal",
+                                         telemetry.acceleration.longitudinal) &&
+          TelemetryUnits::ValidateFinite("telemetry.acceleration.lateral",
+                                         telemetry.acceleration.lateral))) {
+        return false;
+    }
+    if (!TelemetryUnits::ValidateSteerAngle("telemetry.steering.actual_angle",
+                                            telemetry.steering.actual_angle)) {
         return false;
     }
     if (!(wheel_radius_ > 0.0) || !std::isfinite(wheel_radius_)) {

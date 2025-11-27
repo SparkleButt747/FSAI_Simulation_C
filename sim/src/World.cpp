@@ -27,6 +27,7 @@ World::World() {
 bool World::computeRacingControl(double dt, float& throttle_out, float& steering_out) {
     if (checkpointPositions.empty()) {
         return false;
+        std::printf("No checkpoints available for racing control.\n");
     }
 
     const VehicleState& state = vehicleDynamics().state();
@@ -57,6 +58,9 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     steering_out = Controller_GetSteeringInput(
         checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
         carSpeed, &carTransform, &racingConfig, dt);
+    std::printf("Speed RAW RA: %f, Steer RAW RA: %f",
+                throttle_out,
+                steering_out);
     return true;
 }
 
@@ -176,6 +180,8 @@ void World::update(double dt) {
     }
 
     const auto& carTransform = dynamics.transform();
+    std::printf("Car Rotation: yaw=%.2f",
+                carTransform.yaw);
     const Vector2 currentPos{carTransform.position.x, carTransform.position.z};
     const auto collisionResult = collisionService_.Evaluate(prevCarPos_, currentPos, checkpointPositions,
                                                            startCones, leftCones, rightCones, gateSegments_,

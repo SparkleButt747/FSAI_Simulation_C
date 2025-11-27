@@ -20,6 +20,7 @@
 namespace fsai::sim::world {
 namespace {
 constexpr float kConeDisplayScale = 12.0f;
+constexpr float kStereoCameraHeightOffset = 0.4f;
 
 void DrawConeCrosshair(Graphics* graphics, int center_x, int center_y,
                        float base_width_m, float render_scale,
@@ -380,7 +381,8 @@ void WorldRenderAdapter::publishStereoFrame(
   }
 
   const auto& transform = snapshot.vehicle_transform;
-  stereo_source_->setBodyPose(transform.position.x, transform.position.y,
+  stereo_source_->setBodyPose(transform.position.x,
+                              transform.position.y + kStereoCameraHeightOffset,
                               transform.position.z, transform.yaw);
 
   cone_instances_.clear();

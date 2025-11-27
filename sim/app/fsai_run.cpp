@@ -60,6 +60,9 @@
 #include "control_signal_adapter.hpp"
 #include "runtime_telemetry.hpp"
 #include "human/IUserInput.hpp"
+#include "sim/app/telemetry_units.hpp"
+
+using fsai::sim::app::TelemetryUnits;
 
 namespace {
 constexpr std::size_t kDefaultMissionIndex = 2;
@@ -97,6 +100,14 @@ std::string Trim(std::string_view text) {
   }
   const auto end = text.find_last_not_of(" \t\r\n");
   return std::string(text.substr(begin, end - begin + 1));
+}
+
+constexpr float kMaxSteerAngleRad =
+    fsai::sim::svcu::dbc::kMaxSteerDeg * fsai::sim::svcu::dbc::kDegToRad;
+
+float NormalizedSteerToRad(float normalized) {
+  const float clamped = std::clamp(normalized, -1.0f, 1.0f);
+  return clamped * kMaxSteerAngleRad;
 }
 
 const MissionOption* LookupMissionByToken(std::string_view token) {
@@ -2386,16 +2397,19 @@ int main(int argc, char* argv[]) {
     float requestedBrake = world.brakeInput;
     float requestedSteer = world.steeringAngle;
     float controllerThrottle = 0.0f;
-    float controllerSteer = world.steeringAngle;
+    float controllerSteer = 0.0f;
+    float controllerSteerRad = 0.0f;
     const bool controller_ready =
         world.computeRacingControl(step_seconds, controllerThrottle, controllerSteer);
     if (controller_ready) {
-      requestedSteer = controllerSteer;
+      requestedSteer = NormalizedSteerToRad(controllerSteer);
+      controllerSteerRad = requestedSteer;
       if (controllerThrottle >= 0.0f) {
         requestedThrottle = controllerThrottle;
         requestedBrake = 0.0f;
       } else {
         requestedThrottle = 0.0f;
+        //Controller gives negative throttle for braking, and we make requested brake positive...
         requestedBrake = -controllerThrottle;
       }
     }
@@ -2428,7 +2442,7 @@ int main(int argc, char* argv[]) {
     };
 
     if (controller_ready) {
-      stage_racing.command.steer_rad = controllerSteer;
+      stage_racing.command.steer_rad = controllerSteerRad;
       if (controllerThrottle >= 0.0f) {
         stage_racing.command.throttle = controllerThrottle;
         stage_racing.command.brake = 0.0f;
@@ -2673,19 +2687,24 @@ int main(int argc, char* argv[]) {
 
     const double vehicle_speed_mps = velox_telemetry.velocity.speed;
     const float actual_speed_kph = static_cast<float>(vehicle_speed_mps * 3.6);
-    const float actual_steer_deg = static_cast<float>(velox_telemetry.steering.actual_angle *
-        fsai::sim::svcu::dbc::kRadToDeg);
+    const float actual_steer_deg =
+        static_cast<float>(TelemetryUnits::RadToDeg(
+            velox_telemetry.steering.actual_angle,
+            "telemetry.steering.actual_angle",
+            TelemetryUnits::kMaxTelemetrySteerRad));
 
     fsai::sim::app::RuntimeTelemetry runtime_telemetry{};
     runtime_telemetry.physics.simulation_time_s = sim_time_s;
     runtime_telemetry.physics.vehicle_speed_mps = static_cast<float>(vehicle_speed_mps);
     runtime_telemetry.physics.vehicle_speed_kph = actual_speed_kph;
+    // Steering telemetry arrives in radians; convert for telemetry/UI consumers.
     runtime_telemetry.physics.steering_deg = actual_steer_deg;
     runtime_telemetry.pose.position_x_m = static_cast<float>(vehicle_state.position.x());
     runtime_telemetry.pose.position_y_m = static_cast<float>(vehicle_state.position.y());
     runtime_telemetry.pose.position_z_m = static_cast<float>(vehicle_state.position.z());
-    runtime_telemetry.pose.yaw_deg = static_cast<float>(vehicle_state.yaw *
-                                                        fsai::sim::svcu::dbc::kRadToDeg);
+    // Vehicle state uses radians internally; convert to degrees for telemetry reporting.
+    runtime_telemetry.pose.yaw_deg =
+        static_cast<float>(TelemetryUnits::RadToDeg(vehicle_state.yaw, "vehicle_state.yaw"));
     runtime_telemetry.wheels.rpm = telemetry_wheel_rpm;
     runtime_telemetry.drive.front_drive_force_n = static_cast<float>(front_drive_force);
     runtime_telemetry.drive.rear_drive_force_n = static_cast<float>(rear_drive_force);
@@ -2702,8 +2721,11 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.acceleration.lateral_mps2 =
         static_cast<float>(velox_telemetry.acceleration.lateral);
     runtime_telemetry.acceleration.vertical_mps2 = static_cast<float>(vehicle_state.acceleration.z());
+    // Convert yaw rate from radians per second into degrees per second for display.
     runtime_telemetry.acceleration.yaw_rate_degps =
-        static_cast<float>(velox_telemetry.velocity.yaw_rate * fsai::sim::svcu::dbc::kRadToDeg);
+        static_cast<float>(TelemetryUnits::RadToDeg(
+            velox_telemetry.velocity.yaw_rate, "telemetry.velocity.yaw_rate",
+            TelemetryUnits::kMaxAngularRateRadPerSec));
     runtime_telemetry.lap.current_lap_time_s = world.lapTimeSeconds();
     runtime_telemetry.lap.total_distance_m = world.totalDistanceMeters();
     runtime_telemetry.lap.completed_laps = world.completedLaps();
@@ -2879,9 +2901,9 @@ int main(int argc, char* argv[]) {
     std::lock_guard<std::mutex> lock(shared_telemetry.mutex);
     shared_telemetry.position.x() = runtime_telemetry.pose.position_x_m;
     shared_telemetry.position.y() = runtime_telemetry.pose.position_y_m;
-    // CRITICAL: Convert Telemetry degrees back to radians for Eigen rotation
-    constexpr double kDegToRad = std::numbers::pi / 180.0;
-    shared_telemetry.yaw_rad = runtime_telemetry.pose.yaw_deg * kDegToRad;
+    // Shared telemetry consumers require radians; convert from the telemetry degrees report.
+    shared_telemetry.yaw_rad =
+        TelemetryUnits::DegToRad(runtime_telemetry.pose.yaw_deg, "shared telemetry yaw");
     }
     if (imgui_initialized) {
       DrawMissionPanel(runtime_telemetry);

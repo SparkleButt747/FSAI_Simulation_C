@@ -390,6 +390,8 @@ void SimulationDaemon::reset(const ResetParams& params)
 
         UserInput working_input = input;
         working_input.control_mode = control_mode_;
+        std::printf("Simulation Step - Control Mode: %s\n",
+                    (working_input.control_mode == ControlMode::Keyboard) ? "Keyboard" : "Direct");
         auto sanitized_input      = working_input.clamped(input_limits_);
         log_clamped_input(working_input, sanitized_input);
 
