@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <cstddef>
 #include <limits>
 #include <optional>
@@ -108,6 +109,22 @@ struct RuntimeTelemetry {
     std::optional<fsai::control::runtime::GpsSample> gps{};
   } can;
 
+  struct ControlStageSample {
+    fsai::types::ControlCmd command{};
+    double age_s{std::numeric_limits<double>::infinity()};
+    bool stale{true};
+    bool disabled{false};
+    bool valid{false};
+    std::string detail;
+  };
+
+  struct ControlPipeline {
+    ControlStageSample racing{};
+    ControlStageSample adapted{};
+    ControlStageSample transmitted{};
+    ControlStageSample dynamics{};
+  };
+
   struct ControlData {
     fsai::types::ControlCmd control_cmd{};
     float applied_throttle{0.0f};
@@ -129,6 +146,7 @@ struct RuntimeTelemetry {
     std::string io_status;
     bool has_last_command{false};
     std::optional<fsai::control::runtime::Ai2VcuCommandSet> last_command{};
+    ControlPipeline pipeline{};
   } control;
 
   struct ModeData {

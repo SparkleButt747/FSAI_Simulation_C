@@ -560,6 +560,63 @@ void WithFreshnessColor(const fsai::sim::app::RuntimeTelemetry::TimedSample<T>& 
   ImGui::PopStyleColor();
 }
 
+fsai::types::ControlCmd StageCommandFromAi2Vcu(
+    const fsai::control::runtime::Ai2VcuCommandSet& commands) {
+  fsai::types::ControlCmd cmd{};
+  cmd.throttle = commands.throttle_clamped;
+  cmd.brake = commands.brake_clamped;
+  cmd.steer_rad = commands.steer.steer_deg * fsai::sim::svcu::dbc::kDegToRad;
+  return cmd;
+}
+
+fsai::types::ControlCmd StageCommandFromVelox(
+    const fsai::vehicle::VeloxVehicleDynamics::Command& command) {
+  fsai::types::ControlCmd cmd{};
+  cmd.throttle = command.throttle;
+  cmd.brake = command.brake;
+  cmd.steer_rad = command.steer_rad;
+  return cmd;
+}
+
+std::string StageDetailFromAdapter(const fsai::sim::app::ControlSignalAdapterResult& adapter,
+                                   bool fallback_to_manual) {
+  if (fallback_to_manual) {
+    return "Fallback to controller";
+  }
+  if (!adapter.errors.empty()) {
+    return "Error: " + adapter.errors.back();
+  }
+  if (!adapter.warnings.empty()) {
+    return "Warning: " + adapter.warnings.back();
+  }
+  return "Adapted control command";
+}
+
+std::string StageDetailFromTransmitted(const fsai::control::runtime::Ai2VcuCommandSet& commands) {
+  char buf[128];
+  std::snprintf(buf, sizeof(buf),
+                "Torques F/R: %.1f/%.1f Nm | Brake F/R: %.1f/%.1f%% | Handshake: %s",
+                commands.front_drive.axle_torque_request_nm,
+                commands.rear_drive.axle_torque_request_nm, commands.brake.front_pct,
+                commands.brake.rear_pct,
+                commands.status.handshake ? "yes" : "no");
+  return std::string(buf);
+}
+
+std::string StageDetailFromDynamics(
+    const fsai::vehicle::VeloxVehicleDynamics::Command& command) {
+  if (command.front_axle_torque_nm && command.rear_axle_torque_nm) {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "Velox torques F/R: %.1f/%.1f Nm",
+                  *command.front_axle_torque_nm, *command.rear_axle_torque_nm);
+    return std::string(buf);
+  }
+  return "Dynamics command";
+}
+
+constexpr std::array<const char*, 4> kControlPipelineStageLabels = {
+    "Racing outputs", "Adapted commands", "Transmitted frames", "Dynamics inputs"};
+
 void DrawMissionPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   const auto& mission = telemetry.mission;
   ImGui::Begin("Mission");
@@ -1010,8 +1067,77 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
     ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f),
                        "CAN acknowledgements lagging");
   } else {
-    ImGui::TextColored(ImVec4(0.2f, 0.75f, 0.2f, 1.0f),
+  ImGui::TextColored(ImVec4(0.2f, 0.75f, 0.2f, 1.0f),
                        "CAN acknowledgements healthy");
+  }
+
+  ImGui::End();
+}
+
+void DrawControlPipelinePanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
+  static const ImVec4 kHealthyColor{0.2f, 0.75f, 0.2f, 1.0f};
+  static const ImVec4 kStaleColor{0.95f, 0.6f, 0.15f, 1.0f};
+  static const ImVec4 kDisabledColor{0.6f, 0.6f, 0.6f, 1.0f};
+
+  ImGui::Begin("Control Pipeline");
+  const auto& pipeline = telemetry.control.pipeline;
+  const std::array<const fsai::sim::app::RuntimeTelemetry::ControlStageSample*, 4> samples = {
+      &pipeline.racing, &pipeline.adapted, &pipeline.transmitted, &pipeline.dynamics};
+
+  if (ImGui::BeginTable("control_pipeline", 4,
+                        ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                            ImGuiTableFlags_NoHostExtendX)) {
+    ImGui::TableSetupColumn("Stage", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+    ImGui::TableSetupColumn("Values");
+    ImGui::TableSetupColumn("Flags", ImGuiTableColumnFlags_WidthFixed, 140.0f);
+    ImGui::TableSetupColumn("Details");
+    ImGui::TableHeadersRow();
+
+    for (size_t i = 0; i < samples.size(); ++i) {
+      const auto* sample = samples[i];
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TextUnformatted(kControlPipelineStageLabels[i]);
+
+      const bool has_age = sample->valid && std::isfinite(sample->age_s);
+      const float steer_deg =
+          sample->command.steer_rad * fsai::sim::svcu::dbc::kRadToDeg;
+      ImGui::TableSetColumnIndex(1);
+      ImGui::Text("Throttle: %.2f | Brake: %.2f | Steer: %.1f°",
+                  sample->command.throttle, sample->command.brake, steer_deg);
+      std::string age_label = "n/a";
+      if (has_age) {
+        age_label = std::to_string(static_cast<int>(sample->age_s * 1000.0));
+      }
+      ImGui::Text("Age: %s", age_label.c_str());
+
+      ImGui::TableSetColumnIndex(2);
+      std::string flags;
+      if (sample->disabled) {
+        flags = "disabled";
+      }
+      if (sample->stale) {
+        if (!flags.empty()) {
+          flags += ", ";
+        }
+        flags += "stale";
+      }
+      if (flags.empty()) {
+        flags = "healthy";
+      }
+      const ImVec4 flag_color = sample->disabled ? kDisabledColor
+                                                  : (sample->stale ? kStaleColor : kHealthyColor);
+      ImGui::TextColored(flag_color, "%s", flags.c_str());
+
+      ImGui::TableSetColumnIndex(3);
+      if (!sample->detail.empty()) {
+        ImGui::TextWrapped("%s", sample->detail.c_str());
+      } else {
+        ImGui::TextUnformatted("-");
+      }
+    }
+
+    ImGui::EndTable();
   }
 
   ImGui::End();
@@ -1619,13 +1745,27 @@ int main(int argc, char* argv[]) {
                          kDefaultDt);
     dt = kDefaultDt;
   }
+  const std::string default_udp_can = "udp:47000";
+#if defined(__linux__)
+  constexpr bool kPlatformHasSocketCan = true;
+#else
+  constexpr bool kPlatformHasSocketCan = false;
+#endif
+
   if (!can_iface_overridden) {
     if (mode == "sim") {
-      can_iface = "vcan0";
+      can_iface = kPlatformHasSocketCan ? "vcan0" : default_udp_can;
     } else if (mode == "car") {
-      can_iface = "can0";
+      can_iface = kPlatformHasSocketCan ? "can0" : default_udp_can;
     }
   }
+#if !defined(__linux__)
+  if (mode == "car" && !kPlatformHasSocketCan) {
+    fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                         "Car mode runs over UDP transport (%s) on this platform",
+                         can_iface.c_str());
+  }
+#endif
   can_iface = fsai::sim::svcu::canonicalize_can_endpoint(can_iface);
   const bool can_is_udp = fsai::sim::svcu::is_udp_endpoint(can_iface);
   fsai::sim::log::Logf(
@@ -1996,11 +2136,20 @@ int main(int argc, char* argv[]) {
   fsai::control::runtime::CanIface::Config can_cfg{};
   can_cfg.endpoint = can_iface;
   can_cfg.enable_loopback = true;
+#if defined(__linux__)
   can_cfg.mode = (mode == "car") ? fsai::control::runtime::CanIface::Mode::kFsAiApi
-                                   : fsai::control::runtime::CanIface::Mode::kSimulation;
+                                 : fsai::control::runtime::CanIface::Mode::kSimulation;
   if (can_cfg.mode == fsai::control::runtime::CanIface::Mode::kFsAiApi) {
     can_cfg.enable_loopback = false;
   }
+#else
+  can_cfg.mode = fsai::control::runtime::CanIface::Mode::kSimulation;
+  if (mode == "car") {
+    fsai::sim::log::Logf(
+        fsai::sim::log::Level::kInfo,
+        "Car mode running on this platform via UDP instead of SocketCAN");
+  }
+#endif
   can_cfg.wheel_radius_m = velox_wheel_radius > 0.0 ? velox_wheel_radius : vehicle_param.tire.radius;
 
   fsai::control::runtime::CanIface can_interface;
@@ -2088,6 +2237,50 @@ int main(int argc, char* argv[]) {
 
   fsai::control::runtime::Ai2VcuCommandSet last_ai2vcu_commands{};
   bool has_last_ai_command = false;
+  struct ControlPipelineSnapshot {
+    fsai::types::ControlCmd command{};
+    uint64_t timestamp_ns{0};
+    bool disabled{false};
+    std::string detail;
+  };
+  ControlPipelineSnapshot stage_racing{};
+  ControlPipelineSnapshot stage_adapted{};
+  ControlPipelineSnapshot stage_transmitted{};
+  ControlPipelineSnapshot stage_dynamics{};
+  enum class PipelineStageHealth { kUnknown, kHealthy, kStale, kDisabled };
+  std::array<PipelineStageHealth, 4> stage_health_state{};
+  stage_health_state.fill(PipelineStageHealth::kUnknown);
+  auto log_stage_transition = [&](std::size_t idx, PipelineStageHealth new_health,
+                                  double age_s, const std::string& detail) {
+    if (stage_health_state[idx] == new_health) {
+      return;
+    }
+    stage_health_state[idx] = new_health;
+    const char* name = kControlPipelineStageLabels[idx];
+    switch (new_health) {
+      case PipelineStageHealth::kDisabled:
+        fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                             "Control stage '%s' disabled (%s)", name,
+                             detail.empty() ? "inactive" : detail.c_str());
+        break;
+      case PipelineStageHealth::kStale:
+        if (std::isfinite(age_s)) {
+          fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                               "Control stage '%s' stale (age %.0f ms)", name,
+                               age_s * 1000.0);
+        } else {
+          fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                               "Control stage '%s' stale (no timestamp)", name);
+        }
+        break;
+      case PipelineStageHealth::kHealthy:
+        fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                             "Control stage '%s' healthy", name);
+        break;
+      default:
+        break;
+    }
+  };
 
   // RESET/BUFFER MANAGEMENT: called when World asks for a reset (cone hit,
   // track regeneration, or external trigger). Clears stale IO/vision buffers
@@ -2110,6 +2303,11 @@ int main(int argc, char* argv[]) {
     has_gps_meas = false;
     has_last_ai_command = false;
     last_ai2vcu_commands = {};
+    stage_racing = {};
+    stage_adapted = {};
+    stage_transmitted = {};
+    stage_dynamics = {};
+    stage_health_state.fill(PipelineStageHealth::kUnknown);
 
     if (auto frame_buffer = stereo_frame_buffer) {
       while (frame_buffer->tryPop()) {
@@ -2228,6 +2426,23 @@ int main(int argc, char* argv[]) {
       return static_cast<double>(now_ns - timestamp_ns) * 1e-9;
     };
 
+    if (controller_ready) {
+      stage_racing.command.steer_rad = controllerSteer;
+      if (controllerThrottle >= 0.0f) {
+        stage_racing.command.throttle = controllerThrottle;
+        stage_racing.command.brake = 0.0f;
+      } else {
+        stage_racing.command.throttle = 0.0f;
+        stage_racing.command.brake = -controllerThrottle;
+      }
+      stage_racing.timestamp_ns = now_ns;
+      stage_racing.disabled = false;
+      stage_racing.detail = "Controller output";
+    } else {
+      stage_racing.disabled = true;
+      stage_racing.detail = "Controller offline";
+    }
+
     bool ai_command_applied = false;
     bool ai_command_stale = false;
     std::string ai_command_status;
@@ -2295,6 +2510,10 @@ int main(int argc, char* argv[]) {
 
     const auto adapted_cmd = control_signal_adapter.Adapt(raw_cmd, ai_command_enabled);
     fsai::types::ControlCmd control_cmd = adapted_cmd.clamped_cmd;
+    stage_adapted.command = control_cmd;
+    stage_adapted.timestamp_ns = now_ns;
+    stage_adapted.disabled = fallback_to_manual;
+    stage_adapted.detail = StageDetailFromAdapter(adapted_cmd, fallback_to_manual);
     if (ai_command_status.empty()) {
       if (!adapted_cmd.errors.empty()) {
         ai_command_status = adapted_cmd.errors.back();
@@ -2333,10 +2552,18 @@ int main(int argc, char* argv[]) {
 
       auto command_frames = ai2vcu_adapter.Adapt(
           control_cmd, can_interface.RawStatus(), adapter_telemetry);
-      if (can_interface.Send(command_frames, now_ns)) {
+      const bool sent = can_interface.Send(command_frames, now_ns);
+      if (sent) {
         last_ai2vcu_tx_ns = now_ns;
         last_ai2vcu_commands = command_frames;
         has_last_ai_command = true;
+        stage_transmitted.command = StageCommandFromAi2Vcu(command_frames);
+        stage_transmitted.timestamp_ns = now_ns;
+        stage_transmitted.disabled = false;
+        stage_transmitted.detail = StageDetailFromTransmitted(command_frames);
+      } else {
+        stage_transmitted.disabled = true;
+        stage_transmitted.detail = "CAN transmission failed";
       }
     }
 
@@ -2346,6 +2573,13 @@ int main(int argc, char* argv[]) {
     world.brakeInput = control_cmd.brake;
     world.steeringAngle = control_cmd.steer_rad;
 
+    stage_dynamics.command = StageCommandFromVelox(adapted_cmd.velox_command);
+    stage_dynamics.timestamp_ns = now_ns;
+    stage_dynamics.disabled = !vehicle_dynamics.healthy();
+    stage_dynamics.detail = StageDetailFromDynamics(adapted_cmd.velox_command);
+    if (!vehicle_dynamics.healthy()) {
+      stage_dynamics.detail += " (dynamics unhealthy)";
+    }
     vehicle_dynamics.set_command(adapted_cmd.velox_command);
     vehicle_dynamics.step(step_seconds);
 
@@ -2576,6 +2810,45 @@ int main(int argc, char* argv[]) {
       runtime_telemetry.control.last_command = last_ai2vcu_commands;
     }
 
+    auto fill_stage_sample =
+        [&](const ControlPipelineSnapshot& snapshot,
+            fsai::sim::app::RuntimeTelemetry::ControlStageSample& sample) {
+          sample.command = snapshot.command;
+          sample.detail = snapshot.detail;
+          sample.disabled = snapshot.disabled;
+          sample.valid = snapshot.timestamp_ns != 0;
+          sample.age_s = compute_age_seconds(snapshot.timestamp_ns);
+          sample.stale =
+              !sample.valid || sample.age_s > kCommandStaleSeconds;
+        };
+
+    fill_stage_sample(stage_racing, runtime_telemetry.control.pipeline.racing);
+    fill_stage_sample(stage_adapted, runtime_telemetry.control.pipeline.adapted);
+    fill_stage_sample(stage_transmitted, runtime_telemetry.control.pipeline.transmitted);
+    fill_stage_sample(stage_dynamics, runtime_telemetry.control.pipeline.dynamics);
+
+    const std::array<
+        const fsai::sim::app::RuntimeTelemetry::ControlStageSample*, 4>
+        pipeline_samples = {&runtime_telemetry.control.pipeline.racing,
+                            &runtime_telemetry.control.pipeline.adapted,
+                            &runtime_telemetry.control.pipeline.transmitted,
+                            &runtime_telemetry.control.pipeline.dynamics};
+    auto compute_stage_health =
+        [](const fsai::sim::app::RuntimeTelemetry::ControlStageSample& sample) {
+          if (sample.disabled) {
+            return PipelineStageHealth::kDisabled;
+          }
+          if (!sample.valid || sample.stale) {
+            return PipelineStageHealth::kStale;
+          }
+          return PipelineStageHealth::kHealthy;
+        };
+    for (size_t idx = 0; idx < pipeline_samples.size(); ++idx) {
+      const auto* sample = pipeline_samples[idx];
+      log_stage_transition(idx, compute_stage_health(*sample), sample->age_s,
+                           sample->detail);
+    }
+
     runtime_telemetry.mode.use_controller = controller_ready;
     runtime_telemetry.mode.runtime_mode = mode;
     {
@@ -2589,6 +2862,7 @@ int main(int argc, char* argv[]) {
     if (imgui_initialized) {
       DrawMissionPanel(runtime_telemetry);
       DrawSimulationPanel(runtime_telemetry);
+      DrawControlPipelinePanel(runtime_telemetry);
       DrawControlPanel(runtime_telemetry);
       DrawCanPanel(runtime_telemetry);
       DrawLogConsole();
