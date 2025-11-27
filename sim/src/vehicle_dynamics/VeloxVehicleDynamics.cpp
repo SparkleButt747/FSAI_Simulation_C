@@ -184,6 +184,12 @@ void VeloxVehicleDynamics::set_command(const Command& cmd) {
 
     log_if_clamped(requested, applied);
 
+    //Since we are using keyboard input mode, we just set the commands directly, swapping steer to normalized again.
+    std::printf("Steering before %f", applied.steer_rad);
+    std::printf("Steering limit %f", steer_limit_rad());
+    applied.steer_rad = static_cast<float>(applied.steer_rad / steer_limit_rad());
+
+
     std::printf("Received Velox Command - Throttle: %f, Brake: %f, Steer(rad): %f\n",
             applied.throttle,
             applied.brake,
