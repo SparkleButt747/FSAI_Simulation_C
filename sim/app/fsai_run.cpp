@@ -2130,6 +2130,7 @@ int main(int argc, char* argv[]) {
             world.runtime_controller().MarkMissionCompleted();
         }
       } else if (world.computeRacingControl(step_seconds, raThrottle, raSteer)) {
+        autopSteer = raSteer;
         if (raThrottle >= 0.0f) {
           autopThrottle = raThrottle;
           autopBrake = 0.0f;
