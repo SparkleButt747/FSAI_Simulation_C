@@ -15,7 +15,7 @@ control:
   regenerate_track: true
   speed_lookahead_sensitivity: 0.0
   steering_lookahead_sensitivity: 0.0
-  acceleration_factor: 0.004
+  acceleration_factor: 0.008
   path_search_max_length: 30
   path_search_min_length: 2
   path_search_beam_width: 20

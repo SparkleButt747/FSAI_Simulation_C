@@ -201,7 +201,7 @@ void VeloxVehicleDynamics::set_command(const Command& cmd) {
             applied.steer_rad);
 
     throttle_command_ = applied.throttle;
-    brake_command_ = applied.brake * 1.5f;  // temp fix Scale brake to match expected behavior.
+    brake_command_ = applied.brake;  // temp fix Scale brake to match expected behavior.
     steer_command_ = applied.steer_rad;
 }
 

@@ -73,7 +73,7 @@ K_lt: 1.0e-05
 R_w: 0.2525
 
 # torque split (unused by ST model but kept for completeness)
-T_sb: 0.55
+T_sb: 0.5
 T_se: 0.5
 
 # suspension camber parameters
