@@ -196,8 +196,9 @@ add_library(fsai_telemetry STATIC
 target_include_directories(fsai_telemetry PUBLIC
   ${CMAKE_SOURCE_DIR}/common/include
   ${HEADER_DIRS}
-  ${EIGEN3_INCLUDE_DIRS}
 )
+
+target_link_libraries(fsai_telemetry PUBLIC Eigen3::Eigen)
 
 # ------------------------------------------------------------------------------
 # Vision-test libraries  [UNCHANGED]
