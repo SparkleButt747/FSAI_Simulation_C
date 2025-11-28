@@ -208,71 +208,67 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
 }
 
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
-    Triangulation& T,
-    Point carFront,
-    std::unordered_map<Point, FsaiConeSide> coneToSide
-) {
+    const FsaiDetections& cones, 
+    const Vector3& carFront, 
+    float coneToSide) 
+{
     std::vector<PathNode> nodes;
-    // map each triangulation vertex to all node-ids that touch it
-    std::map<Point, std::vector<int>> vertex_to_node_ids;
+    std::map<int, std::vector<int>> cone_idx_to_node_ids;
 
-    // create a node for every triangulation edge we consider “drivable”
-    for(auto it = T.finite_edges_begin(); it != T.finite_edges_end(); ++it) {
-        auto seg = T.segment(*it);
-        Point p1 = seg.source();
-        Point p2 = seg.target();
+    std::vector<int> left_indices, right_indices;
 
-        PathNode node;
-        node.id = static_cast<int>(nodes.size());
-
-        // midpoint
-        node.midpoint.x = static_cast<float>((p1.x() + p2.x()) / 2.0);
-        node.midpoint.y = static_cast<float>((p1.y() + p2.y()) / 2.0);
-
-        // endpoints as “detections” (set what you actually need)
-        FsaiConeDet d1{}; d1.x = static_cast<float>(p1.x()); d1.y = static_cast<float>(p1.y());
-        auto it1 = coneToSide.find(p1);
-        d1.side = (it1!=coneToSide.end()) ? it1->second : FSAI_CONE_UNKNOWN;
-        FsaiConeDet d2{}; d2.x = static_cast<float>(p2.x()); d2.y = static_cast<float>(p2.y());
-        auto it2 = coneToSide.find(p2);
-        d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
-
-        if (d1.side == d2.side) {
-            continue;
-        }
-
-        node.first  = d1;
-        node.second = d2;
-
-        vertex_to_node_ids[p1].push_back(node.id);
-        vertex_to_node_ids[p2].push_back(node.id);
-
-        nodes.push_back(node);
+    for (int i = 0; i < cones.n; i++) {
+        if (cones.dets[i].side == FSAI_CONE_LEFT) left_indices.push_back(i);
+        else if (cones.dets[i].side == FSAI_CONE_RIGHT) right_indices.push_back(i);
     }
 
-    // build index-based adjacency
+    const float MAX_GATE_WIDTH = 12.0f; 
+
+    for (int l_idx : left_indices) {
+        for (int r_idx : right_indices) {
+            const FsaiConeDet& l_cone = cones.dets[l_idx];
+            const FsaiConeDet& r_cone = cones.dets[r_idx];
+
+            float dx = l_cone.x - r_cone.x;
+            float dy = l_cone.y - r_cone.y;
+            float distSq = dx*dx + dy*dy;
+
+            if (distSq > MAX_GATE_WIDTH * MAX_GATE_WIDTH) continue;
+
+            PathNode node;
+            node.id = static_cast<int>(nodes.size());
+            node.midpoint.x = (l_cone.x + r_cone.x) / 2.0f;
+            node.midpoint.y = (l_cone.y + r_cone.y) / 2.0f;
+            node.first = l_cone; 
+            node.second = r_cone;
+
+            cone_idx_to_node_ids[l_idx].push_back(node.id);
+            cone_idx_to_node_ids[r_idx].push_back(node.id);
+            nodes.push_back(node);
+        }
+    }
+
     std::vector<std::vector<int>> adj(nodes.size());
-    for (auto& kv : vertex_to_node_ids) {
-        auto& ids = kv.second;
-        for (size_t i = 0; i < ids.size(); ++i){
-            for (size_t j = i + 1; j < ids.size(); ++j) {
-                adj[ids[i]].push_back(ids[j]);
-                adj[ids[j]].push_back(ids[i]);
+    for (auto const& [cone_idx, node_ids] : cone_idx_to_node_ids) {
+        for (size_t i = 0; i < node_ids.size(); ++i) {
+            for (size_t j = i + 1; j < node_ids.size(); ++j) {
+                int u = node_ids[i]; int v = node_ids[j];
+                adj[u].push_back(v); adj[v].push_back(u);
             }
         }
     }
 
-    // pick start by nearest midpoint to carFront; draw its segment in red
-    int start_id = 0;
-    double best = std::numeric_limits<double>::infinity();
-    for (auto& n : nodes) {
-        const double dx = n.midpoint.x - static_cast<float>(carFront.x());
-        const double dy = n.midpoint.y - static_cast<float>(carFront.y());
-        const double d2 = dx*dx + dy*dy;
-        if (d2 < best) {
-            best = d2;
-            start_id = n.id;
+    // Sort by distance to car
+    if (!nodes.empty()) {
+        int best_idx = -1;
+        double best_dist = std::numeric_limits<double>::infinity();
+        for (int i = 0; i < nodes.size(); i++) {
+            double dx = nodes[i].midpoint.x - carFront.x;
+            double dy = nodes[i].midpoint.y - carFront.y;
+            double d2 = dx*dx + dy*dy;
+            if (d2 < best_dist) { best_dist = d2; best_idx = i; }
         }
+        if (best_idx != -1 && best_idx != 0) std::swap(nodes[0], nodes[best_idx]);
     }
 
     return {nodes, adj};
