@@ -2310,6 +2310,7 @@ int main(int argc, char* argv[]) {
       world.update(step_seconds);
     }
     if (world.vehicleResetPending()) {
+      world.coneDetections.clear();
       vehicle_dynamics.setState(world.vehicleSpawnState().state,
                                 world.vehicleSpawnState().transform);
       world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
@@ -2808,11 +2809,14 @@ int main(int argc, char* argv[]) {
     }
     auto detections = detection_buffer->tryPop();
     if (detections != std::nullopt) {
+        // [FIX] Clear the old detections! 
+        // We are receiving a full map snapshot, not just new cones.
+        world.coneDetections.clear(); 
+
         for (int i = 0; i < detections->n; i++) {
           world.coneDetections.push_back(detections->dets[i]);
       }
     }
-
     fsai::sim::app::GuiWorldAdapter gui_adapter(world);
     const auto world_snapshot = gui_adapter.snapshot();
     DrawWorldScene(&graphics, world_snapshot, runtime_telemetry);
