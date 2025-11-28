@@ -169,6 +169,15 @@ void VisionNode::runProcessingLoop(){
             cameraParams_ = handle_opt->frame.left.K; //params will be the same for both frames
             intrinsics_set_ = true;
         }
+        // get car telem at start
+        Eigen::Vector2d vehicle_pos {0.0, 0.0};
+        double car_yaw_rad = 0.0;
+
+        if(pose_provider_){
+            std::pair<Eigen::Vector2d, double> pose = pose_provider_();
+            vehicle_pos = pose.first;
+            car_yaw_rad = pose.second;
+        }
         // --- Frame is available! ---
         const uint64_t t_now = handle_opt->frame.t_sync_ns;
         // 1. Convert to Mat (local variable only for now)
@@ -180,15 +189,7 @@ void VisionNode::runProcessingLoop(){
         new_detections.t_ns = handle_opt->frame.t_sync_ns;
         new_detections.n = 0; // Number of cones found
 
-        // get car telem at start
-        Eigen::Vector2d vehicle_pos {0.0, 0.0};
-        double car_yaw_rad = 0.0;
-
-        if(pose_provider_){
-            std::pair<Eigen::Vector2d, double> pose = pose_provider_();
-            vehicle_pos = pose.first;
-            car_yaw_rad = pose.second;
-        }
+        
         // 1. Object detection logic
         auto t2 = std::chrono::high_resolution_clock::now();
         std::vector<types::BoxBound> detections = detector_->detectCones(left_mat);
