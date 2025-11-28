@@ -86,6 +86,13 @@ typedef struct FsaiCanMsg {
     uint64_t t_ns;
 } FsaiCanMsg;
 
+typedef struct FSAIBoxBound{
+    float x,y;
+    float w,h;
+    float conf;
+    FsaiConeSide side;
+    int track_id;
+}FSAIBoxBound;
 #ifndef __cplusplus
 typedef FsaiPixelFormat PixelFormat;
 typedef FsaiCameraIntrinsics CameraIntrinsics;
@@ -118,6 +125,7 @@ using Detections = ::FsaiDetections;
 using VehicleState = ::FsaiVehicleState;
 using ControlCmd = ::FsaiControlCmd;
 using CanMsg = ::FsaiCanMsg;
+using BoxBound = :: FSAIBoxBound;
 }  // namespace types
 }  // namespace fsai
 #endif

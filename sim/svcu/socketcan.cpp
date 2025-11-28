@@ -93,6 +93,87 @@ std::optional<can_frame> SocketCanLink::receive() {
 
 }  // namespace fsai::sim::svcu
 
+#elif defined(__APPLE__)
+
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+#include <cstring>
+#include <string>
+
+namespace fsai::sim::svcu {
+
+namespace {
+std::string make_shm_name(const std::string& iface) {
+  std::string name = "/fsai_socketcan_" + iface;
+  if (name.size() > 31) {
+    name.resize(31);
+  }
+  return name;
+}
+
+}  // namespace
+
+SocketCanLink::SocketCanLink() : fd_(-1), shared_(nullptr), created_(false) {}
+
+SocketCanLink::~SocketCanLink() { close(); }
+
+bool SocketCanLink::open(const std::string& iface, bool) {
+  close();
+  const std::string name = make_shm_name(iface);
+  fd_ = ::shm_open(name.c_str(), O_RDWR | O_CREAT, 0600);
+  if (fd_ < 0) {
+    return false;
+  }
+  created_ = (::ftruncate(fd_, sizeof(ShmRing)) == 0);
+  void* addr = ::mmap(nullptr, sizeof(ShmRing), PROT_READ | PROT_WRITE, MAP_SHARED, fd_, 0);
+  if (addr == MAP_FAILED) {
+    ::close(fd_);
+    fd_ = -1;
+    return false;
+  }
+  shared_ = static_cast<ShmRing*>(addr);
+  if (created_) {
+    std::memset(shared_, 0, sizeof(ShmRing));
+  }
+  return true;
+}
+
+void SocketCanLink::close() {
+  if (shared_) {
+    ::munmap(shared_, sizeof(ShmRing));
+    shared_ = nullptr;
+  }
+  if (fd_ >= 0) {
+    ::close(fd_);
+    fd_ = -1;
+  }
+}
+
+bool SocketCanLink::send(const can_frame& frame) {
+  if (!shared_) {
+    return false;
+  }
+  shared_->frames[shared_->head] = frame;
+  shared_->head = (shared_->head + 1) % kShmRingSize;
+  if (shared_->head == shared_->tail) {
+    shared_->tail = (shared_->tail + 1) % kShmRingSize;
+  }
+  return true;
+}
+
+std::optional<can_frame> SocketCanLink::receive() {
+  if (!shared_ || shared_->tail == shared_->head) {
+    return std::nullopt;
+  }
+  can_frame frame = shared_->frames[shared_->tail];
+  shared_->tail = (shared_->tail + 1) % kShmRingSize;
+  return frame;
+}
+
+}  // namespace fsai::sim::svcu
+
 #else
 
 namespace fsai::sim::svcu {

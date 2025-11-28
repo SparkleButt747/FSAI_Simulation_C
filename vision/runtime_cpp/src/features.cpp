@@ -1,96 +1,153 @@
 #include "features.hpp"
+#include "detect.hpp"
+#include <vector>
+#include <opencv2/opencv.hpp>
+#include <opencv2/features2d.hpp>  // For SIFT and other feature detectors
 #include <opencv2/imgproc.hpp>
+#include <unordered_map>
+#include <limits>
 #include <iostream>
-
-// TUNING: Patch size for matching individual points. 
-// 5x5 or 7x7 is good for small 11x13 cones.
-static const int kPatchSize = 5; 
-static const int kHalfPatch = kPatchSize / 2;
-
-// TUNING: How many pixels to skip when sampling the grid (1 = every pixel, 2 = every other)
-static const int kGridStride = 3; 
+#include <optional>
+#include "common/types.h"
 
 // TUNING: Epipolar search margin (pixels up/down to look in right image)
 static const int kEpipolarMargin = 2;
 
 bool is_safe_roi(const cv::Mat& frame, cv::Rect roi) {
-    return (roi.x >= 0 && roi.y >= 0 && 
-            roi.x + roi.width <= frame.cols && 
+    return (roi.x >= 0 && roi.y >= 0 &&
+            roi.x + roi.width <= frame.cols &&
             roi.y + roi.height <= frame.rows &&
             roi.width > 0 && roi.height > 0);
 }
 
-std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, 
-                                                 const cv::Mat& right_frame, 
-                                                 const std::vector<fsai::vision::BoxBound>& box_bounds) {
+float L2_score(cv::Mat left_descriptor, cv::Mat right_descriptor){
+    float dist = cv::norm(left_descriptor, right_descriptor, cv::NORM_L2);
+    return dist;
+}
+
+std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
+                                                 const cv::Mat& right_frame,
+                                                 const std::vector<fsai::types::BoxBound>& box_bounds,
+                                                 const cv::Ptr<cv::SIFT> sift_detector) {
     std::vector<ConeMatches> all_cone_matches;
     all_cone_matches.reserve(box_bounds.size());
 
-    // Pre-allocate standardized patch matrices to avoid re-allocation in loop
-    cv::Mat left_patch, right_strip, res_map;
+    std::vector<PseudoFeature> left_features;
+    std::vector<PseudoFeature> right_features;
+    cv::Rect image_bounds(0, 0, left_frame.cols, left_frame.rows);
+    for (int i = 0; i < box_bounds.size(); ++i){
+        fsai::types::BoxBound box_i = box_bounds[i];
+        int box_index = i;
 
-    for (size_t i = 0; i < box_bounds.size(); ++i) {
-        const auto& box = box_bounds[i];
-        std::vector<Feature> cone_features;
+        // 1. Create Rect
+        cv::Rect box_rect(box_i.x, box_i.y, box_i.w, box_i.h);
+        
+        // 2. Clip Rect to Image Bounds (Don't just skip it!)
+        // This keeps the part of the cone that IS visible.
+        cv::Rect clipped_rect = box_rect & image_bounds;
 
-        // 1. Define safe boundaries for sampling points inside the box
-        // We must ensure a kPatchSize window can fit around the point.
-        int start_x = box.x + kHalfPatch;
-        int end_x = box.x + box.w - kHalfPatch;
-        int start_y = box.y + kHalfPatch;
-        int end_y = box.y + box.h - kHalfPatch;
+        // 3. Only skip if the resulting area is empty
+        if (clipped_rect.area() <= 0) { continue; }
 
-        if (start_x >= end_x || start_y >= end_y) continue; // Box too small for patches
+        // 4. Crop safely using the clipped rectangle
+        cv::Mat box_roi = left_frame(clipped_rect);
 
-        // 2. Grid Sample inside the Left Cone Box
-        for (int ly = start_y; ly < end_y; ly += kGridStride) {
-            for (int lx = start_x; lx < end_x; lx += kGridStride) {
-                
-                // Extract small patch around grid point (lx, ly)
-                cv::Rect patch_roi(lx - kHalfPatch, ly - kHalfPatch, kPatchSize, kPatchSize);
-                if (!is_safe_roi(left_frame, patch_roi)) continue;
-                left_patch = left_frame(patch_roi);
+        std::vector<cv::KeyPoint> left_keypoints;
+        cv::Mat left_descriptors;
 
-                // Define search strip in Right image
-                // Constrain Y to epipolar line +/- margin
-                int strip_y = std::max(0, ly - kHalfPatch - kEpipolarMargin);
-                int strip_h = kPatchSize + (kEpipolarMargin * 2);
-                // Constrain X: matched point must be to the left of lx (or same pos for infinity)
-                int strip_width = std::min(right_frame.cols, lx + kHalfPatch + 5); // +5 for slight tolerance
-                
-                cv::Rect strip_roi(0, strip_y, strip_width, strip_h);
-                if (!is_safe_roi(right_frame, strip_roi)) continue;
-                right_strip = right_frame(strip_roi);
+        sift_detector->detectAndCompute(box_roi, cv::noArray(), left_keypoints, left_descriptors);
 
-                // Match the small patch
-                // TM_SQDIFF is faster than NORMED for tiny patches, but less robust to lighting changes.
-                // Sim lighting is usually even, so SQDIFF might be okay. Using NORMED for safety.
-                cv::matchTemplate(right_strip, left_patch, res_map, cv::TM_SQDIFF_NORMED);
-                
-                double min_val; cv::Point min_loc;
-                cv::minMaxLoc(res_map, &min_val, nullptr, &min_loc, nullptr);
+        for (int j = 0; j < left_keypoints.size(); ++j){
+            // IMPORTANT: Adjust relative to the CLIPPED rect, not the original box_i
+            // If the box was chopped on the left, box_i.x is wrong, clipped_rect.x is right.
+            left_keypoints[j].pt.x += clipped_rect.x;
+            left_keypoints[j].pt.y += clipped_rect.y;
 
-                // Threshold: Only accept good patch matches (e.g., < 0.1 difference)
-                if (min_val < 0.1) {
-                    Feature feat;
-                    feat.x_1 = static_cast<double>(lx);
-                    feat.y_1 = static_cast<double>(ly);
-                    // Convert strip-local coordinate back to global right-image coordinate
-                    feat.x_2 = static_cast<double>(strip_roi.x + min_loc.x + kHalfPatch);
-                    feat.y_2 = static_cast<double>(strip_roi.y + min_loc.y + kHalfPatch);
-
-                    // Final check: ensure positive disparity (closer objects shift left)
-                    if (feat.x_2 <= feat.x_1 + 1.0) { // +1.0 tolerance for noise
-                         cone_features.push_back(feat);
-                    }
-                }
-            }
-        }
-
-        if (!cone_features.empty()) {
-            all_cone_matches.push_back({(int)i, box, cone_features,box.side});
+            PseudoFeature left_feature;
+            left_feature.cone_index = box_index;
+            left_feature.x = left_keypoints[j].pt.x;
+            left_feature.y = left_keypoints[j].pt.y;
+            left_feature.descriptor = left_descriptors.row(j).clone();
+            left_features.push_back(left_feature);
         }
     }
+    
+    std::vector<cv::KeyPoint> right_keypoints;
+    cv::Mat right_descriptors;
+    sift_detector->detectAndCompute(right_frame, cv::noArray(), right_keypoints, right_descriptors);
 
+    std::unordered_map<int, std::vector<PseudoFeature>> y_map;
+
+    // format features extracted from right frame and build hash map
+    for (int i = 0; i < right_keypoints.size(); ++i){
+
+        PseudoFeature right_feature;
+        right_feature.x = right_keypoints[i].pt.x;
+        right_feature.y = right_keypoints[i].pt.y;
+        right_feature.descriptor = right_descriptors.row(i);
+        right_feature.cone_index = 0;
+        right_features.push_back(right_feature);
+
+        y_map[right_feature.y].push_back(right_feature);
+    }
+    
+    std::unordered_map<int, std::vector<Feature>> cone_map;
+    
+    // for each left_feature, search for best match for y +- tolerance in hash map
+    for (int i = 0; i < left_features.size(); ++i){
+        PseudoFeature left_feature_i = left_features[i];
+        int y = left_feature_i.y;
+        cv::Mat left_descriptor = left_feature_i.descriptor;
+        float minScore = std::numeric_limits<float>::max();   // init value
+        std::optional<PseudoFeature> best_match = std::nullopt;
+        
+        for (int j = y - kEpipolarMargin; j < y + kEpipolarMargin; ++j){
+            bool key_exists = y_map.find(j) != y_map.end();
+            if (!key_exists){continue;}
+
+            std::vector<PseudoFeature> possible_matches = y_map[j];
+
+            for (int k = 0; k < possible_matches.size(); ++k){
+            	PseudoFeature possible_match = possible_matches[k];
+            	float score = L2_score(left_descriptor, possible_match.descriptor);
+            	if (score < minScore){
+            	    minScore = score;
+            	    best_match = possible_match;
+            	}
+            }
+            if (!best_match.has_value()) {
+            continue; // Safely skip this feature, nothing to triangulate
+            }
+        }
+// IMPORTANT : THE ABOVE CODE IS TESTED IN SEPARATE ENVIRONMENT AND SHOULD WORK
+// only edited the part for iterating over box bounds, otherwise it's the same
+// IMPORTANT : THE FOLLOWING CODE IS UNTESTED IN PRACTISE.
+
+        int x1 = left_feature_i.x;
+        int y1 = left_feature_i.y;
+        int x2 = best_match->x;
+        int y2 = best_match->y;
+
+        Feature tempFeature;
+        tempFeature.cone_index = left_feature_i.cone_index;
+        tempFeature.x_1 = x1;
+        tempFeature.x_2 = x2;
+        tempFeature.y_1 = y1;
+        tempFeature.y_2 = y2;
+
+        cone_map[left_feature_i.cone_index].push_back(tempFeature);
+    }
+
+    for (const auto& pair: cone_map){
+        ConeMatches tempConeMatch;
+
+        int cone_index = pair.first;
+
+        tempConeMatch.cone_index = cone_index;
+        tempConeMatch.bound = box_bounds[cone_index];
+        tempConeMatch.matches = pair.second;
+        tempConeMatch.side = box_bounds[cone_index].side;
+        all_cone_matches.push_back(tempConeMatch);
+    }
     return all_cone_matches;
 }

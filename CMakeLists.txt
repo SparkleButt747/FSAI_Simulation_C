@@ -40,20 +40,6 @@ if(APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
   endif()
 endif()
 
-if(APPLE)
-  find_program(BREW brew PATHS /opt/homebrew/bin /usr/local/bin NO_DEFAULT_PATH)
-  if(BREW)
-    execute_process(COMMAND "${BREW}" --prefix
-                    OUTPUT_VARIABLE HOMEBREW_PREFIX
-                    OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(EXISTS "${HOMEBREW_PREFIX}")
-      list(APPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}")
-      set(ENV{PKG_CONFIG_PATH}
-          "${HOMEBREW_PREFIX}/lib/pkgconfig:${HOMEBREW_PREFIX}/share/pkgconfig:$ENV{PKG_CONFIG_PATH}")
-    endif()
-  endif()
-endif()
-
 # ------------------------------------------------------------------------------
 # ONNX Runtime smart discovery (version-aware)
 # Priority:
@@ -148,7 +134,7 @@ find_package(yaml-cpp REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(OpenCV REQUIRED)
 
-# CGAL and its components
+# CGAL and its componentsx
 find_package(CGAL QUIET COMPONENTS)
 find_package(CGAL REQUIRED OPTIONAL_COMPONENTS)
 if ( NOT CGAL_FOUND )
@@ -186,6 +172,14 @@ foreach(h ${ALL_HEADERS})
   endif()
 endforeach()
 list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
+list(APPEND HEADER_DIRS
+  "${CMAKE_SOURCE_DIR}/common/include"
+  "${CMAKE_SOURCE_DIR}/control/include"
+  "${CMAKE_SOURCE_DIR}/io/include"
+  "${CMAKE_SOURCE_DIR}/sim/include"
+  "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+  "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+)
 list(REMOVE_DUPLICATES HEADER_DIRS)
 
 # ------------------------------------------------------------------------------
@@ -195,6 +189,9 @@ add_subdirectory(vision_test/runtime_cpp/src)
 target_include_directories(fsai_vision_runtime PUBLIC
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
     "${CMAKE_SOURCE_DIR}"
+
+    # This path lets vision use the logger
+    "${CMAKE_SOURCE_DIR}/sim/include/"
 )
 file(GLOB VISION_NODE_SOURCES
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src/*.cpp"
@@ -261,6 +258,7 @@ target_link_libraries(fsai_sim PUBLIC
   ${OpenCV_LIBRARIES}
 )
 
+
 add_library(fsai_ctrl STATIC
   ${SIM_C_SOURCES}
   ${SIM_CPP_SOURCES}
@@ -317,6 +315,7 @@ target_include_directories(fsai_run PRIVATE
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+    "${CMAKE_SOURCE_DIR}/common/include"
 )
 target_compile_definitions(fsai_run PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
 target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
