@@ -28,12 +28,12 @@ void WorldRuntime::NotifySpawnApplied(const Transform& transform) {
       distance < config_.lap_completion_threshold;
 }
 
-void WorldRuntime::BeginStep(double dt_seconds) {
+void WorldRuntime::BeginStep(double dt_seconds, const VehicleState& vehicle_state) {
   delta_time_s_ = dt_seconds;
   if (dt_seconds <= 0.0) {
     return;
   }
-  mission_state_.Update(dt_seconds);
+  mission_state_.Update(dt_seconds, vehicle_state);
   if (!mission_state_.mission_complete()) {
     lap_time_s_ += dt_seconds;
   }
@@ -48,6 +48,9 @@ void WorldRuntime::AccumulateDistance(double delta_distance_m) {
 
 std::optional<WorldRuntime::LapEvent> WorldRuntime::EvaluateLapTransition(
     const Transform& transform) {
+  if (mission_.descriptor.type == MissionType::kAcceleration) {
+    return std::nullopt;
+  }
   const float distance = DistanceToLastCheckpoint(transform);
   const bool inside_now = distance < config_.lap_completion_threshold;
   std::optional<LapEvent> event;
@@ -163,6 +166,10 @@ float WorldRuntime::DistanceToLastCheckpoint(
   const float dx = transform.position.x - last_checkpoint_.x;
   const float dz = transform.position.z - last_checkpoint_.z;
   return std::sqrt(dx * dx + dz * dz);
+}
+
+void WorldRuntime::MarkMissionCompleted() {
+  mission_state_.MarkCompleted();
 }
 
 }  // namespace fsai::sim

@@ -35,6 +35,7 @@ Cone makeCone(const Transform& t, ConeType type) {
             break;
         case ConeType::Left:
         case ConeType::Right:
+        case ConeType::Orange:
             cone.radius = kSmallConeRadiusMeters;
             cone.mass = kSmallConeMassKg;
             break;
@@ -119,10 +120,14 @@ TrackBuildResult TrackBuilder::buildFromTrackData(const fsai::sim::TrackData& tr
     for (const auto& rc : track.rightCones) {
         result.rightCones.push_back(makeCone(rc, ConeType::Right));
     }
+    for (const auto& oc : track.smallOrangeCones) {
+        result.orangeCones.push_back(makeCone(oc, ConeType::Orange));
+    }
 
     rebuildConePositions(result.startCones, result.startConePositions);
     rebuildConePositions(result.leftCones, result.leftConePositions);
     rebuildConePositions(result.rightCones, result.rightConePositions);
+    rebuildConePositions(result.orangeCones, result.orangeConePositions);
 
     if (!result.leftCones.empty() && !result.rightCones.empty()) {
         const std::size_t gateCount = std::min(result.leftCones.size(), result.rightCones.size());

@@ -163,7 +163,7 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
             continue;
         }
 
-        const bool opposite =   (a==FSAI_CONE_LEFT && b==FSAI_CONE_RIGHT) || 
+        const bool opposite =   (a==FSAI_CONE_LEFT && b==FSAI_CONE_RIGHT) ||
                                 (a==FSAI_CONE_RIGHT && b==FSAI_CONE_LEFT);
 
         considered++;
@@ -174,7 +174,7 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
 
     float colorPenalty = 0.0f;
     if(considered>0) {
-        colorPenalty = static_cast<float>(sameSide)/static_cast<float>(considered);
+        colorPenalty = static_cast<float>(considered - sameSide)/static_cast<float>(considered);
     }
 
     // 5) Squared difference between path length and sensor range
@@ -353,14 +353,14 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
       for (int i = 0; i < cones.size(); i++) {
         Point delta = Point(cones[i].position.x - carFront.x(), cones[i].position.z - carFront.y());
         Point cone = Point(cones[i].position.x, cones[i].position.z);
-        
+
         if (std::hypot(delta.x(), delta.y()) > sensorRange) {
             continue;
         }
         if (getAngle(carVector, delta) > sensorFOV/2) {
             continue;
         }
-        
+
         coneToSide[cone] = side;
         T.insert(cone);
       }
@@ -389,14 +389,14 @@ std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrac
       for (Cone cone3d: cones) {
         Point delta = Point(cone3d.position.x - carFront.x(), cone3d.position.z - carFront.y());
         Point cone = Point(cone3d.position.x, cone3d.position.z);
-        
-        if (std::hypot(delta.x(), delta.y()) > sensorRange) { 
+
+        if (std::hypot(delta.x(), delta.y()) > sensorRange) {
             continue;
         }
         if (getAngle(carVector, delta) > sensorFOV/2) {
             continue;
         }
-        
+
         coneToSide[cone] = side;
         visibleTrack.insert(cone);
       }
@@ -628,7 +628,7 @@ Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
             path[i].midpoint.y
         };
     }
-    
+
     return checkpoints;
 }
 

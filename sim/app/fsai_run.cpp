@@ -207,7 +207,7 @@ fsai::sim::MissionDescriptor ResolveMissionSelection(
 #ifndef FSAI_PROJECT_ROOT
 #define FSAI_PROJECT_ROOT "."
 #endif
- 
+
 std::filesystem::path MakeProjectRelativePath(const std::filesystem::path& path) {
   if (path.is_absolute()) {
     return path;
@@ -215,7 +215,7 @@ std::filesystem::path MakeProjectRelativePath(const std::filesystem::path& path)
 
   return std::filesystem::path(FSAI_PROJECT_ROOT) / path;
 }
- 
+
 std::filesystem::path MakeProjectRelativePath(const std::string& path) {
   return MakeProjectRelativePath(std::filesystem::path(path));
 }
@@ -233,6 +233,13 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
       definition.targetLaps = 1;
       definition.allowRegeneration = false;
       definition.trackSource = fsai::sim::TrackSource::kCsv;
+      if (definition.track.checkpoints.size() >= 2) {
+        const auto& start = definition.track.checkpoints.front();
+        const auto& finish = definition.track.checkpoints.back();
+        const float dx = finish.position.x - start.position.x;
+        const float dz = finish.position.z - start.position.z;
+        definition.track_length_m = std::sqrt(dx * dx + dz * dz);
+      }
       break;
     }
     case fsai::sim::MissionType::kSkidpad: {
@@ -429,6 +436,8 @@ std::string MissionRunStatusLabel(fsai::sim::MissionRunStatus status, bool stop_
         return "Stop Commanded";
       }
       return "Running";
+    case fsai::sim::MissionRunStatus::kBraking:
+      return "Braking";
     case fsai::sim::MissionRunStatus::kCompleted:
       return stop_commanded ? "Completed (Stop Commanded)" : "Completed";
   }
@@ -456,6 +465,8 @@ ImVec4 MissionStatusColor(fsai::sim::MissionRunStatus status, bool stop_commande
         return Rgba255(239, 108, 0);
       }
       return Rgba255(255, 213, 79);
+    case fsai::sim::MissionRunStatus::kBraking:
+      return Rgba255(239, 108, 0);
     case fsai::sim::MissionRunStatus::kCompleted:
       return stop_commanded ? Rgba255(102, 187, 106) : Rgba255(76, 175, 80);
   }
@@ -2393,24 +2404,41 @@ int main(int argc, char* argv[]) {
 
     can_interface.Poll(fsai_clock_now());
 
+    float autopThrottle = world.throttleInput;
+    float autopBrake = world.brakeInput;
+    float autopSteer = world.steeringAngle;
     float requestedThrottle = world.throttleInput;
     float requestedBrake = world.brakeInput;
     float requestedSteer = world.steeringAngle;
     float controllerThrottle = 0.0f;
     float controllerSteer = 0.0f;
     float controllerSteerRad = 0.0f;
-    const bool controller_ready =
-        world.computeRacingControl(step_seconds, controllerThrottle, controllerSteer);
+    const bool controller_ready = world.computeRacingControl(step_seconds, controllerThrottle, controllerSteer);
+    if (world.missionRunStatus() == fsai::sim::MissionRunStatus::kBraking) {
+        autopBrake = 1.0f;
+        requestedBrake = 1.0f;
+        autopThrottle = 0.0f;
+        requestedThrottle = 0.0f;
+
+        const auto& state = world.vehicle_state();
+        if (state.velocity.norm() < 0.1) {
+            world.runtime_controller().MarkMissionCompleted();
+        }
     if (controller_ready) {
       requestedSteer = NormalizedSteerToRad(controllerSteer);
+      autopSteer = requestedSteer;
       controllerSteerRad = requestedSteer;
       if (controllerThrottle >= 0.0f) {
         requestedThrottle = controllerThrottle;
+        autopThrottle = requestedThrottle;
         requestedBrake = 0.0f;
+        autopBrake = 0.0f;
       } else {
         requestedThrottle = 0.0f;
+        autopThrottle = 0.0f;
         //Controller gives negative throttle for braking, and we make requested brake positive...
         requestedBrake = -controllerThrottle;
+        autopBrake = requestedBrake;
       }
     }
     world.useController = controller_ready ? 1 : 0;

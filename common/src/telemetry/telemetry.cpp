@@ -20,6 +20,8 @@ const char* RunStatusToString(fsai::sim::MissionRunStatus status) {
     switch (status) {
         case fsai::sim::MissionRunStatus::kRunning:
             return "running";
+        case fsai::sim::MissionRunStatus::kBraking:
+            return "braking";
         case fsai::sim::MissionRunStatus::kCompleted:
             return "completed";
     }
