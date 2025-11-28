@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <numbers>
 #include <sstream>
 #include <utility>
 
@@ -11,6 +12,17 @@ namespace velox::telemetry {
 namespace {
 constexpr double kGravity = 9.81;
 constexpr double kEpsilon = 1e-6;
+// Telemetry consumers expect yaw/slip angles to stay within +/-4pi. Wrap angles
+// into that symmetric range to avoid unbounded growth from long simulations.
+constexpr double kTelemetryAngleWrapRad = std::numbers::pi * 8.0;
+
+double wrap_angle(double radians, double period = kTelemetryAngleWrapRad)
+{
+    if (period <= 0.0 || !std::isfinite(period) || !std::isfinite(radians)) {
+        return radians;
+    }
+    return std::remainder(radians, period);
+}
 
 double yaw_rate_from_state(velox::simulation::ModelType model, const std::vector<double>& state, double v_long, double steer_angle, double wheelbase)
 {
@@ -161,10 +173,11 @@ SimulationTelemetry compute_simulation_telemetry(
 
     telemetry.pose.x   = (state.size() > 0) ? state[0] : 0.0;
     telemetry.pose.y   = (state.size() > 1) ? state[1] : 0.0;
-    telemetry.pose.yaw = yaw;
+    telemetry.pose.yaw = wrap_angle(yaw);
 
     const double speed   = (measured_speed > 0.0) ? measured_speed : std::hypot(v_long, v_lat);
-    const double heading = yaw + beta;
+    const double wrapped_beta = wrap_angle(beta);
+    const double heading = wrap_angle(telemetry.pose.yaw + wrapped_beta);
     const double yaw_rate = yaw_rate_from_state(model, state, v_long, steer_angle, wheelbase);
 
     telemetry.velocity.speed        = speed;
@@ -174,7 +187,7 @@ SimulationTelemetry compute_simulation_telemetry(
     telemetry.velocity.global_x     = speed * std::cos(heading);
     telemetry.velocity.global_y     = speed * std::sin(heading);
 
-    telemetry.traction.slip_angle = beta;
+    telemetry.traction.slip_angle = wrapped_beta;
 
     telemetry.acceleration.longitudinal = accel_output.acceleration;
     switch (model) {
@@ -191,8 +204,10 @@ SimulationTelemetry compute_simulation_telemetry(
             break;
     }
 
-    telemetry.traction.front_slip_angle = axle_slip_angle(v_lat, v_long, yaw_rate, params.a, steer_angle);
-    telemetry.traction.rear_slip_angle  = axle_slip_angle(v_lat, v_long, yaw_rate, -params.b);
+    telemetry.traction.front_slip_angle =
+        wrap_angle(axle_slip_angle(v_lat, v_long, yaw_rate, params.a, steer_angle));
+    telemetry.traction.rear_slip_angle  =
+        wrap_angle(axle_slip_angle(v_lat, v_long, yaw_rate, -params.b));
 
     telemetry.steering.desired_angle = steering_wheel_output.target_angle;
     telemetry.steering.desired_rate  = steering_wheel_output.rate;
@@ -388,4 +403,3 @@ std::string to_json(const SimulationTelemetry& telemetry)
 
 
 } // namespace velox::telemetry
-
