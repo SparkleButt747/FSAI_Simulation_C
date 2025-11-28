@@ -48,7 +48,7 @@ class WorldRuntime {
   void NotifySpawnApplied(const Transform& transform);
   void BeginStep(double dt_seconds, const VehicleState& vehicle_state);
   void AccumulateDistance(double delta_distance_m);
-  std::optional<LapEvent> EvaluateLapTransition(const Transform& transform);
+  std::optional<LapEvent> RegisterGateCrossing();
   void UpdateStraightLineProgress(const Transform& transform);
   void HandleMissionCompletion();
 
@@ -73,20 +73,21 @@ class WorldRuntime {
 
  private:
   void ConfigureStraightLineTracker();
-  float DistanceToLastCheckpoint(const Transform& transform) const;
 
   MissionDefinition mission_{};
   MissionRuntimeState mission_state_{};
   Config config_{};
 
   std::vector<Vector3> checkpoints_snapshot_{};
-  Vector3 last_checkpoint_{0.0f, 0.0f, 0.0f};
+  std::size_t checkpoints_per_lap_{0};
+  std::size_t next_checkpoint_index_{0};
+  std::size_t gates_since_last_lap_{0};
+  bool start_gate_seen_{false};
 
   double lap_time_s_{0.0};
   double lap_distance_m_{0.0};
   double delta_time_s_{0.0};
   int lap_count_{0};
-  bool inside_last_checkpoint_{false};
   bool mission_complete_notified_{false};
   std::optional<ResetReason> pending_reset_reason_{};
 
@@ -102,4 +103,3 @@ class WorldRuntime {
 };
 
 }  // namespace fsai::sim
-

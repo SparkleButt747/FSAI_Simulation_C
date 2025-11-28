@@ -1,7 +1,6 @@
 #include "sim/WorldRuntime.hpp"
 
 #include <algorithm>
-#include <cmath>
 
 namespace fsai::sim {
 
@@ -14,18 +13,18 @@ void WorldRuntime::Configure(const MissionDefinition& mission,
 
 void WorldRuntime::UpdateTrackContext(const std::vector<Vector3>& checkpoints) {
   checkpoints_snapshot_ = checkpoints;
-  if (!checkpoints_snapshot_.empty()) {
-    last_checkpoint_ = checkpoints_snapshot_.back();
-  } else {
-    last_checkpoint_ = Vector3{0.0f, 0.0f, 0.0f};
-  }
+  checkpoints_per_lap_ = checkpoints_snapshot_.size();
+  next_checkpoint_index_ = 0;
+  gates_since_last_lap_ = 0;
+  start_gate_seen_ = false;
   ConfigureStraightLineTracker();
 }
 
 void WorldRuntime::NotifySpawnApplied(const Transform& transform) {
-  const float distance = DistanceToLastCheckpoint(transform);
-  inside_last_checkpoint_ =
-      distance < config_.lap_completion_threshold;
+  (void)transform;
+  gates_since_last_lap_ = 0;
+  start_gate_seen_ = false;
+  next_checkpoint_index_ = 0;
 }
 
 void WorldRuntime::BeginStep(double dt_seconds, const VehicleState& vehicle_state) {
@@ -46,26 +45,45 @@ void WorldRuntime::AccumulateDistance(double delta_distance_m) {
   lap_distance_m_ += delta_distance_m;
 }
 
-std::optional<WorldRuntime::LapEvent> WorldRuntime::EvaluateLapTransition(
-    const Transform& transform) {
-  if (mission_.descriptor.type == MissionType::kAcceleration) {
+std::optional<WorldRuntime::LapEvent> WorldRuntime::RegisterGateCrossing() {
+  if (mission_.descriptor.type == MissionType::kAcceleration ||
+      mission_state_.mission_complete() || checkpoints_per_lap_ == 0) {
     return std::nullopt;
   }
-  const float distance = DistanceToLastCheckpoint(transform);
-  const bool inside_now = distance < config_.lap_completion_threshold;
-  std::optional<LapEvent> event;
-  if (inside_now && !inside_last_checkpoint_ &&
-      !mission_state_.mission_complete()) {
-    const double completed_time = lap_time_s_;
-    const double completed_distance = lap_distance_m_;
-    mission_state_.RegisterLap(completed_time, completed_distance);
-    lap_count_ = static_cast<int>(mission_state_.completed_laps());
-    event = LapEvent{completed_time, completed_distance, lap_count_};
-    lap_time_s_ = 0.0;
-    lap_distance_m_ = 0.0;
+
+  const std::size_t current_gate_index = next_checkpoint_index_;
+  next_checkpoint_index_ = (next_checkpoint_index_ + 1) % checkpoints_per_lap_;
+  ++gates_since_last_lap_;
+
+  if (current_gate_index != 0) {
+    return std::nullopt;
   }
-  inside_last_checkpoint_ = inside_now;
-  return event;
+
+  // Treat the first pass through the start gate as the beginning of lap timing.
+  if (!start_gate_seen_) {
+    start_gate_seen_ = true;
+    gates_since_last_lap_ = 0;
+    return std::nullopt;
+  }
+
+  if (gates_since_last_lap_ < checkpoints_per_lap_) {
+    return std::nullopt;
+  }
+
+  const double min_lap_time_s = static_cast<double>(config_.lap_completion_threshold);
+  const double min_lap_distance_m = static_cast<double>(config_.lap_completion_threshold);
+  if (lap_time_s_ < min_lap_time_s || lap_distance_m_ < min_lap_distance_m) {
+    return std::nullopt;
+  }
+
+  const double completed_time = lap_time_s_;
+  const double completed_distance = lap_distance_m_;
+  mission_state_.RegisterLap(completed_time, completed_distance);
+  lap_count_ = static_cast<int>(mission_state_.completed_laps());
+  gates_since_last_lap_ = 0;
+  lap_time_s_ = 0.0;
+  lap_distance_m_ = 0.0;
+  return LapEvent{completed_time, completed_distance, lap_count_};
 }
 
 void WorldRuntime::UpdateStraightLineProgress(const Transform& transform) {
@@ -103,7 +121,10 @@ void WorldRuntime::ResetMission() {
   lap_distance_m_ = 0.0;
   delta_time_s_ = 0.0;
   lap_count_ = 0;
-  inside_last_checkpoint_ = false;
+  gates_since_last_lap_ = 0;
+  start_gate_seen_ = false;
+  next_checkpoint_index_ = 0;
+  checkpoints_per_lap_ = checkpoints_snapshot_.size();
   mission_complete_notified_ = false;
 }
 
@@ -161,16 +182,8 @@ void WorldRuntime::ConfigureStraightLineTracker() {
   straight_tracker_.length = length;
 }
 
-float WorldRuntime::DistanceToLastCheckpoint(
-    const Transform& transform) const {
-  const float dx = transform.position.x - last_checkpoint_.x;
-  const float dz = transform.position.z - last_checkpoint_.z;
-  return std::sqrt(dx * dx + dz * dz);
-}
-
 void WorldRuntime::MarkMissionCompleted() {
   mission_state_.MarkCompleted();
 }
 
 }  // namespace fsai::sim
-

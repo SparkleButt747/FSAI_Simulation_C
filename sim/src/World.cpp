@@ -223,11 +223,13 @@ void World::update(double dt) {
                                      dynamics.state().velocity.y());
     runtime_.AccumulateDistance(velocity2d.norm() * dt);
 
-    if (auto lap_event = runtime_.EvaluateLapTransition(carTransform)) {
-        if (lap_event->lap_index > 0) {
-            std::printf("Lap Completed. Time: %.2f s, Distance: %.2f, Lap: %d\n",
-                        lap_event->lap_time_s, lap_event->lap_distance_m,
-                        lap_event->lap_index);
+    if (collisionResult.crossedGate) {
+        if (auto lap_event = runtime_.RegisterGateCrossing()) {
+            if (lap_event->lap_index > 0) {
+                std::printf("Lap Completed. Time: %.2f s, Distance: %.2f, Lap: %d\n",
+                            lap_event->lap_time_s, lap_event->lap_distance_m,
+                            lap_event->lap_index);
+            }
         }
     }
 
