@@ -2414,17 +2414,6 @@ int main(int argc, char* argv[]) {
     float controllerSteer = 0.0f;
     float controllerSteerRad = 0.0f;
     const bool controller_ready = world.computeRacingControl(step_seconds, controllerThrottle, controllerSteer);
-    if (world.missionRunStatus() == fsai::sim::MissionRunStatus::kBraking) {
-        autopBrake = 1.0f;
-        requestedBrake = 1.0f;
-        autopThrottle = 0.0f;
-        requestedThrottle = 0.0f;
-
-        const auto& state = world.vehicle_state();
-        if (state.velocity.norm() < 0.1) {
-            world.runtime_controller().MarkMissionCompleted();
-        }
-    }
     if (controller_ready) {
       requestedSteer = NormalizedSteerToRad(controllerSteer);
       autopSteer = requestedSteer;
@@ -2441,6 +2430,17 @@ int main(int argc, char* argv[]) {
         requestedBrake = -controllerThrottle;
         autopBrake = requestedBrake;
       }
+    }
+        if (world.missionRunStatus() == fsai::sim::MissionRunStatus::kBraking) {
+        autopBrake = 1.0f;
+        requestedBrake = 1.0f;
+        autopThrottle = 0.0f;
+        requestedThrottle = 0.0f;
+
+        const auto& state = world.vehicle_state();
+        if (state.velocity.norm() < 0.1) {
+            world.runtime_controller().MarkMissionCompleted();
+        }
     }
     world.useController = controller_ready ? 1 : 0;
 
@@ -2650,7 +2650,7 @@ int main(int argc, char* argv[]) {
     adapted_cmd.velox_command.throttle = requestedThrottle;
     adapted_cmd.velox_command.brake = requestedBrake;
     adapted_cmd.velox_command.steer_rad = requestedSteer;
-    
+
     vehicle_dynamics.set_command(adapted_cmd.velox_command);
     vehicle_dynamics.step(step_seconds);
 
