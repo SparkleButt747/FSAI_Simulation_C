@@ -1,0 +1,42 @@
+# Thresholds for the loss-of-control detector. Each model may tune the magnitude
+# and rate-of-change thresholds independently to account for different dynamic
+# envelopes.
+mb:
+  yaw_rate:
+    threshold: 1.6
+    rate: 10.0
+  slip_angle:
+    threshold: 0.5
+    rate: 5.0
+  lateral_accel:
+    threshold: 7.5
+    rate: 15.0
+  slip_ratio:
+    threshold: 0.2
+    rate: 7.0
+st:
+  yaw_rate:
+    threshold: 1.2
+    rate: 9.0
+  slip_angle:
+    threshold: 0.45
+    rate: 4.5
+  lateral_accel:
+    threshold: 6.5
+    rate: 12.0
+  slip_ratio:
+    threshold: 0.18
+    rate: 6.0
+std:
+  yaw_rate:
+    threshold: 1.4
+    rate: 10.0
+  slip_angle:
+    threshold: 0.8
+    rate: 5.0
+  lateral_accel:
+    threshold: 7.0
+    rate: 14.0
+  slip_ratio:
+    threshold: 0.5
+    rate: 7.0

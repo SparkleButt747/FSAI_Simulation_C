@@ -1,0 +1,9 @@
+max_drive_torque: 320.0
+max_regen_torque: 120.0
+max_power: 130000.0
+drive_efficiency: 0.92
+regen_efficiency: 0.65
+min_soc: 0.1
+max_soc: 0.9
+initial_soc: 0.7
+battery_capacity_kwh: 18.0

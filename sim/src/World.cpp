@@ -7,6 +7,7 @@
 #include <utility>
 #include <limits>
 #include <string>
+#include "../include/logging.hpp"
 #include "fsai_clock.h"
 #include "World.hpp"
 #include "centerline.hpp"
@@ -24,8 +25,9 @@ World::World() {
 }
 
 bool World::computeRacingControl(double dt, float& throttle_out, float& steering_out) {
-    if (!useController || checkpointPositions.empty()) {
+    if (checkpointPositions.empty()) {
         return false;
+        std::printf("No checkpoints available for racing control.\n");
     }
 
     const VehicleState& state = vehicleDynamics().state();
@@ -64,6 +66,9 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
             checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
             carSpeed, &carTransform, &racingConfig, dt);
     }
+    std::printf("Speed RAW RA: %f, Steer RAW RA: %f",
+            throttle_out,
+            steering_out);
     return true;
 }
 
@@ -170,6 +175,10 @@ void World::update(double dt) {
         return;
     }
 
+    if (trackGenerationFailed_) {
+        return;
+    }
+
     if (checkpointPositions.empty()) {
         std::printf("No checkpoints available. Resetting simulation.\n");
         const auto resetReason = fsai::sim::WorldRuntime::ResetReason::kTrackRegeneration;
@@ -179,6 +188,8 @@ void World::update(double dt) {
     }
 
     const auto& carTransform = dynamics.transform();
+    std::printf("Car Rotation: yaw=%.2f",
+                carTransform.yaw);
     const Vector2 currentPos{carTransform.position.x, carTransform.position.z};
     const auto collisionResult = collisionService_.Evaluate(prevCarPos_, currentPos, checkpointPositions,
                                                            startCones, leftCones, rightCones, gateSegments_,
@@ -341,12 +352,20 @@ void World::moveNextCheckpointToLast() {
 }
 
 void World::reset(const ResetDecision& decision) {
+    trackGenerationFailed_ = false;
     if (decision.regenerateTrack) {
         std::printf("Regenerating track due to reset.\n");
         if (mission_.trackSource == fsai::sim::TrackSource::kRandom) {
             mission_.track = {};
         }
-        trackState_ = buildTrackState();
+        try {
+            trackState_ = buildTrackState();
+        } catch (const std::exception& e) {
+            fsai::sim::log::LogWarning(
+                std::string("Track regeneration failed: ") + e.what());
+            trackGenerationFailed_ = true;
+            return;
+        }
     } else {
         std::printf("Resetting simulation without regenerating track.\n");
     }

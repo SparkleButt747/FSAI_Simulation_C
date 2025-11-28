@@ -1,0 +1,43 @@
+# tire parameters from ADAMS handbook
+# for a description of the parameters see Althoff, M. and Würsching, G. "CommonRoad: Vehicle Models", 2020, Tab. 7
+# <https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/blob/master/vehicleModels_commonRoad.pdf>
+
+tire:
+  # longitudinal coefficients
+  p_cx1: 1.6411
+  p_dx1: 1.1739
+  p_dx3: 0
+  p_ex1: 0.46403
+  p_kx1: 22.303
+  p_hx1: 0.0012297
+  p_vx1: -8.8098e-06
+  r_bx1: 13.276
+  r_bx2: -13.778
+  r_cx1: 1.2568
+  r_ex1: 0.65225
+  r_hx1: 0.0050722
+
+# lateral coefficients
+  p_cy1: 1.3507
+  p_dy1: 1.0489
+  p_dy3: -2.8821
+  p_ey1: -0.0074722
+  p_ky1: -21.92
+  p_hy1: 0.0026747
+  p_hy3: 0.031415
+  p_vy1: 0.037318
+  p_vy3: -0.32931
+  r_by1: 7.1433
+  r_by2: 9.1916
+  r_by3: -0.027856
+  r_cy1: 1.0719
+  r_ey1: -0.27572
+  r_hy1: 5.7448e-06
+  r_vy1: -0.027825
+  r_vy3: -0.27568
+  r_vy4: 12.12
+  r_vy5: 1.9
+  r_vy6: -10.704
+
+
+

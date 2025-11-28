@@ -1,0 +1,14 @@
+# Tuned thresholds for the single-track model; maintains stability while
+# allowing smooth release from the low-speed safety latch.
+drift_enabled: false
+stop_speed_epsilon: 0.05
+normal:
+  engage_speed: 0.25
+  release_speed: 0.7
+  yaw_rate_limit: 0.6
+  slip_angle_limit: 0.45
+drift:
+  engage_speed: 0.2
+  release_speed: 0.6
+  yaw_rate_limit: 0.9
+  slip_angle_limit: 0.65

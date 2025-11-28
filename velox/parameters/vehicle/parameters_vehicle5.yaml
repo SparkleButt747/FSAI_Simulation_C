@@ -1,0 +1,83 @@
+# parameters_vehicle5 - ADS-DV electric vehicle parameter set
+#
+# These values approximate the lightweight ADS-DV EV platform using a
+# dynamic single-track model. Steering limits are aligned with the
+# control configuration in configs/vehicle/ads-dv.yaml.
+
+# vehicle body dimensions
+l: 2.0
+w: 1.4
+
+# steering constraints
+steering:
+  max: 0.3665191   # ~21 deg
+  min: -0.3665191
+  v_max: 1.0
+  v_min: -1.0
+  kappa_dot_max: 0.5
+  kappa_dot_dot_max: 10.0
+
+# longitudinal constraints
+longitudinal:
+  a_max: 7.5
+  j_max: 8000.0
+  j_dot_max: 15000.0
+  v_max: 35.0
+  v_min: -8.0
+  v_switch: 2.0
+
+# masses
+m: 225.0
+m_s: 200.0
+m_uf: 12.5
+m_ur: 12.5
+
+# axes distances
+# distances from sprung-mass CoG to front/rear axle
+# derived from the kinematic config (b_F/b_R)
+a: 0.869
+b: 0.711
+
+# moments of inertia of sprung mass
+I_Phi_s: 60.0
+I_y_s: 75.0
+I_z: 31.27
+I_xz_s: 0.0
+
+# suspension parameters
+K_sf: 18000.0
+K_sdf: 1200.0
+K_sr: 18000.0
+K_sdr: 1200.0
+
+# geometric parameters
+T_f: 1.2
+T_r: 1.2
+K_ras: 90000.0
+K_tsf: 0.0
+K_tsr: 0.0
+K_rad: 8000.0
+K_zt: 150000.0
+
+# center of gravity heights
+h_cg: 0.25
+h_raf: 0.0
+h_rar: 0.0
+h_s: 0.25
+
+# inertia / compliance / wheel radius
+I_uf: 2.0
+I_ur: 2.0
+I_y_w: 0.6
+K_lt: 1.0e-05
+R_w: 0.2525
+
+# torque split (unused by ST model but kept for completeness)
+T_sb: 0.5
+T_se: 0.5
+
+# suspension camber parameters
+D_f: 0.0
+D_r: 0.0
+E_f: 0.0
+E_r: 0.0

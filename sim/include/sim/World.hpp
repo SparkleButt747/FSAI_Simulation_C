@@ -8,7 +8,7 @@
 #include <Eigen/Dense>
 #include "types.h"
 #include "VehicleState.hpp"
-#include "Telemetry.hpp"
+#include "common/telemetry/Telemetry.hpp"
 #include "controller.prot.h"
 #include "Transform.h"
 #include "Vector.h"
@@ -186,6 +186,7 @@ private:
     fsai::sim::MissionDefinition mission_{};
     TrackBuilderConfig trackBuilderConfig_{};
     TrackBuildResult trackState_{};
+    bool trackGenerationFailed_{false};
     CollisionService collisionService_{CollisionService::Config{}};
     ResetPolicy resetPolicy_{WorldControlConfig{}};
     fsai::sim::WorldRuntime runtime_{};

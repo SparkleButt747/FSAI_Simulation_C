@@ -1,0 +1,13 @@
+# Tuned thresholds for the multi-body model; looser limits release the latch sooner.
+drift_enabled: false
+stop_speed_epsilon: 0.05
+normal:
+  engage_speed: 0.35
+  release_speed: 0.6
+  yaw_rate_limit: 0.7
+  slip_angle_limit: 0.5
+drift:
+  engage_speed: 0.25
+  release_speed: 0.8
+  yaw_rate_limit: 1.0
+  slip_angle_limit: 0.7

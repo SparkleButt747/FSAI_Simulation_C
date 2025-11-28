@@ -17,6 +17,9 @@ ResetDecision ResetPolicy::Decide(fsai::sim::WorldRuntime::ResetReason reason,
         case fsai::sim::WorldRuntime::ResetReason::kBoundaryCollision:
             decision.regenerateTrack = true;
             break;
+        case fsai::sim::WorldRuntime::ResetReason::kExternal:
+        case fsai::sim::WorldRuntime::ResetReason::kUnknown:
+            break;
     }
 
     return decision;

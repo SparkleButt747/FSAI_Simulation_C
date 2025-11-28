@@ -4,6 +4,8 @@
 #include <cmath>
 #include <limits>
 
+#include "../../sim/include/logging.hpp"
+
 namespace fsai::control::runtime {
 namespace {
 constexpr float kEpsilon = 1e-6f;
@@ -24,30 +26,54 @@ uint8_t MissionTypeToId(fsai::sim::MissionType type) {
 }
 }
 
-Ai2VcuAdapter::Ai2VcuAdapter(const Ai2VcuAdapterConfig& config)
-    : config_(config) {
-  float front_fraction = std::max(0.0f, config_.front_torque_fraction);
-  float rear_fraction = std::max(0.0f, config_.rear_torque_fraction);
+Ai2VcuAdapterConfig Ai2VcuAdapter::SanitizeConfig(const Ai2VcuAdapterConfig& config) {
+  Ai2VcuAdapterConfig sanitized = config;
+  float front_fraction = std::max(0.0f, sanitized.front_torque_fraction);
+  float rear_fraction = std::max(0.0f, sanitized.rear_torque_fraction);
   if (front_fraction <= kEpsilon && rear_fraction <= kEpsilon) {
-    rear_fraction = 1.0f;
+    front_fraction = 0.5f;
+    rear_fraction = 0.5f;
+    fsai::sim::log::LogError(
+        "Ai2VcuAdapterConfig torque split is zero; falling back to 50/50");
   }
   const float fraction_sum = std::max(kEpsilon, front_fraction + rear_fraction);
-  config_.front_torque_fraction = std::clamp(front_fraction / fraction_sum, 0.0f, 1.0f);
-  config_.rear_torque_fraction = std::clamp(rear_fraction / fraction_sum, 0.0f, 1.0f);
+  sanitized.front_torque_fraction = std::clamp(front_fraction / fraction_sum, 0.0f, 1.0f);
+  sanitized.rear_torque_fraction = std::clamp(rear_fraction / fraction_sum, 0.0f, 1.0f);
 
-  config_.front_axle_max_torque_nm =
-      std::clamp(config_.front_axle_max_torque_nm, 0.0f,
+  sanitized.front_axle_max_torque_nm =
+      std::clamp(sanitized.front_axle_max_torque_nm, 0.0f,
                  fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
-  config_.rear_axle_max_torque_nm =
-      std::clamp(config_.rear_axle_max_torque_nm <= 0.0f
+  sanitized.rear_axle_max_torque_nm =
+      std::clamp(sanitized.rear_axle_max_torque_nm <= 0.0f
                      ? fsai::sim::svcu::dbc::kMaxAxleTorqueNm
-                     : config_.rear_axle_max_torque_nm,
+                     : sanitized.rear_axle_max_torque_nm,
                  0.0f, fsai::sim::svcu::dbc::kMaxAxleTorqueNm);
+  if (sanitized.front_axle_max_torque_nm <= kEpsilon &&
+      sanitized.rear_axle_max_torque_nm <= kEpsilon) {
+    sanitized.rear_axle_max_torque_nm = fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
+    sanitized.front_axle_max_torque_nm = fsai::sim::svcu::dbc::kMaxAxleTorqueNm;
+    fsai::sim::log::LogError(
+        "Ai2VcuAdapterConfig axle torque maxima are zero; restoring DBC defaults");
+  }
 
-  const float brake_sum = std::max(kEpsilon, config_.brake_front_bias + config_.brake_rear_bias);
-  config_.brake_front_bias = std::clamp(config_.brake_front_bias / brake_sum, 0.0f, 1.0f);
-  config_.brake_rear_bias = std::clamp(1.0f - config_.brake_front_bias, 0.0f, 1.0f);
+  const float brake_sum =
+      std::max(kEpsilon, sanitized.brake_front_bias + sanitized.brake_rear_bias);
+  if (brake_sum <= kEpsilon) {
+    sanitized.brake_front_bias = 0.5f;
+    sanitized.brake_rear_bias = 0.5f;
+    fsai::sim::log::LogError(
+        "Ai2VcuAdapterConfig brake bias invalid; falling back to 50/50 split");
+  } else {
+    sanitized.brake_front_bias =
+        std::clamp(sanitized.brake_front_bias / brake_sum, 0.0f, 1.0f);
+    sanitized.brake_rear_bias =
+        std::clamp(1.0f - sanitized.brake_front_bias, 0.0f, 1.0f);
+  }
+  return sanitized;
+}
 
+Ai2VcuAdapter::Ai2VcuAdapter(const Ai2VcuAdapterConfig& config)
+    : config_(SanitizeConfig(config)) {
   status_.handshake = handshake_level_;
   status_.mission_status = fsai::sim::svcu::dbc::MissionStatus::kNotSelected;
   status_.direction_request = fsai::sim::svcu::dbc::DirectionRequest::kNeutral;

@@ -5,6 +5,8 @@
  * Calculate glob coordinate
  */
 #include "vision/vision_node.hpp"
+#include "../../../sim/include/logging.hpp"
+
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <iomanip>
@@ -16,7 +18,6 @@
 
 #include "vision/detection_buffer_registry.hpp"
 #include "common/include/common/types.h"
-#include "logging.hpp"
 #include <iostream>
 #include <chrono>
 
@@ -152,6 +153,8 @@ std::optional<fsai::types::Detections> VisionNode::getLatestDetections(){
         std::lock_guard<std::mutex> lock(detection_mutex_);
         return latest_detections_;
     }
+
+    return std::nullopt;
 }
 
 void VisionNode::runProcessingLoop(){
