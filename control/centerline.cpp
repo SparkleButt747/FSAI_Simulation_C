@@ -207,6 +207,27 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
     return cost;
 }
 
+float calculateCost_Acceleration(const std::vector<PathNode>& path, std::size_t minLen) {
+    float cost = calculateCost(path, minLen);
+    if (path.size() < 2) {
+        return cost;
+    }
+
+    float straightness_penalty = 0.0f;
+    const float straightness_weight = 100.0f; // High penalty for non-straight paths
+
+    Vector2 first_segment = {path[1].midpoint.x - path[0].midpoint.x, path[1].midpoint.y - path[0].midpoint.y};
+
+    for (size_t i = 2; i < path.size(); ++i) {
+        Vector2 current_segment = {path[i].midpoint.x - path[i-1].midpoint.x, path[i].midpoint.y - path[i-1].midpoint.y};
+        // 2D cross product
+        float cross_product = first_segment.x * current_segment.y - first_segment.y * current_segment.x;
+        straightness_penalty += std::abs(cross_product);
+    }
+
+    return cost + straightness_penalty * straightness_weight;
+}
+
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
     Triangulation& T,
     Point carFront,
@@ -408,6 +429,43 @@ std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrac
     return {visibleTrack, coneToSide};
 }
 
+std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
+  Point carFront,
+  double carYaw,
+  std::vector<Cone> leftConePositions,
+  std::vector<Cone> rightConePositions,
+  std::vector<Cone> orangeConePositions,
+  double sensorRange,
+  double sensorFOV
+) {
+    Triangulation visibleTrack;
+    Point carVector = Point(std::cos(carYaw), std::sin(carYaw));
+    std::unordered_map<Point, FsaiConeSide> coneToSide;
+
+    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &visibleTrack, &coneToSide](const std::vector<Cone>& cones, FsaiConeSide side) {
+      for (const Cone& cone3d: cones) {
+        Point delta = Point(cone3d.position.x - carFront.x(), cone3d.position.z - carFront.y());
+        Point cone = Point(cone3d.position.x, cone3d.position.z);
+
+        if (std::hypot(delta.x(), delta.y()) > sensorRange) {
+            continue;
+        }
+        if (getAngle(carVector, delta) > sensorFOV/2) {
+            continue;
+        }
+
+        coneToSide[cone] = side;
+        visibleTrack.insert(cone);
+      }
+    };
+
+    addCones(leftConePositions, FSAI_CONE_LEFT);
+    addCones(rightConePositions, FSAI_CONE_RIGHT);
+    addCones(orangeConePositions, FSAI_CONE_UNKNOWN); // Add orange cones as UNKNOWN
+
+    return {visibleTrack, coneToSide};
+}
+
 std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
@@ -440,13 +498,46 @@ std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTri
     return {triangulation, edges};
 }
 
+std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
+  VehicleState carState,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
+  const std::vector<Cone>& orangeConePositions
+) {
+    Point carFront = Point(carState.position.x(), carState.position.y());
+    auto triangulation_pair = getVisibleTrackTriangulationFromCones(carFront, carState.yaw, leftConePositions, rightConePositions, orangeConePositions);
+    auto triangulation = triangulation_pair.first;
+
+    std::vector<std::pair<Vector2, Vector2>> edges {};
+    for (auto it = triangulation.finite_edges_begin(); it != triangulation.finite_edges_end(); ++it) {
+        auto face_handle = it->first;
+        int edge_index = it->second;
+
+        // Get the two vertices of the edge
+        auto v1 = face_handle->vertex((edge_index + 1) % 3);
+        auto v2 = face_handle->vertex((edge_index + 2) % 3);
+
+        // Get coordinates
+        auto p1 = v1->point();
+        auto p2 = v2->point();
+
+        edges.emplace_back(
+            Vector2{ static_cast<float>(p1.x()), static_cast<float>(p1.y()) },
+            Vector2{ static_cast<float>(p2.x()), static_cast<float>(p2.y()) }
+        );
+    }
+
+    return {triangulation, edges};
+}
+
 std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
     const std::vector<std::vector<int>>& adj,
     const std::vector<PathNode>& nodes,
     const Point& carFront,
     std::size_t maxLen,
     std::size_t minLen,
-    std::size_t beamWidth
+    std::size_t beamWidth,
+    const std::function<float(const std::vector<PathNode>&, std::size_t)>& costFunc
 ) {
     if (nodes.empty() || adj.empty() || maxLen == 0 || beamWidth == 0) {
         return {};
@@ -471,7 +562,7 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
         }
         const auto path = buildPathFromIds(ids);
 
-        return calculateCost(path, minLen);
+        return costFunc(path, minLen);
     };
 
     // pick start = node closest to carFront (simple, deterministic)
@@ -605,6 +696,17 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     }
 
     return {buildPathFromIds(bestCandidate.indices), getPathEdges(buildPathFromIds(bestCandidate.indices))};
+}
+
+std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
+    const std::vector<std::vector<int>>& adj,
+    const std::vector<PathNode>& nodes,
+    const Point& carFront,
+    std::size_t maxLen,
+    std::size_t minLen,
+    std::size_t beamWidth
+) {
+    return beamSearch(adj, nodes, carFront, maxLen, minLen, beamWidth, calculateCost);
 }
 
 std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode>& path) {

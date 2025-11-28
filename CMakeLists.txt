@@ -162,6 +162,11 @@ file(GLOB_RECURSE ALL_HEADERS     CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/*.h" "$
 list(FILTER ALL_C_SOURCES   EXCLUDE REGEX "^${CMAKE_BINARY_DIR}/")
 list(FILTER ALL_CPP_SOURCES EXCLUDE REGEX "^${CMAKE_BINARY_DIR}/")
 list(FILTER ALL_HEADERS     EXCLUDE REGEX "^${CMAKE_BINARY_DIR}/")
+list(FILTER ALL_C_SOURCES   EXCLUDE REGEX ".*/velox/.*")
+list(FILTER ALL_CPP_SOURCES EXCLUDE REGEX ".*/velox/.*")
+list(FILTER ALL_HEADERS     EXCLUDE REGEX ".*/velox/.*")
+
+set(VELOX_HEADER_DIR "${CMAKE_SOURCE_DIR}/velox/lib")
 
 # Build a list of header parent dirs so bare #include "X.h" works
 set(HEADER_DIRS "")
@@ -171,22 +176,36 @@ foreach(h ${ALL_HEADERS})
     list(APPEND HEADER_DIRS "${hdir}")
   endif()
 endforeach()
+list(PREPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/common/include")
 list(APPEND HEADER_DIRS "${CMAKE_SOURCE_DIR}/third_party/glad/include")
 list(APPEND HEADER_DIRS
-  "${CMAKE_SOURCE_DIR}/common/include"
   "${CMAKE_SOURCE_DIR}/control/include"
   "${CMAKE_SOURCE_DIR}/io/include"
   "${CMAKE_SOURCE_DIR}/sim/include"
   "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
   "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
+  "${VELOX_HEADER_DIR}"
 )
 list(REMOVE_DUPLICATES HEADER_DIRS)
+
+# Centralized telemetry implementation (console + structured)
+add_library(fsai_telemetry STATIC
+  ${CMAKE_SOURCE_DIR}/common/src/telemetry/Telemetry.cpp
+  ${CMAKE_SOURCE_DIR}/velox/lib/telemetry/telemetry.cpp
+)
+target_include_directories(fsai_telemetry PUBLIC
+  ${CMAKE_SOURCE_DIR}/common/include
+  ${HEADER_DIRS}
+)
+
+target_link_libraries(fsai_telemetry PUBLIC Eigen3::Eigen)
 
 # ------------------------------------------------------------------------------
 # Vision-test libraries  [UNCHANGED]
 # ------------------------------------------------------------------------------
 add_subdirectory(vision_test/runtime_cpp/src)
 target_include_directories(fsai_vision_runtime PUBLIC
+    "${CMAKE_SOURCE_DIR}/common/include"
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
     "${CMAKE_SOURCE_DIR}"
 
@@ -212,6 +231,7 @@ target_link_libraries(fsai_vision_runtime PUBLIC
     onnxruntime::onnxruntime
     ${OpenCV_LIBRARIES}
     Threads::Threads
+    fsai_telemetry
 )
 
 # ------------------------------------------------------------------------------
@@ -237,9 +257,13 @@ list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision_test/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
+# Use the velox telemetry implementation via the dedicated library
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/common/src/telemetry/telemetry.cpp$")
 
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
 file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/fsai_plan.cpp")
+
+set(VELOX_PARAM_ROOT_DIR "${CMAKE_SOURCE_DIR}/velox/parameters")
 
 add_library(fsai_sim STATIC
   ${SIM_C_SOURCES}
@@ -256,7 +280,9 @@ target_link_libraries(fsai_sim PUBLIC
   m
   onnxruntime::onnxruntime
   ${OpenCV_LIBRARIES}
+  fsai_telemetry
 )
+target_compile_definitions(fsai_sim PUBLIC VELOX_PARAM_ROOT="${VELOX_PARAM_ROOT_DIR}")
 
 
 add_library(fsai_ctrl STATIC
@@ -270,7 +296,9 @@ target_link_libraries(fsai_ctrl PUBLIC
   CGAL::CGAL
   m
   yaml-cpp::yaml-cpp
+  fsai_telemetry
 )
+target_compile_definitions(fsai_ctrl PUBLIC VELOX_PARAM_ROOT="${VELOX_PARAM_ROOT_DIR}")
 
 file(GLOB SIM_UNIT_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/sim/src/tests/*.cpp")
 if(SIM_UNIT_TEST_SOURCES)
@@ -319,14 +347,15 @@ file(GLOB_RECURSE SIM_APP_SOURCES CONFIGURE_DEPENDS
 )
 add_executable(fsai_run ${SIM_APP_SOURCES})
 target_include_directories(fsai_run PRIVATE
+    "${CMAKE_SOURCE_DIR}/common/include"
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
     "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
-    "${CMAKE_SOURCE_DIR}/common/include"
+    "${CMAKE_SOURCE_DIR}/sim/include"
 )
 target_compile_definitions(fsai_run PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
-target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui)
+target_link_libraries(fsai_run PRIVATE fsai_sim fsai_rendering imgui fsai_telemetry)
 if(TARGET fsai_vision_runtime)
   target_link_libraries(fsai_run PRIVATE fsai_vision_runtime)
 endif()
@@ -337,7 +366,7 @@ file(GLOB_RECURSE CONTROL_RUNTIME_SOURCES CONFIGURE_DEPENDS
 if(CONTROL_RUNTIME_SOURCES)
   add_library(fsai_control_runtime STATIC ${CONTROL_RUNTIME_SOURCES})
   target_include_directories(fsai_control_runtime PUBLIC ${HEADER_DIRS})
-  target_link_libraries(fsai_control_runtime PUBLIC fsai_sim)
+  target_link_libraries(fsai_control_runtime PUBLIC fsai_sim fsai_telemetry)
   if(UNIX)
     target_link_libraries(fsai_control_runtime PUBLIC dl)
   endif()

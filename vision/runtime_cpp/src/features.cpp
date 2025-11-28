@@ -1,4 +1,5 @@
 #include "features.hpp"
+#include "common/include/common/types.h"
 #include "detect.hpp"
 #include <vector>
 #include <opencv2/opencv.hpp>
@@ -25,51 +26,44 @@ float L2_score(cv::Mat left_descriptor, cv::Mat right_descriptor){
     return dist;
 }
 
-std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
-                                                 const cv::Mat& right_frame,
-                                                 const std::vector<fsai::types::BoxBound>& box_bounds) {
+std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame, 
+                                                 const cv::Mat& right_frame, 
+                                                 const std::vector<fsai::types::BoxBound>& box_bounds,
+                                                 const cv::Ptr<cv::SIFT> sift_detector) {
     std::vector<ConeMatches> all_cone_matches;
     all_cone_matches.reserve(box_bounds.size());
-
-    cv::Ptr<cv::SIFT> sift_detector = cv::SIFT::create();
-
-    std::vector<PseudoFeature> left_features;
-    std::vector<PseudoFeature> right_features;
-    cv::Rect image_bounds(0, 0, left_frame.cols, left_frame.rows);
+    
+    std::vector<PseudoFeature> left_features; 
+    
+    left_features.clear();
+    
     for (int i = 0; i < box_bounds.size(); ++i){
-        fsai::types::BoxBound box_i = box_bounds[i];
-        int box_index = i;
-
-        // 1. Create Rect
-        cv::Rect box_rect(box_i.x, box_i.y, box_i.w, box_i.h);
+        // get information about the box 
+        fsai::types::BoxBound box_i = box_bounds[i]; 
+        int box_index = i; 
         
-        // 2. Clip Rect to Image Bounds (Don't just skip it!)
-        // This keeps the part of the cone that IS visible.
-        cv::Rect clipped_rect = box_rect & image_bounds;
-
-        // 3. Only skip if the resulting area is empty
-        if (clipped_rect.area() <= 0) { continue; }
-
-        // 4. Crop safely using the clipped rectangle
-        cv::Mat box_roi = left_frame(clipped_rect);
-
-        std::vector<cv::KeyPoint> left_keypoints;
-        cv::Mat left_descriptors;
-
-        sift_detector->detectAndCompute(box_roi, cv::noArray(), left_keypoints, left_descriptors);
+        // get roi 
+        cv::Rect box_rect(box_i.x, box_i.y, box_i.w, box_i.h); 
+        cv::Mat box_roi; 
+        if (!is_safe_roi(left_frame, box_rect)){continue;}
+        box_roi = left_frame(box_rect); 
+        std::vector<cv::KeyPoint> left_keypoints; 
+        cv::Mat left_descriptors; 
+        
+        sift_detector->detectAndCompute(box_roi, cv::noArray(), left_keypoints, left_descriptors); 
 
         for (int j = 0; j < left_keypoints.size(); ++j){
             // IMPORTANT: Adjust relative to the CLIPPED rect, not the original box_i
             // If the box was chopped on the left, box_i.x is wrong, clipped_rect.x is right.
-            left_keypoints[j].pt.x += clipped_rect.x;
-            left_keypoints[j].pt.y += clipped_rect.y;
+            left_keypoints[j].pt.x += box_i.x;
+            left_keypoints[j].pt.y += box_i.y;
 
             PseudoFeature left_feature;
             left_feature.cone_index = box_index;
-            left_feature.x = left_keypoints[j].pt.x;
-            left_feature.y = left_keypoints[j].pt.y;
-            left_feature.descriptor = left_descriptors.row(j);
-            left_features.push_back(left_feature);
+            left_feature.x = left_keypoints[j].pt.x; 
+            left_feature.y = left_keypoints[j].pt.y; 
+            left_feature.descriptor = left_descriptors.row(j).clone(); 
+            left_features.push_back(left_feature); 
         }
     }
     
@@ -84,30 +78,29 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
 
         PseudoFeature right_feature;
         right_feature.x = right_keypoints[i].pt.x;
-        right_feature.y = right_keypoints[i].pt.y;
-        right_feature.descriptor = right_descriptors.row(i);
-        right_feature.cone_index = 0;
-        right_features.push_back(right_feature);
-
-        y_map[right_feature.y].push_back(right_feature);
+        right_feature.y = right_keypoints[i].pt.y; 
+        right_feature.descriptor = right_descriptors.row(i); 
+        right_feature.cone_index = 0; 
+        
+        y_map[right_feature.y].push_back(right_feature);  
     }
     
     std::unordered_map<int, std::vector<Feature>> cone_map;
     
     // for each left_feature, search for best match for y +- tolerance in hash map
     for (int i = 0; i < left_features.size(); ++i){
-        PseudoFeature left_feature_i = left_features[i];
-        int y = left_feature_i.y;
-        cv::Mat left_descriptor = left_feature_i.descriptor;
-        float minScore = std::numeric_limits<float>::max();   // init value
-        std::optional<PseudoFeature> best_match = std::nullopt;
+        const PseudoFeature& left_feature_i = left_features[i]; 
+        int y = left_feature_i.y; 
+        const auto& left_descriptor = left_feature_i.descriptor;   // try changing cv::Mat to const auto &
+        float minScore = std::numeric_limits<float>::max();   // init value 
+        PseudoFeature best_match; 
         
         for (int j = y - kEpipolarMargin; j < y + kEpipolarMargin; ++j){
             bool key_exists = y_map.find(j) != y_map.end();
             if (!key_exists){continue;}
-
-            std::vector<PseudoFeature> possible_matches = y_map[j];
-
+            
+            const auto& possible_matches = y_map[j]; 
+            
             for (int k = 0; k < possible_matches.size(); ++k){
             	PseudoFeature possible_match = possible_matches[k];
             	float score = L2_score(left_descriptor, possible_match.descriptor);
@@ -116,18 +109,12 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
             	    best_match = possible_match;
             	}
             }
-            if (!best_match.has_value()) {
-            continue; // Safely skip this feature, nothing to triangulate
-            }
         }
-// IMPORTANT : THE ABOVE CODE IS TESTED IN SEPARATE ENVIRONMENT AND SHOULD WORK
-// only edited the part for iterating over box bounds, otherwise it's the same
-// IMPORTANT : THE FOLLOWING CODE IS UNTESTED IN PRACTISE.
 
         int x1 = left_feature_i.x;
         int y1 = left_feature_i.y;
-        int x2 = best_match->x;
-        int y2 = best_match->y;
+        int x2 = best_match.x;
+        int y2 = best_match.y;
 
         Feature tempFeature;
         tempFeature.cone_index = left_feature_i.cone_index;
@@ -146,8 +133,9 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
 
         tempConeMatch.cone_index = cone_index;
         tempConeMatch.bound = box_bounds[cone_index];
-        tempConeMatch.matches = pair.second;
-
+        tempConeMatch.matches = pair.second; 
+        tempConeMatch.side = box_bounds[cone_index].side;
+        
         all_cone_matches.push_back(tempConeMatch);
     }
     return all_cone_matches;

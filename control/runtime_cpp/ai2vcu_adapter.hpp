@@ -48,6 +48,9 @@ class Ai2VcuAdapter {
 
   explicit Ai2VcuAdapter(const Ai2VcuAdapterConfig& config);
 
+  static Ai2VcuAdapterConfig SanitizeConfig(const Ai2VcuAdapterConfig& config);
+  const Ai2VcuAdapterConfig& config() const { return config_; }
+
   Ai2VcuCommandSet Adapt(const fsai::types::ControlCmd& cmd,
                          const fsai::sim::svcu::dbc::Vcu2AiStatus& feedback);
   Ai2VcuCommandSet Adapt(const fsai::types::ControlCmd& cmd,

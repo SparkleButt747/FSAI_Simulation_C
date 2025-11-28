@@ -8,7 +8,7 @@
 #include <Eigen/Dense>
 #include "types.h"
 #include "VehicleState.hpp"
-#include "Telemetry.hpp"
+#include "common/telemetry/Telemetry.hpp"
 #include "controller.prot.h"
 #include "Transform.h"
 #include "Vector.h"
@@ -103,6 +103,10 @@ public:
         enforcePublicGroundTruth("right cones");
         return rightConePositions_;
     }
+    const std::vector<Vector3>& orange_cones() const override {
+        enforcePublicGroundTruth("orange cones");
+        return orangeConePositions_;
+    }
     const LookaheadIndices& lookahead_indices() const override { return lookaheadIndices; }
     const fsai::sim::MissionRuntimeState& mission_runtime() const override { return runtime_.mission_state(); }
     double lap_time_seconds() const override { return runtime_.lap_time_seconds(); }
@@ -158,9 +162,11 @@ private:
     std::vector<Cone> startCones{};
     std::vector<Cone> leftCones{};
     std::vector<Cone> rightCones{};
+    std::vector<Cone> orangeCones{};
     std::vector<Vector3> startConePositions_{};
     std::vector<Vector3> leftConePositions_{};
     std::vector<Vector3> rightConePositions_{};
+    std::vector<Vector3> orangeConePositions_{};
     std::vector<CollisionSegment> gateSegments_{};
     std::vector<CollisionSegment> boundarySegments_{};
     Vector3 lastCheckpoint{0.0f, 0.0f, 0.0f};
@@ -180,6 +186,7 @@ private:
     fsai::sim::MissionDefinition mission_{};
     TrackBuilderConfig trackBuilderConfig_{};
     TrackBuildResult trackState_{};
+    bool trackGenerationFailed_{false};
     CollisionService collisionService_{CollisionService::Config{}};
     ResetPolicy resetPolicy_{WorldControlConfig{}};
     fsai::sim::WorldRuntime runtime_{};

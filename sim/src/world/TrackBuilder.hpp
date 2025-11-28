@@ -17,9 +17,11 @@ struct TrackBuildResult {
     std::vector<Cone> startCones;
     std::vector<Cone> leftCones;
     std::vector<Cone> rightCones;
+    std::vector<Cone> orangeCones;
     std::vector<Vector3> startConePositions;
     std::vector<Vector3> leftConePositions;
     std::vector<Vector3> rightConePositions;
+    std::vector<Vector3> orangeConePositions;
     std::vector<CollisionSegment> gateSegments;
     std::vector<CollisionSegment> boundarySegments;
 };

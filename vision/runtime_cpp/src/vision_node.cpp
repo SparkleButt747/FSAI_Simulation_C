@@ -5,6 +5,8 @@
  * Calculate glob coordinate
  */
 #include "vision/vision_node.hpp"
+#include "../../../sim/include/logging.hpp"
+
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <iomanip>
@@ -16,9 +18,12 @@
 
 #include "vision/detection_buffer_registry.hpp"
 #include "common/include/common/types.h"
-#include "logging.hpp"
 #include <iostream>
 #include <chrono>
+
+#include <opencv2/opencv.hpp>
+#include <opencv2/features2d.hpp>  // For SIFT and other feature detectors
+#include <opencv2/imgproc.hpp>
 
 const char* PATH_TO_MODEL = "../vision/models/cone_model.onnx";
 constexpr std::chrono::milliseconds kIdleSleep(5);
@@ -148,11 +153,15 @@ std::optional<fsai::types::Detections> VisionNode::getLatestDetections(){
         std::lock_guard<std::mutex> lock(detection_mutex_);
         return latest_detections_;
     }
+
+    return std::nullopt;
 }
 
 void VisionNode::runProcessingLoop(){
     
     // FIX 2: Add the main "while(running_)" loop
+    
+    const cv::Ptr<cv::SIFT> sift_detector = cv::SIFT::create(); // create SIFT detector outside loop 
     
     while(running_){
 
@@ -220,7 +229,8 @@ void VisionNode::runProcessingLoop(){
         std::vector<ConeMatches> matched_features;
         try {
             // This is the line causing the crash
-            matched_features = match_features_per_cone(left_mat, right_mat, detections);
+            matched_features = match_features_per_cone(left_mat, right_mat, detections, sift_detector);
+            fsai::sim::log::LogInfo("Features extracted: " + std::to_string(matched_features.size()));
         } 
         catch (const cv::Exception& e) {
             // If a crop fails, log it and skip this frame instead of killing the OS process
@@ -272,6 +282,7 @@ void VisionNode::runProcessingLoop(){
             cluster.side = cone.side;
             for(const auto& feat: cone.matches ){
                 //determine depth for each match and update cone cluster
+                fsai::sim::log::LogInfo("Features per cone: " + std::to_string(cone.matches.size()));
                 Eigen::Vector3d res;
                 if(triangulatePoint(feat,res)){
                     cluster.points.push_back(res);

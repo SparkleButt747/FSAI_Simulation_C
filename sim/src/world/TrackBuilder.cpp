@@ -1,8 +1,12 @@
 #include "TrackBuilder.hpp"
 
 #include <algorithm>
+#include <filesystem>
 #include <stdexcept>
+#include <string>
 
+#include "../../include/logging.hpp"
+#include "sim/mission/TrackCsvLoader.hpp"
 #include "cone_constants.hpp"
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
@@ -14,6 +18,7 @@ using fsai::sim::kLargeConeMassKg;
 using fsai::sim::kLargeConeRadiusMeters;
 using fsai::sim::kSmallConeMassKg;
 using fsai::sim::kSmallConeRadiusMeters;
+using fsai::sim::log::LogWarning;
 
 Vector3 transformToVector3(const Transform& t) {
     return {t.position.x, t.position.y, t.position.z};
@@ -30,6 +35,7 @@ Cone makeCone(const Transform& t, ConeType type) {
             break;
         case ConeType::Left:
         case ConeType::Right:
+        case ConeType::Orange:
             cone.radius = kSmallConeRadiusMeters;
             cone.mass = kSmallConeMassKg;
             break;
@@ -49,6 +55,10 @@ CollisionSegment makeSegment(const Vector2& start, const Vector2& end, float rad
     segment.boundsMin = Vector2{minX, minY};
     segment.boundsMax = Vector2{maxX, maxY};
     return segment;
+}
+
+bool hasCheckpoints(const fsai::sim::TrackData& track) {
+    return !track.checkpoints.empty();
 }
 
 void rebuildConePositions(const std::vector<Cone>& cones, std::vector<Vector3>& positions) {
@@ -84,7 +94,8 @@ TrackBuildResult TrackBuilder::buildFromMission(
         track = SkidpadTrackStrategy{}.Rewrite(track);
     }
 
-    if (track.checkpoints.empty()) {
+    if (!hasCheckpoints(track)) {
+        LogWarning("MissionDefinition did not provide any checkpoints");
         throw std::runtime_error("MissionDefinition did not provide any checkpoints");
     }
 
@@ -109,10 +120,14 @@ TrackBuildResult TrackBuilder::buildFromTrackData(const fsai::sim::TrackData& tr
     for (const auto& rc : track.rightCones) {
         result.rightCones.push_back(makeCone(rc, ConeType::Right));
     }
+    for (const auto& oc : track.smallOrangeCones) {
+        result.orangeCones.push_back(makeCone(oc, ConeType::Orange));
+    }
 
     rebuildConePositions(result.startCones, result.startConePositions);
     rebuildConePositions(result.leftCones, result.leftConePositions);
     rebuildConePositions(result.rightCones, result.rightConePositions);
+    rebuildConePositions(result.orangeCones, result.orangeConePositions);
 
     if (!result.leftCones.empty() && !result.rightCones.empty()) {
         const std::size_t gateCount = std::min(result.leftCones.size(), result.rightCones.size());
@@ -149,10 +164,37 @@ TrackBuildResult TrackBuilder::buildFromTrackData(const fsai::sim::TrackData& tr
 }
 
 fsai::sim::TrackData TrackBuilder::generateRandomTrack() const {
-    PathConfig pathConfig = config_.pathConfig;
-    PathGenerator pathGen(pathConfig);
-    PathResult path = pathGen.generatePath(pathConfig.resolution);
-    TrackGenerator trackGen;
-    TrackResult track = trackGen.generateTrack(pathConfig, path);
-    return fsai::sim::TrackData::FromTrackResult(track);
+    constexpr int kMaxRandomAttempts = 3;
+    constexpr const char* kFallbackRandomTrack = "configs/tracks/rand.csv";
+
+    for (int attempt = 1; attempt <= kMaxRandomAttempts; ++attempt) {
+        PathConfig pathConfig = config_.pathConfig;
+        PathGenerator pathGen(pathConfig);
+        PathResult path = pathGen.generatePath(pathConfig.resolution);
+        TrackGenerator trackGen;
+        TrackResult track = trackGen.generateTrack(pathConfig, path);
+        fsai::sim::TrackData generated = fsai::sim::TrackData::FromTrackResult(track);
+        if (hasCheckpoints(generated)) {
+            return generated;
+        }
+
+        LogWarning("Random track generation produced no checkpoints; retrying (attempt " +
+                    std::to_string(attempt) + "/" +
+                    std::to_string(kMaxRandomAttempts) + ")");
+    }
+
+    LogWarning("Random track generation failed after retries; using fallback CSV track");
+    try {
+        const std::filesystem::path fallbackPath{kFallbackRandomTrack};
+        TrackResult track = fsai::sim::LoadTrackFromCsv(fallbackPath);
+        fsai::sim::TrackData fallback = fsai::sim::TrackData::FromTrackResult(track);
+        if (hasCheckpoints(fallback)) {
+            return fallback;
+        }
+        LogWarning("Fallback CSV track contained no checkpoints");
+    } catch (const std::exception& e) {
+        LogWarning(std::string("Failed to load fallback CSV track: ") + e.what());
+    }
+
+    return {};
 }
