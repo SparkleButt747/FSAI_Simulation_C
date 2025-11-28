@@ -2431,11 +2431,15 @@ int main(int argc, char* argv[]) {
         autopBrake = requestedBrake;
       }
     }
-        if (world.missionRunStatus() == fsai::sim::MissionRunStatus::kBraking) {
+    if (world.missionRunStatus() == fsai::sim::MissionRunStatus::kBraking) {
+        requestedSteer = 0;
+        autopSteer = 0;
+        controllerSteerRad = 0;
         autopBrake = 1.0f;
         requestedBrake = 1.0f;
         autopThrottle = 0.0f;
         requestedThrottle = 0.0f;
+
 
         const auto& state = world.vehicle_state();
         if (state.velocity.norm() < 0.1) {

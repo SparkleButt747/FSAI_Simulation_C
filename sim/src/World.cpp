@@ -37,16 +37,32 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     const float carSpeed = Vector3_Magnitude(carVelocity);
     const Transform& carTransform = vehicleDynamics().transform();
 
-    auto triangulation =
-        getVisibleTriangulationEdges(state, leftCones, rightCones).first;
-    auto coneToSide = getVisibleTrackTriangulationFromCones(
-                          getCarFront(state), state.yaw, leftCones, rightCones)
-                          .second;
+    std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> triangulation_result_pair;
+    std::unordered_map<Point, FsaiConeSide> coneToSide_map;
+
+    if (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration) {
+        triangulation_result_pair = getVisibleTriangulationEdges(state, leftCones, rightCones, orangeCones);
+        coneToSide_map = getVisibleTrackTriangulationFromCones(getCarFront(state), state.yaw, leftCones, rightCones, orangeCones).second;
+    } else {
+        triangulation_result_pair = getVisibleTriangulationEdges(state, leftCones, rightCones);
+        coneToSide_map = getVisibleTrackTriangulationFromCones(getCarFront(state), state.yaw, leftCones, rightCones).second;
+    }
+
+    auto triangulation = triangulation_result_pair.first;
+    auto coneToSide = coneToSide_map;
+
     auto [nodes, adj] = generateGraph(triangulation, getCarFront(state), coneToSide);
-    auto searchResult = beamSearch(adj, nodes, getCarFront(state),
-                                   controlConfig_.pathSearchMaxLength,
-                                   controlConfig_.pathSearchMinLength,
-                                   controlConfig_.pathSearchBeamWidth);
+    auto searchResult =
+        (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration)
+        ? beamSearch(adj, nodes, getCarFront(state),
+                     controlConfig_.pathSearchMaxLength,
+                     controlConfig_.pathSearchMinLength,
+                     controlConfig_.pathSearchBeamWidth,
+                     calculateCost_Acceleration)
+        : beamSearch(adj, nodes, getCarFront(state),
+                     controlConfig_.pathSearchMaxLength,
+                     controlConfig_.pathSearchMinLength,
+                     controlConfig_.pathSearchBeamWidth);
     auto pathNodes = searchResult.first;
     bestPathEdges_ = searchResult.second;
     auto beamSearchedCheckpoints = pathNodesToCheckpoints(pathNodes);
