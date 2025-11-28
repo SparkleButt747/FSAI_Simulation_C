@@ -2424,6 +2424,7 @@ int main(int argc, char* argv[]) {
         if (state.velocity.norm() < 0.1) {
             world.runtime_controller().MarkMissionCompleted();
         }
+    }
     if (controller_ready) {
       requestedSteer = NormalizedSteerToRad(controllerSteer);
       autopSteer = requestedSteer;
