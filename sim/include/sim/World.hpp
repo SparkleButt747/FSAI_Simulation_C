@@ -120,7 +120,6 @@ private:
     void configureTrackState(const fsai::sim::TrackData& track);
     void initializeVehiclePose();
     fsai::sim::TrackData generateRandomTrack() const;
-    void UpdateSkidpadState();
 
     DynamicBicycle carModel{VehicleParam()};
     VehicleState carState{Eigen::Vector3d::Zero(), 0.0,

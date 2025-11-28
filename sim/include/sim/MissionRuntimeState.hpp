@@ -30,18 +30,6 @@ struct MissionSegmentRuntime {
   double elapsed_time_s{0.0};
 };
 
-enum class SkidpadState {
-  NotSkidpad,
-  Approach,
-  TransitionToCircle,
-  WarmupLeft,
-  TimedLeft,
-  Transition,
-  WarmupRight,
-  TimedRight,
-  Exit,
-};
-
 class MissionRuntimeState {
  public:
   MissionRuntimeState() = default;
@@ -67,11 +55,8 @@ class MissionRuntimeState {
   void MarkStopCommanded();
   void MarkCompleted();
 
-  SkidpadState skidpad_state{SkidpadState::NotSkidpad};
-
  private:
   void ConfigureSegments();
-  void UpdateSkidpadState();
   MissionSegmentRuntime* ActiveSegment();
 
   MissionDefinition mission_{};

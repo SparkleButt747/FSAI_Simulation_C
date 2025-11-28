@@ -220,8 +220,6 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
       break;
     }
     case fsai::sim::MissionType::kSkidpad: {
-      setSkidpadMode(true);
-      setDesiredSkidpadDirection(0);
       const std::filesystem::path csv_path = MakeProjectRelativePath(std::filesystem::path("configs/tracks/skidpad.csv"));
       definition.track =
           fsai::sim::TrackData::FromTrackResult(fsai::sim::LoadTrackFromCsv(csv_path));

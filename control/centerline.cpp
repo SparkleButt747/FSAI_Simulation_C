@@ -24,18 +24,6 @@ namespace {
         return weights;
     }
 }
-namespace {
-    bool g_isSkidpad = false;
-    int  g_desiredTurnDir = 0;  // +1 = left, -1 = right, 0 = no preference
-}
-void setSkidpadMode(bool enabled) {
-    g_isSkidpad = enabled;
-}
-
-void setDesiredSkidpadDirection(int dir) {
-    g_desiredTurnDir = dir;  // +1 left, -1 right
-}
-
 
 CostWeights defaultCostWeights() {
     return CostWeights{};
@@ -52,7 +40,6 @@ void setCostWeights(const CostWeights& weights) {
     storage.spacingStd = std::max(0.0f, weights.spacingStd);
     storage.color      = std::max(0.0f, weights.color);
     storage.rangeSq    = std::max(0.0f, weights.rangeSq);
-    storage.direction  = std::max(0.0f, weights.direction);
 }
 
 namespace {
@@ -210,35 +197,6 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
         const float shortfall = std::max(0.0f, minUsefulLength - pathLen);
         rangeCost += shortfall * shortfall;
     }
-    if (g_isSkidpad) {
-        std::cout << "[COST] Skidpad mode detected. Desired direction = "
-                << g_desiredTurnDir << std::endl;
-    }
-
-    float directionPenalty = 0.0f;
-    if (g_isSkidpad) {
-        for (std::size_t i = 0; i + 2 < path.size(); ++i) {
-            const auto& p1 = path[i].midpoint;
-            const auto& p2 = path[i+1].midpoint;
-            const auto& p3 = path[i+2].midpoint;
-            const float v1x = p2.x - p1.x;
-            const float v1y = p2.y - p1.y;
-            const float v2x = p3.x - p2.x;
-            const float v2y = p3.y - p2.y;
-            const float cross_product = v1x * v2y - v1y * v2x;
-
-            if (g_desiredTurnDir > 0 && cross_product < 0) { // Desired left, but turned right
-                directionPenalty += -cross_product;
-            } else if (g_desiredTurnDir < 0 && cross_product > 0) { // Desired right, but turned left
-                directionPenalty += cross_product;
-            }
-            else if (g_desiredTurnDir == 0) { // Desired straight
-                directionPenalty += std::abs(cross_product);
-            }
-
-        }
-    }
-
 
     // Weighted sum
     const float cost =
@@ -246,8 +204,7 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
         weights.widthStd   * widthScore +
         weights.spacingStd * spacingScore +
         weights.color      * colorPenalty +
-        weights.rangeSq    * rangeCost +
-        weights.direction  * directionPenalty;
+        weights.rangeSq    * rangeCost;
 
     return cost;
 }

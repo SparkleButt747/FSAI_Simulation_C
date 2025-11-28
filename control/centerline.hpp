@@ -45,8 +45,6 @@ class PathNode {
     FsaiConeDet second;
     std::vector<PathNode*> children;
 
-
-
     bool operator==(const PathNode& other) const {
         return midpoint.x == other.midpoint.x && midpoint.y == other.midpoint.y && first.x == other.first.x && first.y == other.first.y;
     }
@@ -100,14 +98,12 @@ struct CostWeights {
     float spacingStd = 10.0f;
     float color = 10.0f;
     float rangeSq = 0.15f;
-    float direction = 100.0f;
 };
 
 CostWeights defaultCostWeights();
 CostWeights getCostWeights();
 void setCostWeights(const CostWeights& weights);
-void setSkidpadMode(bool enabled);
-void setDesiredSkidpadDirection(int dir);
+
 // Build a PathNode graph from a visible triangulation
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
     Triangulation& T,
