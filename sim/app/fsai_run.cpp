@@ -2311,6 +2311,7 @@ int main(int argc, char* argv[]) {
     }
     if (world.vehicleResetPending()) {
       world.coneDetections.clear();
+      vision_node.reset();
       vehicle_dynamics.setState(world.vehicleSpawnState().state,
                                 world.vehicleSpawnState().transform);
       world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);

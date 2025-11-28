@@ -146,7 +146,7 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
         tempConeMatch.cone_index = cone_index;
         tempConeMatch.bound = box_bounds[cone_index];
         tempConeMatch.matches = pair.second;
-
+        tempConeMatch.side = box_bounds[cone_index].side;
         all_cone_matches.push_back(tempConeMatch);
     }
     return all_cone_matches;

@@ -14,25 +14,22 @@
 #include <optional>
 #include <thread>
 #include <vector>
-#include <limits>
 
 #include <opencv2/opencv.hpp>
-#include <Eigen/Core>
+#include <Eigen/Core> 
 
 
 namespace fsai{
 namespace vision{
 struct RenderableFrame {
     cv::Mat image;
-    std::vector<types::BoxBound> boxes;
+    std::vector<fsai::types::BoxBound> boxes;
     uint64_t timestamp_ns = 0;
     bool valid = false;
 };
 struct ConeCluster{
     int coneId;
     std::vector<Eigen::Vector3d> points;
-    FsaiConeSide side;
-    Eigen::Vector2d centre;
 };
 // struct Point3D{
 //     double X,Y,Z;
@@ -69,6 +66,11 @@ class VisionNode{
      * @brief stops the internal processing thread
     */
    void stop();
+
+   /**
+    * @brief resets the vision mapping after a crash
+    */
+   void reset();
    using PoseProvider = std::function<std::pair<Eigen::Vector2d, double>()>;
    void setPoseProvider(PoseProvider provider){pose_provider_ = provider;}
    std::optional<fsai::types::Detections> makeDetections();
@@ -98,7 +100,6 @@ class VisionNode{
     std::optional<fsai::types::Detections> latest_detections_;
     std::mutex render_mutex_;
     RenderableFrame latest_renderable_frame_;
-
     int invalid_dets_ = 0;
     float max_area_ = std::numeric_limits<float>::min();
     float min_area_ = std::numeric_limits<float>::max();
@@ -110,6 +111,9 @@ class VisionNode{
 
     //Bayesian mapping
     SimpleMap mapper_;
+    bool reset_requested_;
+ 
+
 };
 }
 }
