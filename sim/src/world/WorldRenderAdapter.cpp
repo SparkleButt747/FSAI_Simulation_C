@@ -204,6 +204,9 @@ void WorldRenderAdapter::drawScene(
   const auto& controller_path_edges =
       debug_packet ? debug_packet->controller_path_edges
                    : snapshot.controller_path_edges;
+  const auto& triangulation_edges =
+      debug_packet ? debug_packet->triangulation_edges
+                   : snapshot.triangulation_edges;
   const auto& vision_detections =
       debug_packet ? debug_packet->detections : snapshot.detections;
   const std::size_t gate_count =
@@ -384,13 +387,8 @@ void WorldRenderAdapter::drawScene(
       return cones;
     };
 
-    std::vector<std::pair<Vector2, Vector2>> triangulation_edges =
-        getVisibleTriangulationEdges(
-            snapshot.vehicle_state,
-            to_cones(left_cones, ConeType::Left),
-            to_cones(right_cones, ConeType::Right))
-            .second;
-    for (const auto& edge : triangulation_edges) {
+    std::vector<std::pair<Vector2, Vector2>> snapshot_triangulation_edges = snapshot.triangulation_edges;
+    for (const auto& edge : snapshot_triangulation_edges) {
       Graphics_DrawSegment(&graphics_, edge.first.x, edge.first.y,
                            edge.second.x, edge.second.y, render_scale, 50, 0,
                            255);

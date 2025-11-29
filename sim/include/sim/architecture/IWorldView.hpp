@@ -47,6 +47,8 @@ class IWorldView {
 
   virtual const std::vector<std::pair<Vector2, Vector2>>& controller_path_edges()
       const = 0;
+  virtual const std::vector<std::pair<Vector2, Vector2>>& triangulation_edges()
+      const = 0;
   virtual const std::vector<FsaiConeDet>& debug_detections() const = 0;
 
   // --- Lifecycle helpers for consumers holding stale state ---

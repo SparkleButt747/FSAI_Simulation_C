@@ -49,6 +49,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     }
 
     auto triangulation = triangulation_result_pair.first;
+    triangulationEdges = triangulation_result_pair.second;
     auto coneToSide = coneToSide_map;
 
     auto [nodes, adj] = generateGraph(triangulation, getCarFront(state), coneToSide);
@@ -74,6 +75,19 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
             beamSearchedCheckpoints, static_cast<int>(pathNodes.size()),
             carSpeed, &carTransform, &racingConfig, dt);
         steering_out = Controller_GetSteeringInput(beamSearchedCheckpoints, static_cast<int>(pathNodes.size()), carSpeed, &carTransform, &racingConfig, dt);
+        std::printf("Checkpoints Available: %zu\n", pathNodes.size());
+        for (size_t i = 0; i < pathNodes.size(); ++i) {
+            const auto& p = beamSearchedCheckpoints[i];
+            std::printf("  [%zu] (%f, %f, %f)\n", i, p.x, p.y, p.z);
+        }
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            const auto& n = nodes[i];
+            std::printf("Node [%zu]: Midpoint (%f, %f), First Cone (%f, %f), Second Cone (%f, %f)\n",
+                        i, n.midpoint.x, n.midpoint.y,
+                        n.first.x, n.first.y,
+                        n.second.x, n.second.y);
+        }
+        delete[] beamSearchedCheckpoints;
     } else {
         throttle_out = Controller_GetThrottleInput(
             checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
@@ -81,14 +95,13 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
         steering_out = Controller_GetSteeringInput(
             checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
             carSpeed, &carTransform, &racingConfig, dt);
+        std::printf("Checkpoints Available: %zu\n", checkpointPositions.size());
+        for (size_t i = 0; i < checkpointPositions.size(); ++i) {
+            const auto& p = checkpointPositions[i];
+            std::printf("  [%zu] (%f, %f, %f)\n", i, p.x, p.y, p.z);
+        }
     }
-    
-    std::printf("Checkpoints Available: %zu\n", checkpointPositions.size());
 
-    for (size_t i = 0; i < checkpointPositions.size(); ++i) {
-        const auto& p = checkpointPositions[i];
-        std::printf("  [%zu] (%f, %f, %f)\n", i, p.x, p.y, p.z);
-    }
 
     std::printf("Speed RAW RA: %f, Steer RAW RA: %f ",
             throttle_out,

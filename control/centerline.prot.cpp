@@ -48,7 +48,7 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         auto it2 = coneToSide.find(p2);
         d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
 
-        if (d1.side == d2.side) continue;
+        if (d1.side == d2.side && d1.side != FSAI_CONE_UNKNOWN) continue;
 
         node.first  = d1;
         node.second = d2;
@@ -512,14 +512,19 @@ std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode
 //     }
 // }
 
+// This output of this function must be deleted by the caller.
 Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
-    Vector3 checkpoints[static_cast<int>(path.size())];
-    for (int i = 0; i < path.size(); i++) {
+    size_t size = path.size();
+
+    Vector3* checkpoints = new Vector3[size];
+
+    for (size_t i = 0; i < size; i++) {
         checkpoints[i] = Vector3{
             path[i].midpoint.x,
             0,
             path[i].midpoint.y
         };
     }
+
     return checkpoints;
 }

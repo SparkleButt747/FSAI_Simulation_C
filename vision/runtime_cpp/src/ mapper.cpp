@@ -35,6 +35,9 @@ void SimpleMap::update(const std::vector<FsaiConeDet>& new_detections, const Eig
         float best_dist = MERGE_RADIUS;
 
         for (size_t i = 0; i < cones.size(); ++i) {
+            if (cones[i].side != det.side) {
+                continue;
+            }
             float dx = cones[i].x - det.x;
             float dy = cones[i].y - det.z; // Compare Map Y vs Input Z
             float dist = std::sqrt(dx*dx + dy*dy);

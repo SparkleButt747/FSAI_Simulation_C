@@ -60,7 +60,7 @@ void Graphics_HandleWindowEvent(Graphics* g, const SDL_Event* event) {
 
 // Clears the screen with a black background to keep overlays readable.
 void Graphics_Clear(Graphics* g) {
-    SDL_SetRenderDrawColor(g->renderer, 0, 0, 0, 255);
+    SDL_SetRenderDrawColor(g->renderer, 255, 255, 255, 255);
     SDL_RenderClear(g->renderer);
 }
 

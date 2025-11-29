@@ -24,6 +24,7 @@ struct GuiWorldSnapshot {
   VehicleState vehicle_state{};
   fsai::sim::MissionRuntimeState mission_runtime{};
   std::vector<std::pair<Vector2, Vector2>> controller_path_edges;
+  std::vector<std::pair<Vector2, Vector2>> triangulation_edges;
   std::vector<FsaiConeDet> detections;
   std::optional<fsai::sim::WorldRuntime::ResetReason> pending_reset_reason{};
   double lap_time_seconds{0.0};
