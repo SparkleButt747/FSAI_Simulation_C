@@ -183,7 +183,6 @@ list(APPEND HEADER_DIRS
   "${CMAKE_SOURCE_DIR}/io/include"
   "${CMAKE_SOURCE_DIR}/sim/include"
   "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
-  "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
   "${VELOX_HEADER_DIR}"
 )
 list(REMOVE_DUPLICATES HEADER_DIRS)
@@ -203,26 +202,26 @@ target_link_libraries(fsai_telemetry PUBLIC Eigen3::Eigen)
 # ------------------------------------------------------------------------------
 # Vision-test libraries  [UNCHANGED]
 # ------------------------------------------------------------------------------
-add_subdirectory(vision_test/runtime_cpp/src)
-target_include_directories(fsai_vision_runtime PUBLIC
-    "${CMAKE_SOURCE_DIR}/common/include"
-    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
-    "${CMAKE_SOURCE_DIR}"
-
-    # This path lets vision use the logger
-    "${CMAKE_SOURCE_DIR}/sim/include/"
-)
 file(GLOB VISION_NODE_SOURCES
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src/*.cpp"
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/providers/*.cpp"
 )
+add_library(fsai_vision_runtime STATIC ${VISION_NODE_SOURCES})
+target_include_directories(fsai_vision_runtime PUBLIC
+    "${CMAKE_SOURCE_DIR}/common/include"
+    "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
+    "${CMAKE_SOURCE_DIR}"
+    ${SDL2_INCLUDE_DIRS}
+    # This path lets vision use the logger
+    "${CMAKE_SOURCE_DIR}/sim/include/"
+)
+
 target_sources(fsai_vision_runtime PRIVATE
     ${VISION_NODE_SOURCES}
 )
 target_include_directories(fsai_vision_runtime PUBLIC
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src"
-    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
     "${CMAKE_SOURCE_DIR}/sim/include"
     "${CMAKE_SOURCE_DIR}"
 )
@@ -232,6 +231,7 @@ target_link_libraries(fsai_vision_runtime PUBLIC
     ${OpenCV_LIBRARIES}
     Threads::Threads
     fsai_telemetry
+    ${SDL2_IMPORTED_TARGET}
 )
 
 # ------------------------------------------------------------------------------
@@ -255,8 +255,6 @@ list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/.git/.*")
 # Re-introduce vision
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision/.*")
-list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision_test/.*")
-list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
 # Use the velox telemetry implementation via the dedicated library
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/common/src/telemetry/telemetry.cpp$")
 
@@ -350,8 +348,6 @@ target_include_directories(fsai_run PRIVATE
     "${CMAKE_SOURCE_DIR}/common/include"
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
     "${CMAKE_SOURCE_DIR}"
-    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/src"
-    "${CMAKE_SOURCE_DIR}/vision_test/runtime_cpp/include"
     "${CMAKE_SOURCE_DIR}/sim/include"
 )
 target_compile_definitions(fsai_run PRIVATE FSAI_PROJECT_ROOT="${CMAKE_SOURCE_DIR}")
@@ -400,7 +396,7 @@ if(BUILD_TESTS)
     "${CMAKE_SOURCE_DIR}/*Test*.c"
     "${CMAKE_SOURCE_DIR}/*Test*.cpp"
   )
-  list(FILTER TEST_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
+
   foreach(TEST_FILE ${TEST_SOURCES})
     if(TEST_FILE MATCHES "/sim/svcu/tests/")
       continue()

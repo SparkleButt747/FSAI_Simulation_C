@@ -38,7 +38,6 @@
 #include "csv_logger.hpp"
 #include "../include/logging.hpp"
 #include "stereo_display.hpp"
-#include "edge_preview.hpp"
 #include "vision/frame_ring_buffer.hpp"
 #include "vision/vision_node.hpp"
 #include "vision/detection_preview.hpp"
@@ -1404,56 +1403,6 @@ void DrawLogConsole() {
   ImGui::End();
 }
 
-void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
-  ImGui::Begin("Edge Preview");
-
-  const auto snapshot = preview.snapshot();
-  if (!snapshot.texture) {
-    const std::string status = preview.statusMessage();
-    if (!status.empty()) {
-      ImGui::TextWrapped("%s", status.c_str());
-    } else {
-      ImGui::TextUnformatted("Waiting for edge frames...");
-    }
-    ImGui::End();
-    return;
-  }
-
-  ImGui::Text("Resolution: %d x %d", snapshot.width, snapshot.height);
-  double age_ms = std::numeric_limits<double>::infinity();
-  if (snapshot.frame_timestamp_ns != 0 && now_ns >= snapshot.frame_timestamp_ns) {
-    age_ms = static_cast<double>(now_ns - snapshot.frame_timestamp_ns) * 1e-6;
-  }
-  if (std::isfinite(age_ms)) {
-    ImGui::Text("Frame age: %.1f ms", age_ms);
-  } else {
-    ImGui::Text("Frame age: n/a");
-  }
-
-  float display_width = static_cast<float>(snapshot.width);
-  float display_height = static_cast<float>(snapshot.height);
-  if (display_width <= 0.0f || display_height <= 0.0f) {
-    display_width = 1.0f;
-    display_height = 1.0f;
-  }
-  const float max_width = 480.0f;
-  const float max_height = 360.0f;
-  if (display_width > max_width) {
-    const float scale = max_width / display_width;
-    display_width *= scale;
-    display_height *= scale;
-  }
-  if (display_height > max_height) {
-    const float scale = max_height / display_height;
-    display_width *= scale;
-    display_height *= scale;
-  }
-
-  ImGui::Image(snapshot.texture.get(), ImVec2(display_width, display_height));
-
-  ImGui::End();
-}
-
 
 void DrawDetectionPreviewPanel(fsai::vision::DetectionPreview& preview, uint64_t now_ns) {
   // Force position and size every frame to guarantee visibility
@@ -1512,7 +1461,6 @@ struct SensorNoiseConfig {
   ChannelNoiseConfig speed_kph{};
   ImuNoiseConfig imu{};
   GpsNoiseConfig gps{};
-  bool edge_preview_enabled{true};
   bool dection_preview_enabled{true};
 };
 
@@ -1628,11 +1576,6 @@ SensorNoiseConfig LoadSensorNoiseConfig(const std::string& path) {
         cfg.gps.latency_s = latency.as<double>(0.0) * 1e-3;
       }
     }
-    if (auto vision = root["vision"]) {
-      if (auto preview = vision["edge_preview"]) {
-        cfg.edge_preview_enabled = preview.as<bool>(cfg.edge_preview_enabled);
-      }
-    }
   } catch (const std::exception& e) {
     std::fprintf(stderr, "Failed to load sensor config '%s': %s\n", path.c_str(), e.what());
   }
@@ -1644,7 +1587,7 @@ struct ThreadSafeTelemetry {
     std::mutex mutex;
     Eigen::Vector2d position{0.0, 0.0};
     double yaw_rad = 0.0;
-
+    uint64_t timestamp_ns = 0;
 };
 
 class LocalUserInput final : public human::IUserInput {
@@ -1707,7 +1650,6 @@ int main(int argc, char* argv[]) {
   uint16_t command_port = kDefaultCommandPort;
   uint16_t telemetry_port = kDefaultTelemetryPort;
   std::string sensor_config_path = kDefaultSensorConfig;
-  std::optional<bool> edge_preview_override;
   std::optional<bool> detection_preview_override;
 
   for (int i = 1; i < argc; ++i) {
@@ -1725,10 +1667,6 @@ int main(int argc, char* argv[]) {
       telemetry_port = parse_port(argv[++i], telemetry_port);
     } else if (arg == "--sensor-config" && i + 1 < argc) {
       sensor_config_path = argv[++i];
-    } else if (arg == "--edge-preview") {
-      edge_preview_override = true;
-    } else if (arg == "--no-edge-preview") {
-      edge_preview_override = false;
     } else if (arg == "--detection-preview") {
       detection_preview_override = true;
     } else if (arg == "--no-detection-preview") {
@@ -1816,10 +1754,6 @@ int main(int argc, char* argv[]) {
                        mission_definition.allowRegeneration ? "enabled" : "disabled");
 
   SensorNoiseConfig sensor_cfg = LoadSensorNoiseConfig(MakeProjectRelativePath(sensor_config_path).string());
-  bool edge_preview_enabled = sensor_cfg.edge_preview_enabled;
-  if (edge_preview_override.has_value()) {
-    edge_preview_enabled = *edge_preview_override;
-  }
   bool detection_preview_enabled = true; // Enable by default
   if (detection_preview_override.has_value()) {
     detection_preview_enabled = *detection_preview_override; // Use the override
@@ -1827,9 +1761,6 @@ int main(int argc, char* argv[]) {
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
                        "Detection preview %s",
                        detection_preview_enabled ? "enabled" : "disabled");
-  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
-                       "Edge-detection preview %s",
-                       edge_preview_enabled ? "enabled" : "disabled");
   std::mt19937 noise_rng(sensor_cfg.seed);
   auto sample_noise = [&noise_rng](double stddev) {
     if (stddev <= 0.0) {
@@ -2061,31 +1992,10 @@ int main(int argc, char* argv[]) {
     fsai::vision::setActiveFrameRingBuffer(nullptr);
   }
   std::unique_ptr<fsai::sim::integration::StereoDisplay> stereo_display;
-  if (edge_preview_enabled) {
+  if (detection_preview_enabled) {
     stereo_display = std::make_unique<fsai::sim::integration::StereoDisplay>();
   }
-
-  fsai::vision::EdgePreview edge_preview;
   SDL_Renderer* sdl_renderer = renderer.renderer();
-  if (edge_preview_enabled && !stereo_frame_buffer) {
-    fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
-                         "Edge preview disabled: stereo source unavailable");
-    edge_preview_enabled = false;
-  } else if (edge_preview_enabled && sdl_renderer == nullptr) {
-    fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
-                         "Edge preview disabled: renderer unavailable");
-    edge_preview_enabled = false;
-  } else if (edge_preview_enabled && stereo_frame_buffer) {
-    std::string preview_error;
-    if (!edge_preview.start(sdl_renderer, stereo_frame_buffer, preview_error)) {
-      if (preview_error.empty()) {
-        preview_error = "edge worker initialization failed";
-      }
-      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
-                           "Edge preview disabled: %s", preview_error.c_str());
-      edge_preview_enabled = false;
-    }
-  }
 
   io_bus->set_stereo_sink([stereo_frame_buffer, &stereo_display](const FsaiStereoFrame& frame) {
     if (stereo_frame_buffer) {
@@ -2103,8 +2013,12 @@ int main(int argc, char* argv[]) {
 
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Starting VisionNode...");
   ThreadSafeTelemetry shared_telemetry;
+    
   try {
     vision_node = std::make_shared<fsai::vision::VisionNode>();
+    
+    // --- THE UNIFIED PROVIDER ---
+    // Returns {Position, Yaw, Time} in one atomic package
     vision_node->setPoseProvider([&shared_telemetry]() {
       std::lock_guard<std::mutex> lock(shared_telemetry.mutex);
       return std::make_pair(shared_telemetry.position, shared_telemetry.yaw_rad);
@@ -2938,6 +2852,7 @@ int main(int argc, char* argv[]) {
     // Shared telemetry consumers require radians; convert from the telemetry degrees report.
     shared_telemetry.yaw_rad =
         TelemetryUnits::DegToRad(runtime_telemetry.pose.yaw_deg, "shared telemetry yaw");
+    shared_telemetry.timestamp_ns = now_ns;
     }
     if (imgui_initialized) {
       DrawMissionPanel(runtime_telemetry);
@@ -2946,9 +2861,6 @@ int main(int argc, char* argv[]) {
       DrawControlPanel(runtime_telemetry);
       DrawCanPanel(runtime_telemetry);
       DrawLogConsole();
-      if (edge_preview_enabled && edge_preview.running()) {
-        DrawEdgePreviewPanel(edge_preview, now_ns);
-      }
       if (detection_preview_enabled && detection_preview.running()) {
         DrawDetectionPreviewPanel(detection_preview, now_ns);
       }
@@ -3231,7 +3143,6 @@ int main(int argc, char* argv[]) {
     fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "VisionNode stopped.");
   }
   detection_preview.stop();
-  edge_preview.stop();
   stereo_display.reset();
   if (stereo_frame_buffer) {
     while (stereo_frame_buffer->tryPop().has_value()) {
