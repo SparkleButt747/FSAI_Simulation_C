@@ -152,6 +152,19 @@ void updateVisibleTrackTriangulation(
   double sensorFOV = 2 * M_PI / 3
 );
 
+
+void updateVisibleTrackTriangulation(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
+  const std::vector<Cone>& orangeConePositions,
+  double sensorRange = 20.0,
+  double sensorFOV = 2 * M_PI / 3
+);
+
 void removePassedCones(
   Triangulation& T,
   std::unordered_map<Point, FsaiConeSide>& coneToSide,

@@ -38,15 +38,12 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
                         static_cast<float>(state.velocity.z())};
     const float carSpeed = Vector3_Magnitude(carVelocity);
     const Transform& carTransform = vehicleDynamics().transform();
-    Point carFront = getCarFront(state);
+    Point carFront = Point(carTransform.position.x + (std::cos(state.yaw) * 2.0), carTransform.position.z + (std::sin(state.yaw) * 2.0));
 
     removePassedCones(triangulation_, coneToSide_, carFront, state.yaw);
 
-    if (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration) {
-        updateVisibleTrackTriangulation(triangulation_, coneToSide_, carFront, state.yaw, leftCones, rightCones);
-    } else {
-        updateVisibleTrackTriangulation(triangulation_, coneToSide_, carFront, state.yaw, leftCones, rightCones);
-    }
+    updateVisibleTrackTriangulation(triangulation_, coneToSide_, carFront, state.yaw, leftCones, rightCones, orangeCones);
+
 
     triangulationEdges.clear();
     for (auto it = triangulation_.finite_edges_begin(); it != triangulation_.finite_edges_end(); ++it) {

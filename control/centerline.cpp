@@ -266,7 +266,7 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         auto it2 = coneToSide.find(p2);
         d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
 
-        if (d1.side == d2.side) continue;
+        if (d1.side == d2.side && d1.side != FSAI_CONE_UNKNOWN) continue;
 
         node.first  = d1;
         node.second = d2;
@@ -438,20 +438,24 @@ void removePassedCones(
 ) {
     double carForwardX = std::cos(carYaw);
     double carForwardY = std::sin(carYaw);
+    const double cos_45_deg = std::cos(M_PI / 4.0);
 
     std::vector<VertexHandle> vertices_to_remove;
     for (auto v_it = T.finite_vertices_begin(); v_it != T.finite_vertices_end(); ++v_it) {
         Point p = v_it->point();
         double cone_to_carX = p.x() - carFront.x();
         double cone_to_carY = p.y() - carFront.y();
+        double cone_dist = std::hypot(cone_to_carX, cone_to_carY);
+
+        if (cone_dist < 1e-3) {
+             continue;
+        }
 
         double dot_product = carForwardX * cone_to_carX + carForwardY * cone_to_carY;
 
-        if (dot_product <= 0) {
+        if (dot_product / cone_dist < -cos_45_deg) {
             // Check if cone is far enough behind
-            if (std::hypot(cone_to_carX, cone_to_carY) < 5.0) { // 1m threshold
-                vertices_to_remove.push_back(v_it);
-            }
+            vertices_to_remove.push_back(v_it);
         }
     }
 
