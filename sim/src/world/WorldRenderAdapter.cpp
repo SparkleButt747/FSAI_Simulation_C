@@ -42,6 +42,23 @@ void DrawConeCrosshair(Graphics* graphics, int center_x, int center_y,
                      center_x, center_y + radius_px);
 }
 
+void DrawConeCircle(Graphics* graphics, int center_x, int center_y,
+                    float base_width_m, float render_scale,
+                    const SDL_Color& color) {
+  if (graphics == nullptr || graphics->renderer == nullptr) {
+    return;
+  }
+
+  const float base_radius_px =
+      0.5f * base_width_m * render_scale * kConeDisplayScale;
+  const int radius_px =
+      std::max(2, static_cast<int>(std::lround(base_radius_px)));
+
+  SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
+                         color.a);
+  Graphics_DrawFilledCircle(graphics, center_x, center_y, radius_px);
+}
+
 void DrawCheckpointSquare(Graphics* graphics, int center_x, int center_y,
                           float size_px, const SDL_Color& color) {
   if (graphics == nullptr || graphics->renderer == nullptr) {
@@ -344,13 +361,13 @@ void WorldRenderAdapter::drawScene(
                                     graphics_.height / 2.0f);
       SDL_Color color{150, 150, 150, 230};
       if (cone.side == FSAI_CONE_LEFT) {
-        color = SDL_Color{40, 205, 40, 240};
+        color = SDL_Color{255, 220, 60, 240};
       } else if (cone.side == FSAI_CONE_RIGHT) {
-        color = SDL_Color{215, 35, 35, 240};
+        color = SDL_Color{60, 140, 255, 240};
       }
-      DrawConeCrosshair(&graphics_, cone_x, cone_y,
-                        fsai::sim::kSmallConeRadiusMeters * 1.5f, render_scale,
-                        color);
+      DrawConeCircle(&graphics_, cone_x, cone_y,
+                     fsai::sim::kSmallConeRadiusMeters * 1.5f, render_scale,
+                     color);
     }
   }
 
