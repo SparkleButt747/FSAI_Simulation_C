@@ -103,7 +103,7 @@ void Graphics_DrawCar(Graphics* g, float x, float y, float radius, float yaw) {
     const float right_x = x + radius * cosf(yaw - base_angle);
     const float right_y = y + radius * sinf(yaw - base_angle);
 
-    SDL_SetRenderDrawColor(g->renderer, 255, 215, 0, 255);
+    SDL_SetRenderDrawColor(g->renderer, 128, 0, 128, 255);
     SDL_RenderDrawLineF(g->renderer, tip_x, tip_y, left_x, left_y);
     SDL_RenderDrawLineF(g->renderer, left_x, left_y, right_x, right_y);
     SDL_RenderDrawLineF(g->renderer, right_x, right_y, tip_x, tip_y);

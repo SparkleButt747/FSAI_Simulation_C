@@ -26,6 +26,7 @@
 #include "sim/architecture/IVehicleDynamics.hpp"
 #include "centerline.hpp"
 
+
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
 using Point=Triangulation::Point;
@@ -200,6 +201,7 @@ private:
     CollisionService collisionService_{CollisionService::Config{}};
     ResetPolicy resetPolicy_{WorldControlConfig{}};
     fsai::sim::WorldRuntime runtime_{};
+    std::vector<PathNode> bestPath_{};
     std::vector<std::pair<Vector2, Vector2>> bestPathEdges_{};
     std::vector<FsaiConeDet> coneDetections_{};
     fsai::world::IWorldDebugPublisher* debugPublisher_{nullptr};

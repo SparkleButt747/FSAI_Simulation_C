@@ -8,10 +8,10 @@
 #include "TrackGenerator.hpp"
 #include "VehicleState.hpp"
 #include "Vector.h"
-#include "World.hpp"
 #include "Transform.h"
 #include "types.h"
-#include "centerline.hpp"
+#include "sim/world/TrackTypes.hpp"
+
 
 #include <tuple>
 #include <typeinfo>
@@ -168,7 +168,8 @@ std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrac
   double sensorFOV = 2 * M_PI / 3
 );
 
-std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
+std::pair<Triangulation,
+std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
   Point carFront,
   double carYaw,
   std::vector<Cone> leftConePositions,

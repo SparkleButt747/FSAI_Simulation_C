@@ -11,6 +11,7 @@
 #include "Transform.h"
 #include "types.h"
 #include "centerline.hpp"
+#include "sim/world/TrackTypes.hpp"
 
 #include <typeinfo>
 #include <cmath>

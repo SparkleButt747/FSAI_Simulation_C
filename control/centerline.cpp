@@ -8,6 +8,7 @@
 #include <numeric>
 #include <vector>
 #include <unordered_map>
+#include "sim/world/TrackTypes.hpp"
 
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
@@ -459,7 +460,6 @@ void removePassedCones(
         T.remove(vh);
     }
 }
-
 
 void updateVisibleTrackTriangulation(
   Triangulation& T,

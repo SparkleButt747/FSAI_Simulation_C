@@ -12,6 +12,8 @@
 #include "World.hpp"
 #include "centerline.hpp"
 
+using VertexHandle=Triangulation::Vertex_handle;
+
 // WORLD SYSTEM: orchestrates track generation, vehicle binding, collision
 // detection, mission timing, and publishes debug/telemetry to downstream
 // systems. The flow below highlights how the world owns vehicle dynamics,
@@ -67,20 +69,20 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
                      controlConfig_.pathSearchMaxLength,
                      controlConfig_.pathSearchMinLength,
                      controlConfig_.pathSearchBeamWidth);
-    auto pathNodes = searchResult.first;
+    bestPath_ = searchResult.first;
     bestPathEdges_ = searchResult.second;
-    auto beamSearchedCheckpoints = pathNodesToCheckpoints(pathNodes);
+    auto beamSearchedCheckpoints = pathNodesToCheckpoints(bestPath_);
     lookaheadIndices = Controller_GetLookaheadIndices(
             static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
-    if (!pathNodes.empty()) {
+    if (!bestPath_.empty()) {
         throttle_out = Controller_GetThrottleInput(
-            beamSearchedCheckpoints, static_cast<int>(pathNodes.size()),
+            beamSearchedCheckpoints, static_cast<int>(bestPath_.size()),
             carSpeed, &carTransform, &racingConfig, dt);
         steering_out = Controller_GetSteeringInput(
-            beamSearchedCheckpoints, static_cast<int>(pathNodes.size()),
+            beamSearchedCheckpoints, static_cast<int>(bestPath_.size()),
             carSpeed, &carTransform, &racingConfig, dt);
-        std::printf("Checkpoints Available: %zu\n", pathNodes.size());
-        for (size_t i = 0; i < pathNodes.size(); ++i) {
+        std::printf("Checkpoints Available: %zu\n", bestPath_.size());
+        for (size_t i = 0; i < bestPath_.size(); ++i) {
             const auto& p = beamSearchedCheckpoints[i];
             std::printf("  [%zu] (%f, %f, %f)\n", i, p.x, p.y, p.z);
         }
@@ -235,6 +237,30 @@ void World::update(double dt) {
     runtime_.AccumulateDistance(velocity2d.norm() * dt);
 
     if (collisionResult.crossedGate) {
+        if (!bestPath_.empty()) {
+            const auto& passedNode = bestPath_.front();
+            Point p1(passedNode.first.x, passedNode.first.y);
+            Point p2(passedNode.second.x, passedNode.second.y);
+
+            VertexHandle v1 = triangulation_.nearest_vertex(p1);
+            if (v1->point() == p1) {
+                triangulation_.remove(v1);
+                coneToSide_.erase(p1);
+            }
+            VertexHandle v2 = triangulation_.nearest_vertex(p2);
+            if (v2->point() == p2) {
+                triangulation_.remove(v2);
+                coneToSide_.erase(p2);
+            }
+        }
+        triangulationEdges.clear();
+        for (auto it = triangulation_.finite_edges_begin(); it != triangulation_.finite_edges_end(); ++it) {
+            auto seg = triangulation_.segment(*it);
+            triangulationEdges.emplace_back(
+                Vector2{static_cast<float>(seg.source().x()), static_cast<float>(seg.source().y())},
+                Vector2{static_cast<float>(seg.target().x()), static_cast<float>(seg.target().y())}
+            );
+        }
         if (auto lap_event = runtime_.RegisterGateCrossing()) {
             if (lap_event->lap_index > 0) {
                 std::printf("Lap Completed. Time: %.2f s, Distance: %.2f, Lap: %d\n",
@@ -313,7 +339,8 @@ void World::initializeVehiclePose() {
         spawnState_.transform.position.y = 0.5f;
         spawnState_.transform.position.z = 0.0f;
         spawnState_.transform.yaw = 0.0f;
-    } else {
+    }
+    else {
         const Vector3& start = checkpointPositions.front();
         const std::size_t lookaheadIndex = checkpointPositions.size() > 1
                                                ? std::min<std::size_t>(2, checkpointPositions.size() - 1)
@@ -412,6 +439,7 @@ void World::reset(const ResetDecision& decision) {
 
     initializeVehiclePose();
     coneDetections_.clear();
+    bestPath_.clear();
     bestPathEdges_.clear();
     triangulation_.clear();
     coneToSide_.clear();
