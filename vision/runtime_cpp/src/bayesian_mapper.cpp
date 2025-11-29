@@ -113,5 +113,6 @@ std::vector<MapCone> BayesianMapper::getValidatedMap() {
     return valid_cones;
 }
 
+
 } // namespace mapping
 } // namespace fsai
