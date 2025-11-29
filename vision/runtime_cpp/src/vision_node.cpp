@@ -3,7 +3,10 @@
  * {0: 'blue_cone', 1: 'orange_cone', 2: 'large_orange_cone', 3: 'yellow_cone'}
  */
 #include "vision/vision_node.hpp"
-#include "common/include/common/types.h"
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include <iomanip>
+
 #include "detect.hpp"
 #include "sim_camera.hpp"
 #include "features.hpp"
@@ -17,6 +20,7 @@
 
 const char* PATH_TO_MODEL = "../vision/models/cone_model.onnx";
 constexpr std::chrono::milliseconds kIdleSleep(5);
+
 namespace fsai{
 namespace vision{
 
@@ -163,11 +167,15 @@ void VisionNode::runProcessingLoop(){
         std::optional<fsai::vision::FrameRingBuffer::FrameHandle> handle_opt =
             camera_->tryGetLatestFrame();
 
-        // FIX 4: Check if we actually got a frame
         if (!handle_opt) {
-            // No frame was available, so we sleep and try again
+            // No frame was available, so sleep and try again
             std::this_thread::sleep_for(kIdleSleep);
-            continue; // Go to the start of the while loop
+            continue;
+        }
+        auto t_start = std::chrono::high_resolution_clock::now();
+        if(!intrinsics_set_){
+            cameraParams_ = handle_opt->frame.left.K; //params will be the same for both frames
+            intrinsics_set_ = true;
         }
         // get car telem at start
         Eigen::Vector2d vehicle_pos {0.0, 0.0};
@@ -181,6 +189,7 @@ void VisionNode::runProcessingLoop(){
         // --- Frame is available! ---
         const uint64_t t_now = handle_opt->frame.t_sync_ns;
         // 1. Convert to Mat (local variable only for now)
+        auto t1 = std::chrono::high_resolution_clock::now();
         cv::Mat left_mat = frameToMat(handle_opt->frame.left);
         cv::Mat right_mat = frameToMat(handle_opt->frame.right);
         
@@ -208,7 +217,6 @@ void VisionNode::runProcessingLoop(){
             latest_renderable_frame_.valid = true;
         }
 
-        // 2. Loop through the vector and copy into the C-style array
         // 2. Feature matching
         auto t3 = std::chrono::high_resolution_clock::now();
         std::vector<ConeMatches> matched_features;

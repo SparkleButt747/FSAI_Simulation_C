@@ -1,6 +1,7 @@
 #include "centerline.hpp"
 #include "utils.h"
 #include "types.h"
+#include "TrackTypes.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -426,7 +427,7 @@ void updateVisibleTrackTriangulation(
         }
         
         coneToSide[cone] = side;
-        visibleTrack.insert(cone);
+        T.insert(cone);
       }
     };
 
@@ -465,7 +466,7 @@ std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrac
         if (getAngle(carVector, delta) > sensorFOV/2) continue;
 
         if (coneToSide.find(cone) == coneToSide.end()) {
-            T.insert(cone);
+            visibleTrack.insert(cone);
             coneToSide[cone] = side;
         }
       }
@@ -708,6 +709,17 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     }
 
     return {buildPathFromIds(bestCandidate.indices), getPathEdges(buildPathFromIds(bestCandidate.indices))};
+}
+
+std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
+    const std::vector<std::vector<int>>& adj,
+    const std::vector<PathNode>& nodes,
+    const Point& carFront,
+    std::size_t maxLen,
+    std::size_t minLen,
+    std::size_t beamWidth)
+{
+    return beamSearch(adj, nodes, carFront, maxLen, minLen, beamWidth, calculateCost);
 }
 
 void removePassedCones(

@@ -9,7 +9,6 @@
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_2.h>
 #include <unordered_map>
-#include "DynamicBicycle.hpp"
 #include "VehicleState.hpp"
 #include "common/telemetry/Telemetry.hpp"
 #include "controller.prot.h"
@@ -24,41 +23,30 @@
 #include "TrackBuilder.hpp"
 #include "CollisionService.hpp"
 #include "ResetPolicy.hpp"
-#include "TrackTypes.hpp"
 #include "sim/architecture/IVehicleDynamics.hpp"
 #include "PathConfig.hpp"
 #include "PathGenerator.hpp"
 #include "TrackGenerator.hpp"
 #include "sim/mission/MissionDefinition.hpp"
-#include "sim/MissionRuntimeState.hpp"
-#include "sim/cone_types.hpp"
 #include "types.h"
+#include "sim/world/TrackTypes.hpp"
 
-using WorldVehicleResetHandler = std::function<void(const WorldVehicleSpawn&)>;
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
 using Point=Triangulation::Point;
 
 struct WorldVehicleSpawn {
     VehicleState state{Eigen::Vector3d::Zero(), 0.0,
-                       Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                       Eigen::Vector3d::Zero()};
+    Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+    Eigen::Vector3d::Zero()};
     Transform transform{};
 };
+    
+using WorldVehicleResetHandler = std::function<void(const WorldVehicleSpawn&)>;
 
 struct WorldVehicleContext {
     fsai::vehicle::IVehicleDynamics* dynamics{nullptr};
     WorldVehicleResetHandler reset_handler{};
-};
-
-
-
-struct CollisionSegment {
-    Vector2 start{0.0f, 0.0f};
-    Vector2 end{0.0f, 0.0f};
-    float radius{0.0f};
-    Vector2 boundsMin{0.0f, 0.0f};
-    Vector2 boundsMax{0.0f, 0.0f};
 };
 
 class World : public fsai::world::IWorldView {
@@ -84,39 +72,18 @@ public:
     std::vector<std::pair<Vector2, Vector2>> triangulationEdges{}; // Keep an object for the world so that rendering is accurate.
 
     
-    const VehicleState& vehicleState() const { return carState; }
-    const Transform& vehicleTransform() const { return carTransform; }
-    const std::vector<Vector3>& checkpointPositionsWorld() const {
-        return checkpointPositions;
-    }
+    const VehicleState& vehicleState() const { return vehicleDynamics().state(); }
+    const Transform& vehicleTransform() const { return vehicleDynamics().transform(); }
+    const std::vector<Vector3>& checkpointPositionsWorld() const;
 
-    const std::vector<Cone>& getStartCones() const { return startCones; }
-    const std::vector<Cone>& getLeftCones() const { return leftCones; }
-    const std::vector<Cone>& getRightCones() const { return rightCones; }
-    const std::vector<Vector3> getStartConePositions() const {
-        std::vector<Vector3> positions;
-        positions.reserve(startCones.size());
-        for (auto c: startCones) {
-            positions.push_back(c.position);
-        }
-        return positions;
-    }
-    const std::vector<Vector3> getLeftConePositions() const {
-        std::vector<Vector3> positions;
-        positions.reserve(leftCones.size());
-        for (auto c: leftCones) {
-            positions.push_back(c.position);
-        }
-        return positions;
-    }
-    const std::vector<Vector3> getRightConePositions() const {
-        std::vector<Vector3> positions;
-        positions.reserve(rightCones.size());
-        for (auto c: rightCones) {
-            positions.push_back(c.position);
-        }
-        return positions;
-    }
+    const std::vector<Cone>& getStartCones() const;
+    const std::vector<Cone>& getLeftCones() const;
+    const std::vector<Cone>& getRightCones() const;
+    
+    const std::vector<Vector3>& getStartConePositions() const;
+    const std::vector<Vector3>& getLeftConePositions()  const;
+    const std::vector<Vector3>& getRightConePositions() const;
+
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
     double lapTimeSeconds() const { return runtime_.lap_time_seconds(); }
     double totalDistanceMeters() const { return runtime_.lap_distance_meters(); }
@@ -205,6 +172,11 @@ private:
     void configureTrackState(const TrackBuildResult& track);
     void initializeVehiclePose();
     TrackBuildResult buildTrackState();
+    fsai::sim::TrackData generateRandomTrack() const;
+    bool detectCollisions(bool crossedGate);
+    void updateStraightLineProgress();
+    void handleMissionCompletion();
+    bool crossesCurrentGate(const Vector2& previous, const Vector2& current) const;
 
     fsai::vehicle::IVehicleDynamics* vehicleDynamics_{nullptr};
     WorldVehicleSpawn spawnState_{};
@@ -228,6 +200,12 @@ private:
     std::vector<CollisionSegment> boundarySegments_{};
     Vector3 lastCheckpoint{0.0f, 0.0f, 0.0f};
 
+    WheelsInfo wheelsInfo_{WheelsInfo_default()};
+    bool hasSvcuCommand_{false};
+    float lastSvcuThrottle_{0.0f};
+    float lastSvcuBrake_{0.0f};
+    float lastSvcuSteer_{0.0f};
+
     struct Config {
         float collisionThreshold{2.5f};
         float vehicleCollisionRadius{0.386f};
@@ -239,6 +217,21 @@ private:
 
     ControllerConfig racingConfig{};
     LookaheadIndices lookaheadIndices{};
+
+    double totalTime{0.0};
+    double deltaTime{0.0};
+    double totalDistance{0.0};
+    int lapCount{0};
+    fsai::sim::MissionRuntimeState missionState_{};
+
+    struct StraightLineTracker {
+        bool valid{false};
+        Eigen::Vector2d origin{0.0, 0.0};
+        Eigen::Vector2d direction{1.0, 0.0};
+        double length{0.0};
+    };
+
+    StraightLineTracker straightTracker_{};
 
     fsai::sim::MissionDefinition mission_{};
     TrackBuilderConfig trackBuilderConfig_{};

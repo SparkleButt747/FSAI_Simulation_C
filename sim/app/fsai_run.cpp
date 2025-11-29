@@ -1428,6 +1428,7 @@ void DrawDetectionPreviewPanel(fsai::vision::DetectionPreview& preview, uint64_t
 }
 namespace {
 
+/*
 void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
                     float base_width_m, const SDL_Color& color) {
   if (graphics == nullptr || graphics->renderer == nullptr) {
@@ -1443,9 +1444,11 @@ void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
                          color.a);
   Graphics_DrawFilledCircle(graphics, center_x, center_y, radius_px);
 }
+  */
 
 }  // namespace
 
+/*
 void DrawWorldScene(Graphics* graphics, const World& world,
                     const fsai::sim::app::RuntimeTelemetry& telemetry) {
   (void)telemetry;
@@ -1575,6 +1578,7 @@ void DrawWorldScene(Graphics* graphics, const World& world,
     Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 255, 50, 50);
   }
 }
+*/
 
 struct ChannelNoiseConfig {
   double noise_std{0.0};
@@ -2217,7 +2221,7 @@ int main(int argc, char* argv[]) {
   // Bridge Control outputs and telemetry between the sim and external
   // interfaces: configure CAN endpoints, UDP telemetry links, and adapters
   // that translate controller intent into vehicle commands.
-  const VehicleParam& vehicle_param = world.model().param();
+  //const VehicleParam& vehicle_param = world.model().param();
 
   fsai::control::runtime::CanIface::Config can_cfg{};
   can_cfg.endpoint = can_iface;
@@ -3248,6 +3252,9 @@ int main(int argc, char* argv[]) {
     logger.logState(sim_time_s, world.vehicle_state());
     logger.logControl(sim_time_s, world.throttleInput, world.steeringAngle);
 
+    // stereo_source cone feeding is now handled via WorldRenderAdapter and
+    // io_bus->set_stereo_sink(); legacy block removed here.
+    /*
     if (stereo_source) {
       const auto& transform = world.vehicleTransform();
       stereo_source->setBodyPose(transform.position.x, transform.position.y,
@@ -3328,11 +3335,12 @@ int main(int argc, char* argv[]) {
         stereo_display->present(frame);
       }
     }
+    */
 
-    DrawWorldScene(&graphics, world, runtime_telemetry);
-    ImGui::Render();
-    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), graphics.renderer);
-    Graphics_Present(&graphics);
+    //DrawWorldScene(&graphics, world, runtime_telemetry);
+    //ImGui::Render();
+    //ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), graphics.renderer);
+    //Graphics_Present(&graphics);
 
     std::shared_ptr<fsai::vision::DetectionRingBuffer> detection_buffer = fsai::vision::getActiveDetectionBuffer();
     if (detection_buffer == nullptr) {

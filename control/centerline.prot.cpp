@@ -3,6 +3,7 @@
 //#include "centerline.prot.hpp"
 #include "centerline.hpp"
 #include "types.h"
+#include "TrackTypes.hpp"
 
 #include <algorithm>
 #include <unordered_map>
