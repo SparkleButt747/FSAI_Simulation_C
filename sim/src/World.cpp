@@ -49,6 +49,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     }
 
     auto triangulation = triangulation_result_pair.first;
+    triangulationEdges = triangulation_result_pair.second;
     auto coneToSide = coneToSide_map;
 
     auto [nodes, adj] = generateGraph(triangulation, getCarFront(state), coneToSide);

@@ -2432,9 +2432,6 @@ int main(int argc, char* argv[]) {
       }
     }
     if (world.missionRunStatus() == fsai::sim::MissionRunStatus::kBraking) {
-        requestedSteer = 0;
-        autopSteer = 0;
-        controllerSteerRad = 0;
         autopBrake = 1.0f;
         requestedBrake = 1.0f;
         autopThrottle = 0.0f;

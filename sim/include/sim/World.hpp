@@ -57,6 +57,7 @@ public:
     float brakeInput{0.0f};
     int useController{1};
     int regenTrack{1};
+    std::vector<std::pair<Vector2, Vector2>> triangulationEdges{}; // Keep an object for the world so that rendering is accurate.
 
 
     const std::vector<Vector3>& checkpointPositionsWorld() const;
@@ -118,6 +119,9 @@ public:
     }
     const std::vector<std::pair<Vector2, Vector2>>& controller_path_edges() const override {
         return bestPathEdges_;
+    }
+    const std::vector<std::pair<Vector2, Vector2>>& triangulation_edges() const override {
+        return triangulationEdges;
     }
     const std::vector<FsaiConeDet>& debug_detections() const override {
         return coneDetections_;

@@ -208,7 +208,16 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
 }
 
 float calculateCost_Acceleration(const std::vector<PathNode>& path, std::size_t minLen) {
+
+    setCostWeights({
+        200.0f,  // angleMax
+        1.0f,  // widthStd
+        5.0f,  // spacingStd
+        0.0f,  // color
+        0.2f   // rangeSq
+    });
     float cost = calculateCost(path, minLen);
+    setCostWeights(defaultCostWeights());
     if (path.size() < 2) {
         return cost;
     }
@@ -258,9 +267,7 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         auto it2 = coneToSide.find(p2);
         d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
 
-        if (d1.side == d2.side) {
-            continue;
-        }
+        if (d1.side == d2.side && d1.side != FSAI_CONE_UNKNOWN) continue;
 
         node.first  = d1;
         node.second = d2;

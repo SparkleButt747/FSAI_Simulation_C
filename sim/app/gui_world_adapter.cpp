@@ -14,6 +14,7 @@ GuiWorldSnapshot GuiWorldAdapter::snapshot() const {
   snap.vehicle_state = world_.vehicle_state();
   snap.mission_runtime = world_.mission_runtime();
   snap.controller_path_edges = world_.controller_path_edges();
+  snap.triangulation_edges = world_.triangulation_edges();
   snap.detections = world_.debug_detections();
   snap.pending_reset_reason = world_.pending_reset_reason();
   snap.lap_time_seconds = world_.lap_time_seconds();
