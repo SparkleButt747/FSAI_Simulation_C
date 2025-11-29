@@ -721,9 +721,13 @@ std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode
     return edges;
 }
 
+// This output of this function must be deleted by the caller.
 Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
-    Vector3 checkpoints[static_cast<int>(path.size())];
-    for (int i = 0; i < path.size(); i++) {
+    size_t size = path.size();
+
+    Vector3* checkpoints = new Vector3[size];
+
+    for (size_t i = 0; i < size; i++) {
         checkpoints[i] = Vector3{
             path[i].midpoint.x,
             0,

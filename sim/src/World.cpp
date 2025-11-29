@@ -86,6 +86,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
                         n.first.x, n.first.y,
                         n.second.x, n.second.y);
         }
+        delete[] beamSearchedCheckpoints;
     } else {
         throttle_out = Controller_GetThrottleInput(
             checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
