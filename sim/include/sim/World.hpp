@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include <unordered_map>
 #include <Eigen/Dense>
 #include "types.h"
 #include "VehicleState.hpp"
@@ -23,6 +24,11 @@
 #include "ResetPolicy.hpp"
 #include "TrackTypes.hpp"
 #include "sim/architecture/IVehicleDynamics.hpp"
+#include "centerline.hpp"
+
+using K=CGAL::Exact_predicates_inexact_constructions_kernel;
+using Triangulation=CGAL::Delaunay_triangulation_2<K>;
+using Point=Triangulation::Point;
 
 struct WorldVehicleSpawn {
     VehicleState state{Eigen::Vector3d::Zero(), 0.0,
@@ -197,6 +203,8 @@ private:
     std::vector<std::pair<Vector2, Vector2>> bestPathEdges_{};
     std::vector<FsaiConeDet> coneDetections_{};
     fsai::world::IWorldDebugPublisher* debugPublisher_{nullptr};
+    Triangulation triangulation_;
+    std::unordered_map<Point, FsaiConeSide> coneToSide_;
     void configureMissionRuntime();
     void bindVehicleDynamics(fsai::vehicle::IVehicleDynamics& vehicleDynamics);
     void publishVehicleSpawn();

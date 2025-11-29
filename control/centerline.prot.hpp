@@ -26,9 +26,6 @@
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
 using Point=Triangulation::Point;
-using AllEdgeIterator=Triangulation::All_edges_iterator;
-using FiniteEdgeIterator=Triangulation::Finite_edges_iterator;
-using VertexHandle=Triangulation::Vertex_handle;
 
 // Build a PathNode graph from a visible triangulation
 std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(

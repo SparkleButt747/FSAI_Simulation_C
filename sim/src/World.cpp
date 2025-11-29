@@ -36,31 +36,34 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
                         static_cast<float>(state.velocity.z())};
     const float carSpeed = Vector3_Magnitude(carVelocity);
     const Transform& carTransform = vehicleDynamics().transform();
+    Point carFront = getCarFront(state);
 
-    std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> triangulation_result_pair;
-    std::unordered_map<Point, FsaiConeSide> coneToSide_map;
+    removePassedCones(triangulation_, coneToSide_, carFront, state.yaw);
 
     if (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration) {
-        triangulation_result_pair = getVisibleTriangulationEdges(state, leftCones, rightCones, orangeCones);
-        coneToSide_map = getVisibleTrackTriangulationFromCones(getCarFront(state), state.yaw, leftCones, rightCones, orangeCones).second;
+        updateVisibleTrackTriangulation(triangulation_, coneToSide_, carFront, state.yaw, leftCones, rightCones);
     } else {
-        triangulation_result_pair = getVisibleTriangulationEdges(state, leftCones, rightCones);
-        coneToSide_map = getVisibleTrackTriangulationFromCones(getCarFront(state), state.yaw, leftCones, rightCones).second;
+        updateVisibleTrackTriangulation(triangulation_, coneToSide_, carFront, state.yaw, leftCones, rightCones);
     }
 
-    auto triangulation = triangulation_result_pair.first;
-    triangulationEdges = triangulation_result_pair.second;
-    auto coneToSide = coneToSide_map;
+    triangulationEdges.clear();
+    for (auto it = triangulation_.finite_edges_begin(); it != triangulation_.finite_edges_end(); ++it) {
+        auto seg = triangulation_.segment(*it);
+        triangulationEdges.emplace_back(
+            Vector2{static_cast<float>(seg.source().x()), static_cast<float>(seg.source().y())},
+            Vector2{static_cast<float>(seg.target().x()), static_cast<float>(seg.target().y())}
+        );
+    }
 
-    auto [nodes, adj] = generateGraph(triangulation, getCarFront(state), coneToSide);
+    auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
     auto searchResult =
         (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration)
-        ? beamSearch(adj, nodes, getCarFront(state),
+        ? beamSearch(adj, nodes, carFront,
                      controlConfig_.pathSearchMaxLength,
                      controlConfig_.pathSearchMinLength,
                      controlConfig_.pathSearchBeamWidth,
                      calculateCost_Acceleration)
-        : beamSearch(adj, nodes, getCarFront(state),
+        : beamSearch(adj, nodes, carFront,
                      controlConfig_.pathSearchMaxLength,
                      controlConfig_.pathSearchMinLength,
                      controlConfig_.pathSearchBeamWidth);
@@ -410,6 +413,8 @@ void World::reset(const ResetDecision& decision) {
     initializeVehiclePose();
     coneDetections_.clear();
     bestPathEdges_.clear();
+    triangulation_.clear();
+    coneToSide_.clear();
     publishVehicleSpawn();
 }
 

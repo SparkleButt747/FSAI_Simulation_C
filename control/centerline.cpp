@@ -12,8 +12,6 @@
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
 using Point=Triangulation::Point;
-using AllEdgeIterator=Triangulation::All_edges_iterator;
-using FiniteEdgeIterator=Triangulation::Finite_edges_iterator;
 using VertexHandle=Triangulation::Vertex_handle;
 
 using namespace std;
@@ -267,7 +265,7 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         auto it2 = coneToSide.find(p2);
         d2.side = (it2!=coneToSide.end()) ? it2->second : FSAI_CONE_UNKNOWN;
 
-        if (d1.side == d2.side && d1.side != FSAI_CONE_UNKNOWN) continue;
+        if (d1.side == d2.side) continue;
 
         node.first  = d1;
         node.second = d2;
@@ -399,6 +397,98 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
     addCones(fullTrack.rightCones, FSAI_CONE_RIGHT);
 
     return coneToSide;
+}
+
+void updateVisibleTrackTriangulation(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
+  double sensorRange,
+  double sensorFOV
+) {
+    Point carVector = Point(std::cos(carYaw), std::sin(carYaw));
+
+    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &T, &coneToSide](const std::vector<Cone>& cones, FsaiConeSide side) {
+      for (const auto& cone3d : cones) {
+        Point delta = Point(cone3d.position.x - carFront.x(), cone3d.position.z - carFront.y());
+        Point cone = Point(cone3d.position.x, cone3d.position.z);
+        if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
+        if (getAngle(carVector, delta) > sensorFOV/2) continue;
+
+        if (coneToSide.find(cone) == coneToSide.end()) {
+            T.insert(cone);
+            coneToSide[cone] = side;
+        }
+      }
+    };
+
+    addCones(leftConePositions, FSAI_CONE_LEFT);
+    addCones(rightConePositions, FSAI_CONE_RIGHT);
+}
+
+void removePassedCones(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw
+) {
+    double carForwardX = std::cos(carYaw);
+    double carForwardY = std::sin(carYaw);
+
+    std::vector<VertexHandle> vertices_to_remove;
+    for (auto v_it = T.finite_vertices_begin(); v_it != T.finite_vertices_end(); ++v_it) {
+        Point p = v_it->point();
+        double cone_to_carX = p.x() - carFront.x();
+        double cone_to_carY = p.y() - carFront.y();
+
+        double dot_product = carForwardX * cone_to_carX + carForwardY * cone_to_carY;
+
+        if (dot_product <= 0) {
+            // Check if cone is far enough behind
+            if (std::hypot(cone_to_carX, cone_to_carY) < 5.0) { // 1m threshold
+                vertices_to_remove.push_back(v_it);
+            }
+        }
+    }
+
+    for (const auto& vh : vertices_to_remove) {
+        coneToSide.erase(vh->point());
+        T.remove(vh);
+    }
+}
+
+
+void updateVisibleTrackTriangulation(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
+  const std::vector<Cone>& orangeConePositions,
+  double sensorRange,
+  double sensorFOV
+) {
+    updateVisibleTrackTriangulation(T, coneToSide, carFront, carYaw, leftConePositions, rightConePositions, sensorRange, sensorFOV);
+
+    Point carVector = Point(std::cos(carYaw), std::sin(carYaw));
+    auto addCones = [carFront, carVector, sensorRange, sensorFOV, &T, &coneToSide](const std::vector<Cone>& cones, FsaiConeSide side) {
+      for (const auto& cone3d : cones) {
+        Point delta = Point(cone3d.position.x - carFront.x(), cone3d.position.z - carFront.y());
+        Point cone = Point(cone3d.position.x, cone3d.position.z);
+        if (std::hypot(delta.x(), delta.y()) > sensorRange) continue;
+        if (getAngle(carVector, delta) > sensorFOV/2) continue;
+
+        if (coneToSide.find(cone) == coneToSide.end()) {
+            T.insert(cone);
+            coneToSide[cone] = side;
+        }
+      }
+    };
+    addCones(orangeConePositions, FSAI_CONE_UNKNOWN);
 }
 
 std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(

@@ -29,9 +29,6 @@
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
 using Point=Triangulation::Point;
-using AllEdgeIterator=Triangulation::All_edges_iterator;
-using FiniteEdgeIterator=Triangulation::Finite_edges_iterator;
-using VertexHandle=Triangulation::Vertex_handle;
 
 /** This represents a node on the path with the code detections that correspond
  * to the two points of the edges being included for computing the cost of a
@@ -144,6 +141,23 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
   double sensorFOV = 2 * M_PI / 3
 );
 
+void updateVisibleTrackTriangulation(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
+  double sensorRange = 20.0,
+  double sensorFOV = 2 * M_PI / 3
+);
+
+void removePassedCones(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw
+);
 
 std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
   Point carFront,
