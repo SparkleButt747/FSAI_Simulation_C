@@ -8,10 +8,9 @@
 #include "TrackGenerator.hpp"
 #include "VehicleState.hpp"
 #include "Vector.h"
-#include "World.hpp"
 #include "Transform.h"
 #include "types.h"
-#include "centerline.hpp"
+#include "sim/cone_types.hpp"
 
 #include <tuple>
 #include <typeinfo>
@@ -26,6 +25,7 @@
 #include <unordered_map>
 #include <functional>
 
+class World;
 using K=CGAL::Exact_predicates_inexact_constructions_kernel;
 using Triangulation=CGAL::Delaunay_triangulation_2<K>;
 using Point=Triangulation::Point;
@@ -96,7 +96,7 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen);
 float calculateCost_Acceleration(const std::vector<PathNode>& path, std::size_t minLen);
 
 struct CostWeights {
-    float angleMax = 5.3;
+    float angleMax = 5.3f;
     float widthStd = 2.1f;
     float spacingStd = 10.0f;
     float color = 10.0f;
@@ -145,11 +145,13 @@ std::unordered_map<Point, FsaiConeSide> getVisibleTrackTriangulationFromTrack(
 );
 
 
-std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrackTriangulationFromCones(
+void updateVisibleTrackTriangulation(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
   Point carFront,
   double carYaw,
-  std::vector<Cone> leftConePositions,
-  std::vector<Cone> rightConePositions,
+  const std::vector<Cone>& leftConePositions,
+  const std::vector<Cone>& rightConePositions,
   double sensorRange = 20.0,
   double sensorFOV = 2 * M_PI / 3
 );
@@ -164,7 +166,9 @@ std::pair<Triangulation, std::unordered_map<Point, FsaiConeSide>> getVisibleTrac
   double sensorFOV = 2 * M_PI / 3
 );
 
-std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTriangulationEdges(
+std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
+  Triangulation& triangulation,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
   VehicleState carState,
   const std::vector<Cone>& leftConePositions,
   const std::vector<Cone>& rightConePositions
@@ -188,14 +192,11 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     std::size_t beamWidth
 );
 
-std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
-    const std::vector<std::vector<int>>& adj,
-    const std::vector<PathNode>& nodes,
-    const Point& carFront,
-    std::size_t maxLen,
-    std::size_t minLen,
-    std::size_t beamWidth,
-    const std::function<float(const std::vector<PathNode>&, std::size_t)>& costFunc
+void removePassedCones(
+  Triangulation& T,
+  std::unordered_map<Point, FsaiConeSide>& coneToSide,
+  Point carFront,
+  double carYaw
 );
 
 std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode>& path);

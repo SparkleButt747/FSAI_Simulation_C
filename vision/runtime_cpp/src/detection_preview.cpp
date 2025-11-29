@@ -35,9 +35,9 @@ std::shared_ptr<SDL_Texture> makeTexture(SDL_Renderer* renderer, int width, int 
 cv::Scalar getConeColor(fsai::types::ConeSide side) {
   switch (side) {
     case FSAI_CONE_LEFT: return cv::Scalar(255, 0, 0);    // Blue (BGR)
-    case FSAI_CONE_RIGHT: return cv::Scalar(0,255,255); // Yellow (BGR)
+    case FSAI_CONE_RIGHT: return cv::Scalar(0, 165, 255); // Orange (BGR)
     case FSAI_CONE_UNKNOWN:
-    default: return cv::Scalar(0, 165, 255);              // Orange (BGR)
+    default: return cv::Scalar(0, 255, 255);              // Yellow (BGR)
   }
 }
 }  // namespace
@@ -192,8 +192,6 @@ void DetectionPreview::workerLoop() {
     // 1. Atomic grab of all data
     RenderableFrame data = vision_node->getRenderableFrame();
 
-    // FsaiDetections cone_data = vision_node->makeDetections();
-
     // 2. Check if we have valid data and if it's new
     if (!data.valid || data.image.empty()) {
        std::this_thread::sleep_for(kIdleSleep);
@@ -240,7 +238,7 @@ void DetectionPreview::workerLoop() {
         pending_width_ = rgba_image.cols;
         pending_height_ = rgba_image.rows;
         pending_timestamp_ns_ = data.timestamp_ns;
-        pending_ready_ = true; 
+        pending_ready_ = true;
     }
   }
 }
