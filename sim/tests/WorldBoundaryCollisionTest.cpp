@@ -16,8 +16,6 @@ Transform MakeTransform(float x, float z) {
 
 TEST(WorldBoundaryCollisionTest, LeftBoundaryTriggersReset) {
     World world;
-    VehicleDynamics dynamics;
-    world.setVehicleDynamics(dynamics);
 
     fsai::sim::TrackData track;
     track.leftCones.push_back(MakeTransform(-1.0f, 0.0f));
@@ -30,8 +28,8 @@ TEST(WorldBoundaryCollisionTest, LeftBoundaryTriggersReset) {
     WorldTestHelper::SetCollisionRadius(world, 0.5f - fsai::sim::kSmallConeRadiusMeters);
     WorldTestHelper::ConfigureTrack(world, track);
     WorldTestHelper::SetPrev(world, Vector2{0.0f, 5.0f});
-    WorldTestHelper::SetCarPosition(world, dynamics, -1.35f, 5.0f);
-    WorldTestHelper::SetCarHeight(world, dynamics, 0.5f);
+    WorldTestHelper::SetCarPosition(world, -1.35f, 5.0f);
+    WorldTestHelper::SetCarHeight(world, 0.5f);
     WorldTestHelper::SetInsideLastCheckpoint(world, false);
 
     EXPECT_FALSE(world.detectCollisions(false));

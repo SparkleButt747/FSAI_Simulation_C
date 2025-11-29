@@ -6,7 +6,6 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <unordered_map>
 
 
 //{0: 'blue_cone', 1: 'orange_cone', 2: 'large_orange_cone', 3: 'yellow_cone'}
@@ -17,7 +16,6 @@ const int WIDTH = 640;
 const float THRESHOLD = 0.8f;
 const float IOU_OVERLAP = 0.5f;
 const int CONFIDENCE_STARTING_INDEX = 4;
-const std::unordered_map<int, FsaiConeSide> SIDES = {{0,FSAI_CONE_LEFT},{3,FSAI_CONE_RIGHT}};
 
 ConeDetector::ConeDetector(const std::string& path_to_model){
     if(path_to_model.empty()){
@@ -58,7 +56,7 @@ ConeDetector::ConeDetector(const std::string& path_to_model){
 
 ConeDetector::~ConeDetector() = default;
 
-std::vector<types::BoxBound>ConeDetector::detectCones(const cv::Mat& left_frame){
+std::vector<BoxBound>ConeDetector::detectCones(const cv::Mat& left_frame){
     // preprocess frames to be 640*640px
     cv::Mat blob = cv::dnn::blobFromImage(left_frame, 1.0/255.0, 
                                           cv::Size(WIDTH, HEIGHT), 
@@ -149,40 +147,43 @@ std::vector<types::BoxBound>ConeDetector::detectCones(const cv::Mat& left_frame)
         THRESHOLD,
         IOU_OVERLAP,
         nms_res);
-    std::vector<types::BoxBound> raw_detections;
+    std::vector<BoxBound> detections;
     for (int index : nms_res){
-        cv::Rect& final_box = boxes[index];
+
+        //create instances of detections
+        cv::Rect& final_box = boxes[index]; 
         int class_id = class_ids[index];
-
         fsai::types::ConeSide side;
-        switch(class_id){
-            case 0:
+        if(class_id == 0){
             side = FSAI_CONE_LEFT;
-            break;
-            case 3:
+        }else{
             side = FSAI_CONE_RIGHT;
-            break;
-            default:
-            side = FSAI_CONE_UNKNOWN;
-            break;
-        }
-
-        types::BoxBound bound = {
-            static_cast<float>(final_box.x),
-            static_cast<float>(final_box.y),
-            static_cast<float>(final_box.width),
-            static_cast<float>(final_box.height),
+        }   
+        BoxBound bound = {
+            final_box.x,
+            final_box.y,
+            (float)final_box.width,
+            (float)final_box.height,
             confidences[index],
-            side,
-            -1 // ID is currently unknown
+            side // Using this as a placeholder
         };
-        raw_detections.push_back(bound);
+        detections.push_back(bound);
     }
+    return detections;
+}
 
-    // Pass raw detections to tracker to assign IDs and smooth output
-    std::vector<types::BoxBound> tracked_detections = tracker_.update(raw_detections);
-
-    return tracked_detections;
+fsai::types::ConeDet ConeDetector::processDetection(const BoxBound& box_bound){
+    // create a new ConeDet
+    if(box_bound.w <= 0 || box_bound.h <= 0 || box_bound.x <= 0 || box_bound.y <= 0){
+        return FsaiConeDet();
+    }
+   
+    fsai::types::ConeDet cone = {
+        static_cast<float>(box_bound.x),static_cast<float>(box_bound.y),-1.0f,
+        box_bound.side,
+        box_bound.conf
+    };
+    return cone;
 }
 
 }
