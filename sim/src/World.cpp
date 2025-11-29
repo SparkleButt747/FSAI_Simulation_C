@@ -69,12 +69,13 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     auto beamSearchedCheckpoints = pathNodesToCheckpoints(pathNodes);
     lookaheadIndices = Controller_GetLookaheadIndices(
             static_cast<int>(checkpointPositions.size()), carSpeed, &racingConfig);
-    if (mission_.descriptor.type == fsai::sim::MissionType::kAcceleration &&
-        !pathNodes.empty()) {
+    if (!pathNodes.empty()) {
         throttle_out = Controller_GetThrottleInput(
             beamSearchedCheckpoints, static_cast<int>(pathNodes.size()),
             carSpeed, &carTransform, &racingConfig, dt);
-        steering_out = Controller_GetSteeringInput(beamSearchedCheckpoints, static_cast<int>(pathNodes.size()), carSpeed, &carTransform, &racingConfig, dt);
+        steering_out = Controller_GetSteeringInput(
+            beamSearchedCheckpoints, static_cast<int>(pathNodes.size()),
+            carSpeed, &carTransform, &racingConfig, dt);
         std::printf("Checkpoints Available: %zu\n", pathNodes.size());
         for (size_t i = 0; i < pathNodes.size(); ++i) {
             const auto& p = beamSearchedCheckpoints[i];
@@ -89,17 +90,11 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
         }
         delete[] beamSearchedCheckpoints;
     } else {
-        throttle_out = Controller_GetThrottleInput(
-            checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
-            carSpeed, &carTransform, &racingConfig, dt);
-        steering_out = Controller_GetSteeringInput(
-            checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
-            carSpeed, &carTransform, &racingConfig, dt);
-        std::printf("Checkpoints Available: %zu\n", checkpointPositions.size());
-        for (size_t i = 0; i < checkpointPositions.size(); ++i) {
-            const auto& p = checkpointPositions[i];
-            std::printf("  [%zu] (%f, %f, %f)\n", i, p.x, p.y, p.z);
-        }
+        // Fallback to braking if no path is found
+        throttle_out = 0.0f;
+        steering_out = 0.0f;
+        brakeInput = 1.0f;
+        std::printf("No path found by beam search. Applying brakes.\n");
     }
 
 
