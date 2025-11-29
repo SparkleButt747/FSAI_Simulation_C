@@ -252,29 +252,6 @@ void WorldRenderAdapter::drawScene(
         }
       }
     }
-  } else {
-    if (!checkpoints.empty()) {
-      const SDL_Color checkpoint_color{210, 20, 20, 220};
-      DrawCheckpointSquare(
-          &graphics_,
-          static_cast<int>(std::lround(checkpoints.front().x * render_scale +
-                                        graphics_.width / 2.0f)),
-          static_cast<int>(std::lround(checkpoints.front().z * render_scale +
-                                        graphics_.height / 2.0f)),
-          std::max(4.0f, render_scale * 1.5f), checkpoint_color);
-    }
-  }
-
-  if (!checkpoints.empty()) {
-    const SDL_Color checkpoint_color{210, 20, 20, 220};
-    for (const auto& checkpoint : checkpoints) {
-      const float cx = checkpoint.x * render_scale + graphics_.width / 2.0f;
-      const float cy = checkpoint.z * render_scale + graphics_.height / 2.0f;
-      DrawCheckpointSquare(&graphics_, static_cast<int>(std::lround(cx)),
-                           static_cast<int>(std::lround(cy)),
-                           std::max(4.0f, render_scale * 1.5f),
-                           checkpoint_color);
-    }
   }
 
   const auto& lookahead = snapshot.lookahead;
