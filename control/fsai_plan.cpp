@@ -222,10 +222,11 @@ int main(int argc, char* argv[]) {
     t1 = Clock::now();
     auto recomputePath = [&]() {
         const std::size_t beamWidth = static_cast<std::size_t>(std::max(1, beamWidthSetting));
-        std::vector<PathNode> best = beamSearch(adjacency, nodes, carFront, kMaxPathLength, kMinPathLength, beamWidth).first;
+        const SkidpadState skidpadState = SkidpadState::None;
+        std::vector<PathNode> best = beamSearch(adjacency, nodes, carFront, kMaxPathLength, kMinPathLength, beamWidth, skidpadState).first;
         float cost = std::numeric_limits<float>::infinity();
         if (best.size() >= 2) {
-            cost = calculateCost(best, kMinPathLength);
+            cost = calculateCost(best, kMinPathLength, skidpadState);
         }
         return std::make_pair(std::move(best), cost);
     };
@@ -343,6 +344,7 @@ int main(int argc, char* argv[]) {
         weightsChanged |= ImGui::SliderFloat("Spacing consistency", &weights.spacingStd, 0.0f, 10.0f, "%.2f");
         weightsChanged |= ImGui::SliderFloat("Color penalty", &weights.color, 0.0f, 10.0f, "%.2f");
         weightsChanged |= ImGui::SliderFloat("Progress weight", &weights.rangeSq, 0.0f, 5.0f, "%.3f");
+        weightsChanged |= ImGui::SliderFloat("Skidpad direction", &weights.skidpadDirection, 0.0f, 10000.0f, "%.2f");
         bool beamChanged = ImGui::SliderInt("Beam width", &beamWidthSetting, 1, 64);
         if (ImGui::Button("Reset weights")) {
             weights = defaultCostWeights();

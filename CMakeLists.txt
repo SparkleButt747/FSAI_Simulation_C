@@ -240,6 +240,7 @@ list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision/.*")
 list(FILTER SIM_C_SOURCES   EXCLUDE REGEX ".*/vision_test/.*")
 list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/vision_test/.*")
 
+list(FILTER SIM_CPP_SOURCES EXCLUDE REGEX ".*/control/.*\\.prot\\.cpp")
 list(APPEND SIM_C_SOURCES "${CMAKE_SOURCE_DIR}/control/controller.prot.c")
 file(GLOB CONTROL_SOURCE "${CMAKE_SOURCE_DIR}/control/fsai_plan.cpp")
 
@@ -248,7 +249,7 @@ add_library(fsai_sim STATIC
   ${SIM_CPP_SOURCES}
   ${ALL_HEADERS}
 )
-target_include_directories(fsai_sim PUBLIC ${HEADER_DIRS})
+target_include_directories(fsai_sim PUBLIC ${CMAKE_SOURCE_DIR} ${HEADER_DIRS})
 target_link_libraries(fsai_sim PUBLIC
   Eigen3::Eigen
   yaml-cpp::yaml-cpp
@@ -265,7 +266,7 @@ add_library(fsai_ctrl STATIC
   ${SIM_CPP_SOURCES}
   ${ALL_HEADERS}
 )
-target_include_directories(fsai_ctrl PUBLIC ${HEADER_DIRS})
+target_include_directories(fsai_ctrl PUBLIC ${CMAKE_SOURCE_DIR} ${HEADER_DIRS})
 target_link_libraries(fsai_ctrl PUBLIC
   Eigen3::Eigen
   CGAL::CGAL

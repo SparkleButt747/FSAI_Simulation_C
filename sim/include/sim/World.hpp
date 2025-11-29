@@ -10,6 +10,7 @@
 #include "VehicleInput.hpp"
 #include "Telemetry.hpp"
 #include "controller.prot.h"
+#include "control/centerline.hpp"
 #include "Transform.h"
 #include "Vector.h"
 #include "PathConfig.hpp"
@@ -104,6 +105,7 @@ public:
     double straightLineProgressMeters() const { return missionState_.straight_line_progress_m(); }
     fsai::sim::MissionRunStatus missionRunStatus() const { return missionState_.run_status(); }
     const fsai::sim::MissionRuntimeState& missionRuntime() const { return missionState_; }
+    SkidpadState skidpadState() const { return skidpadState_; }
 
     bool computeRacingControl(double dt, float& throttle_out, float& steering_out);
     void setSvcuCommand(float throttle, float brake, float steer);
@@ -161,6 +163,7 @@ private:
     int lapCount{0};
     fsai::sim::MissionDefinition mission_{};
     fsai::sim::MissionRuntimeState missionState_{};
+    SkidpadState skidpadState_{SkidpadState::None};
     bool insideLastCheckpoint_{false};
     struct StraightLineTracker {
         bool valid{false};

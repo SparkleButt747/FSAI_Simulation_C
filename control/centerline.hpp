@@ -32,10 +32,21 @@ using AllEdgeIterator=Triangulation::All_edges_iterator;
 using FiniteEdgeIterator=Triangulation::Finite_edges_iterator;
 using VertexHandle=Triangulation::Vertex_handle;
 
+enum class SkidpadState {
+    None,
+    Approach,
+    WarmUpLeft,
+    TimedLeft,
+    Transition,
+    WarmUpRight,
+    TimedRight,
+    Exit,
+};
+
 /** This represents a node on the path with the code detections that correspond
  * to the two points of the edges being included for computing the cost of a
- * path. There is also a special case where the PathNode is the starting node
- * which is the car's position. In this case, left and right are null.
+* path. There is also a special case where the PathNode is the starting node
+* which is the car's position. In this case, left and right are null.
  */
 class PathNode {
   public:
@@ -90,7 +101,7 @@ std::vector<Vector2> getCenterline(
  *
  * see table 3 here: https://arxiv.org/pdf/1905.05150
  */
-float calculateCost(const std::vector<PathNode>& path, std::size_t minLen);
+float calculateCost(const std::vector<PathNode>& path, std::size_t minLen, const SkidpadState& skidpadState);
 
 struct CostWeights {
     float angleMax = 5.3f;
@@ -98,7 +109,15 @@ struct CostWeights {
     float spacingStd = 10.0f;
     float color = 10.0f;
     float rangeSq = 0.15f;
+    float skidpadDirection = 0.0f;
 };
+
+class CostLogger {
+public:
+    void log(float angleScore, float widthScore, float spacingScore, float colorScore, float rangeScore, float straightnessPenalty, float totalCost);
+};
+
+CostLogger& getCostLogger();
 
 CostWeights defaultCostWeights();
 CostWeights getCostWeights();
@@ -190,7 +209,8 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     const Point& carFront,
     std::size_t maxLen,
     std::size_t minLen,
-    std::size_t beamWidth
+    std::size_t beamWidth,
+    const SkidpadState& skidpadState
 );
 
 void removePassedCones(

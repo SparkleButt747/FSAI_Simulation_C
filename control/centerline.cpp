@@ -23,6 +23,26 @@ namespace {
         static CostWeights weights{};
         return weights;
     }
+
+    CostLogger& costLoggerStorage(){
+        static CostLogger logger{};
+        return logger;
+    }
+}
+
+CostLogger& getCostLogger() {
+    return costLoggerStorage();
+}
+
+void CostLogger::log(float angleScore, float widthScore, float spacingScore, float colorScore, float rangeScore, float straightnessPenalty, float totalCost) {
+    std::cout << "Cost calculated: "
+              << "angle=" << angleScore
+              << ", width=" << widthScore
+              << ", spacing=" << spacingScore
+              << ", color=" << colorScore
+              << ", range=" << rangeScore
+              << ", straightness=" << straightnessPenalty
+              << ", total=" << totalCost << std::endl;
 }
 
 CostWeights defaultCostWeights() {
@@ -40,6 +60,7 @@ void setCostWeights(const CostWeights& weights) {
     storage.spacingStd = std::max(0.0f, weights.spacingStd);
     storage.color      = std::max(0.0f, weights.color);
     storage.rangeSq    = std::max(0.0f, weights.rangeSq);
+    storage.skidpadDirection = std::max(0.0f, weights.skidpadDirection);
 }
 
 namespace {
@@ -54,7 +75,7 @@ namespace {
     }
 }
 
-float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
+float calculateCost(const std::vector<PathNode>& path, std::size_t minLen, const SkidpadState& skidpadState) {
     if (path.size() < minLen) {
         return std::numeric_limits<float>::infinity();
     }
@@ -62,10 +83,13 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
     // Tunable weights
     const CostWeights weights = getCostWeights();
 
-    constexpr float SENSOR_RANGE  = 20.0f;    // meters
-    constexpr float NOMINAL_TRACK_WIDTH = 3.5f;  // see FS Driverless rules / AMZ Driverless
+    constexpr float SENSOR_RANGE  = 20.0f;    
+    constexpr float NOMINAL_TRACK_WIDTH = 3.5f;
 
-    // 1) Curvature and smoothness (AMZ Driverless Section 4.3.1 / Table 3)
+    // -------------------------------------------------------------------------
+    // 1) HEADINGS + CURVATURE
+    // -------------------------------------------------------------------------
+
     float maxTurn = 0.0f;
     float turnAccumSq = 0.0f;
     std::size_t turnSamples = 0;
@@ -98,10 +122,7 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
         ++turnSamples;
     }
 
-    float headingStd = 0.0f;
-    if (headings.size() >= 2) {
-        headingStd = stdev(headings);
-    }
+    float headingStd = (headings.size() >= 2 ? stdev(headings) : 0.0f);
 
     float curvatureScore = 0.0f;
     if (turnSamples > 0) {
@@ -110,101 +131,196 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen) {
     }
     curvatureScore += 0.25f * headingStd;
 
-    // 2) Standard deviation of track width
+    // -------------------------------------------------------------------------
+    // **NEW 1: IMMEDIATE heading-change penalty** 
+    // prevents early zig-zags even before corridor is detected
+    // -------------------------------------------------------------------------
+
+    float headingChangeCost = 0.0f;
+    for (size_t i = 1; i < headings.size(); ++i) {
+        headingChangeCost += std::abs(clampAngle(headings[i] - headings[i - 1]));
+    }
+    if (!headings.empty()) headingChangeCost /= headings.size();
+
+    // -------------------------------------------------------------------------
+    // 2) TRACK WIDTH
+    // -------------------------------------------------------------------------
+
     std::vector<float> widths;
     widths.reserve(path.size());
 
-    for(const auto& n : path) {
+    for (const auto& n : path)
         widths.push_back(dist(n.first.x, n.first.y, n.second.x, n.second.y));
-    }
 
     float widthStd = stdev(widths);
-    float widthMean = 0.0f;
-    if (!widths.empty()) {
-        widthMean = std::accumulate(widths.begin(), widths.end(), 0.0f) / static_cast<float>(widths.size());
-    }
+    float widthMean = (!widths.empty() ?
+        std::accumulate(widths.begin(), widths.end(), 0.0f) / widths.size() : 0.0f);
+
     const float widthMeanDeviation = std::abs(widthMean - NOMINAL_TRACK_WIDTH);
     const float widthScore = 0.7f * widthStd + 0.3f * widthMeanDeviation;
 
-    // 3) Std dev of distances between consecutive left cones and consecutive right cones
-    std::vector<float> leftSpacing, rightSpacing;
-    leftSpacing.reserve(path.size());
-    rightSpacing.reserve(path.size());
+    // -------------------------------------------------------------------------
+    // 3) CONE SPACING
+    // -------------------------------------------------------------------------
 
-    for(std::size_t i = 1; i < path.size(); i++) {
+    std::vector<float> leftSpacing, rightSpacing;
+    for (size_t i = 1; i < path.size(); ++i) {
         leftSpacing.push_back(dist(path[i-1].first, path[i].first));
         rightSpacing.push_back(dist(path[i-1].second, path[i].second));
     }
 
-    float spacingStd = 0.5f * (stdev(leftSpacing) + stdev(rightSpacing)); // 0.5f bc leftSpacing + rightSpacing
-    float leftMean = 0.0f;
-    float rightMean = 0.0f;
-    if (!leftSpacing.empty()) {
-        leftMean = std::accumulate(leftSpacing.begin(), leftSpacing.end(), 0.0f) /
-                   static_cast<float>(leftSpacing.size());
-    }
-    if (!rightSpacing.empty()) {
-        rightMean = std::accumulate(rightSpacing.begin(), rightSpacing.end(), 0.0f) /
-                    static_cast<float>(rightSpacing.size());
-    }
-    const float spacingAsymmetry = std::abs(leftMean - rightMean);
-    const float spacingScore = spacingStd + 0.2f * spacingAsymmetry;
+    float spacingStd = 0.5f * (stdev(leftSpacing) + stdev(rightSpacing));
+    float leftMean = (!leftSpacing.empty() ? 
+        std::accumulate(leftSpacing.begin(), leftSpacing.end(), 0.0f) / leftSpacing.size() : 0.0f);
+    float rightMean = (!rightSpacing.empty() ? 
+        std::accumulate(rightSpacing.begin(), rightSpacing.end(), 0.0f) / rightSpacing.size() : 0.0f);
+    float spacingAsymmetry = std::abs(leftMean - rightMean);
+    float spacingScore = spacingStd + 0.2f * spacingAsymmetry;
 
-    // 4) Color penalty, 0 if any color info missing, else 1 per mismatch
-    int sameSide=0;
-    int considered=0;
-    float colorPenalty = 0.0f;
+    // -------------------------------------------------------------------------
+    // 4) COLOR PENALTY
+    // -------------------------------------------------------------------------
+
+    int sameSide = 0;
+    int considered = 0;
 
     for (const auto& n : path) {
-        const auto a=n.first.side;
-        const auto b=n.second.side;
+        const auto a = n.first.side;
+        const auto b = n.second.side;
+        if (a == FSAI_CONE_UNKNOWN || b == FSAI_CONE_UNKNOWN) continue;
 
-        if(a==FSAI_CONE_UNKNOWN || b==FSAI_CONE_UNKNOWN)
-        {
-            continue;
-        }
+        bool opposite_track =
+            (a == FSAI_CONE_LEFT && b == FSAI_CONE_RIGHT) ||
+            (a == FSAI_CONE_RIGHT && b == FSAI_CONE_LEFT);
 
-        const bool opposite_track =   (a==FSAI_CONE_LEFT && b==FSAI_CONE_RIGHT) ||
-                                (a==FSAI_CONE_RIGHT && b==FSAI_CONE_LEFT);
+        bool same_orange = (a == FSAI_CONE_ORANGE && b == FSAI_CONE_ORANGE);
 
-        const bool same_orange = (a==FSAI_CONE_ORANGE && b==FSAI_CONE_ORANGE);
+        bool skidpad_transition =
+            (a == FSAI_CONE_ORANGE && b == FSAI_CONE_LEFT) ||
+            (a == FSAI_CONE_LEFT && b == FSAI_CONE_ORANGE) ||
+            (a == FSAI_CONE_ORANGE && b == FSAI_CONE_RIGHT) ||
+            (a == FSAI_CONE_RIGHT && b == FSAI_CONE_ORANGE);
 
         considered++;
-        if(!opposite_track && !same_orange) {
+        if (!opposite_track && !same_orange && !skidpad_transition)
             sameSide++;
-        }
     }
 
-    if(considered>0) {
-        colorPenalty = static_cast<float>(sameSide) * 1000.0f;
-    }
+    float colorPenalty = (considered > 0 ? sameSide * 1000.0f : 0.0f);
 
-    // 5) Squared difference between path length and sensor range
+    // -------------------------------------------------------------------------
+    // 5) RANGE COST
+    // -------------------------------------------------------------------------
+
     float pathLen = 0.0f;
-
-    for(std::size_t i = 1; i < path.size(); i++)
-    {
+    for (size_t i = 1; i < path.size(); ++i)
         pathLen += dist(path[i-1].midpoint, path[i].midpoint);
-    }
 
     float rangeCost = (pathLen - SENSOR_RANGE);
-    rangeCost *= rangeCost; // squared
+    rangeCost *= rangeCost;
 
-    if (path.size() < 4)
-    {
-        // Encourage the beam search to keep extending short candidates.
+    if (path.size() < 4) {
         const float minUsefulLength = 0.5f * SENSOR_RANGE;
         const float shortfall = std::max(0.0f, minUsefulLength - pathLen);
         rangeCost += shortfall * shortfall;
     }
 
-    // Weighted sum
+    // -------------------------------------------------------------------------
+    // **NEW 2: Oscillation penalty**
+    // kills right → left → right patterns
+    // -------------------------------------------------------------------------
+
+    float oscillationPenalty = 0.0f;
+    for (size_t i = 2; i < headings.size(); ++i) {
+        float d1 = clampAngle(headings[i-1] - headings[i-2]);
+        float d2 = clampAngle(headings[i]   - headings[i-1]);
+        if (d1 * d2 < 0)   // sign change = zig-zag
+            oscillationPenalty += 1.0f;
+    }
+    if (!headings.empty())
+        oscillationPenalty /= headings.size();
+
+    // -------------------------------------------------------------------------
+    // 6) IMPROVED Straightness Penalty (corridor)
+    // -------------------------------------------------------------------------
+
+    float straightnessPenalty = 0.0f;
+    if (path.size() > 2 && !headings.empty()) {
+
+        bool isStraightCorridor = true;
+        const float headingThreshold = 0.35f;  // increased from 0.2
+
+        for (size_t i = 1; i < std::min<size_t>(4, headings.size()); ++i) {
+            if (std::abs(clampAngle(headings[i] - headings[0])) > headingThreshold) {
+                isStraightCorridor = false;
+                break;
+            }
+        }
+        if (headings.size() < 2) isStraightCorridor = false;
+
+        if (isStraightCorridor) {
+            const auto& p1 = path[0].midpoint;
+            float h0 = headings[0];
+            float a = std::sin(h0);
+            float b = -std::cos(h0);
+            float c = -a*p1.x - b*p1.y;
+
+            float totalDistSq = 0.0f;
+            for (size_t i = 1; i < path.size(); ++i) {
+                const auto& p = path[i].midpoint;
+                float d = std::abs(a*p.x + b*p.y + c);
+                totalDistSq += d*d;
+            }
+            straightnessPenalty = totalDistSq / path.size();
+        }
+    }
+
+        // -------------------------------------------------------------------------
+    // 7) SKIDPAD DIRECTION
+    // -------------------------------------------------------------------------
+
+    float skidpadDirectionCost = 0.0f;
+    if (skidpadState != SkidpadState::None) {
+        for (size_t i = 1; i + 1 < path.size(); ++i) {
+            const auto& p0 = path[i - 1].midpoint;
+            const auto& p1 = path[i].midpoint;
+            const auto& p2 = path[i + 1].midpoint;
+
+            const float v1x = p1.x - p0.x;
+            const float v1y = p1.y - p0.y;
+            const float v2x = p2.x - p1.x;
+            const float v2y = p2.y - p1.y;
+
+            const float crossProduct = v1x * v2y - v1y * v2x;
+
+            if (skidpadState == SkidpadState::WarmUpLeft || skidpadState == SkidpadState::TimedLeft) {
+                if (crossProduct < 0) { // Right turn
+                    skidpadDirectionCost += -crossProduct;
+                }
+            } else if (skidpadState == SkidpadState::WarmUpRight || skidpadState == SkidpadState::TimedRight) {
+                if (crossProduct > 0) { // Left turn
+                    skidpadDirectionCost += crossProduct;
+                }
+            }
+        }
+    }
+
+
+    // -------------------------------------------------------------------------
+    // FINAL COST — weights chosen to kill zig-zags hard
+    // -------------------------------------------------------------------------
+
     const float cost =
         weights.angleMax   * curvatureScore +
         weights.widthStd   * widthScore +
         weights.spacingStd * spacingScore +
         weights.color      * colorPenalty +
-        weights.rangeSq    * rangeCost;
+        weights.rangeSq    * rangeCost +
+        weights.skidpadDirection * skidpadDirectionCost +
+
+        10000.0f * straightnessPenalty +      // existing
+        5000.0f  * headingChangeCost +         // NEW
+        8000.0f  * oscillationPenalty;         // NEW
 
     return cost;
 }
@@ -247,6 +363,7 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
 
         nodes.push_back(node);
     }
+    std::cout << ">>> generateGraph() CALLED <<<\n";
 
     // build index-based adjacency
     std::vector<std::vector<int>> adj(nodes.size());
@@ -254,8 +371,54 @@ std::pair<std::vector<PathNode>, std::vector<std::vector<int>>> generateGraph(
         auto& ids = kv.second;
         for (size_t i = 0; i < ids.size(); ++i){
             for (size_t j = i + 1; j < ids.size(); ++j) {
+                // ----------------------------------------------------------------------
+                // PATCH 2A: FILTER INVALID GRAPH EDGES
+                // ----------------------------------------------------------------------
+
+                auto &A = nodes[ids[i]].midpoint;
+                auto &B = nodes[ids[j]].midpoint;
+
+                // 1) do not allow backwards edges
+                float dAx = A.x - carFront.x();
+                float dAy = A.y - carFront.y();
+                float dBx = B.x - carFront.x();
+                float dBy = B.y - carFront.y();
+                float distA = dAx*dAx + dAy*dAy;
+                float distB = dBx*dBx + dBy*dBy;
+                //if (distB < distA) continue;
+
+                // 2) remove diagonal / long edges (>6m -> illegal for track)
+                float dx = A.x - B.x;
+                float dy = A.y - B.y;
+                float d = std::sqrt(dx*dx + dy*dy);
+                if (d > 12.0f) {
+                    std::cout << ">>> generateGraph() 12.0 CALLED <<<\n";
+                    continue;
+
+                }
+
+                // 3) remove very short edges (<0.3m)
+                if (d < 0.3f) {
+                        std::cout << ">>> generateGraph() 0.3 < CALLED <<<\n";
+
+                    continue;
+                }
+
+                // 4) prevent edges that cut through cones (track boundaries)
+                bool illegal = false;
+                for (auto vh = T.finite_vertices_begin(); vh != T.finite_vertices_end(); ++vh) {
+                    auto p = vh->point();
+                    float px = p.x(), py = p.y();
+
+                    float distToEdge = std::abs((B.y - A.y)*px - (B.x - A.x)*py + B.x*A.y - B.y*A.x) / d;
+                    if (distToEdge < 0.3f) { illegal = true; break; }
+                }
+                if (illegal) continue;
+
+                // VALID EDGE
                 adj[ids[i]].push_back(ids[j]);
                 adj[ids[j]].push_back(ids[i]);
+                // ----------------------------------------------------------------------
             }
         }
     }
@@ -505,7 +668,8 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     const Point& carFront,
     std::size_t maxLen,
     std::size_t minLen,
-    std::size_t beamWidth
+    std::size_t beamWidth,
+    const SkidpadState& skidpadState
 ) {
     if (nodes.empty() || adj.empty() || maxLen == 0 || beamWidth == 0) {
         return {};
@@ -530,7 +694,7 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
         }
         const auto path = buildPathFromIds(ids);
 
-        return calculateCost(path, minLen);
+        return calculateCost(path, minLen, skidpadState);
     };
 
     // pick start = node closest to carFront (simple, deterministic)
@@ -663,7 +827,10 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
         return {};
     }
 
-    return {buildPathFromIds(bestCandidate.indices), getPathEdges(buildPathFromIds(bestCandidate.indices))};
+    auto final_path = buildPathFromIds(bestCandidate.indices);
+    calculateCost(final_path, minLen, SkidpadState::None); // This will call the logger
+
+    return {final_path, getPathEdges(final_path)};
 }
 
 void removePassedCones(

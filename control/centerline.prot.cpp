@@ -294,7 +294,8 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
     const Point& carFront,
     std::size_t maxLen,
     std::size_t minLen,
-    std::size_t beamWidth
+    std::size_t beamWidth,
+    const SkidpadState& skidpadState
 )
 {
     if (nodes.empty() || adj.empty() || maxLen == 0 || beamWidth == 0)
@@ -322,7 +323,7 @@ std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamS
             return 0.0f;
         }
         const auto path = buildPathFromIds(ids);
-        return calculateCost(path, minLen);
+        return calculateCost(path, minLen, skidpadState);
     };
 
     // pick start = node closest to carFront (simple, deterministic)

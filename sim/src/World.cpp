@@ -148,9 +148,9 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
 
     Point carFront = getCarFront(vehicleState());
     double carYaw = vehicleState().yaw;
-
-    removePassedCones(triangulation_, coneToSide_, carFront, carYaw);
-
+    if (!(mission_.descriptor.type == fsai::sim::MissionType::kSkidpad)) {
+        removePassedCones(triangulation_, coneToSide_, carFront, carYaw);
+    }
     if (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad)
     {
         triangulationEdges = getVisibleTriangulationEdges(triangulation_, coneToSide_, vehicleState(), getLeftCones(), getRightCones(), getOrangeCones());
@@ -177,7 +177,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     if (needNewPath) {
         std::cout<<'\n'<<'\n'<<'\n'<<"COMPUTING!!!!"<<'\n'<<'\n'<<'\n';
         auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
-        auto searchResult = beamSearch(adj, nodes, carFront, 7, 2, 20);
+        auto searchResult = beamSearch(adj, nodes, carFront, 7, 2, 20, skidpadState_);
 
         cachedPathNodes = std::move(searchResult.first);
         bestPathEdges   = std::move(searchResult.second);  // still used for visualisation
@@ -205,7 +205,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     
     /*
     auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
-    auto searchResult = beamSearch(adj, nodes, carFront, 7, 4, 64);
+    auto searchResult = beamSearch(adj, nodes, carFront, 7, 4, 64, skidpadState_);
     auto pathNodes = searchResult.first;
     bestPathEdges = searchResult.second;
     auto checkpoints = pathNodesToCheckpoints(pathNodes);
@@ -272,6 +272,29 @@ void World::init(const char* yamlFilePath, fsai::sim::MissionDefinition mission)
 }
 
 void World::update(double dt) {
+    if (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad) {
+        const auto* segment = missionState_.current_segment();
+        if (segment) {
+            if (segment->spec.type == fsai::sim::MissionSegmentType::kWarmup) {
+                if (segment->completed_laps == 0) {
+                    skidpadState_ = SkidpadState::WarmUpLeft;
+                } else {
+                    skidpadState_ = SkidpadState::WarmUpRight;
+                }
+            } else if (segment->spec.type == fsai::sim::MissionSegmentType::kTimed) {
+                 if (missionState_.completed_laps() < 2) {
+                    skidpadState_ = SkidpadState::TimedLeft;
+                } else {
+                    skidpadState_ = SkidpadState::TimedRight;
+                }
+            } else if (segment->spec.type == fsai::sim::MissionSegmentType::kExit) {
+                skidpadState_ = SkidpadState::Exit;
+            }
+        }
+    } else {
+        skidpadState_ = SkidpadState::None;
+    }
+
     deltaTime = dt;
 
     if (checkpointPositions.empty()) {
