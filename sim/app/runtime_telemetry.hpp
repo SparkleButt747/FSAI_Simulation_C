@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <cstddef>
 #include <limits>
 #include <optional>
@@ -108,6 +109,22 @@ struct RuntimeTelemetry {
     std::optional<fsai::control::runtime::GpsSample> gps{};
   } can;
 
+  struct ControlStageSample {
+    fsai::types::ControlCmd command{};
+    double age_s{std::numeric_limits<double>::infinity()};
+    bool stale{true};
+    bool disabled{false};
+    bool valid{false};
+    std::string detail;
+  };
+
+  struct ControlPipeline {
+    ControlStageSample racing{};
+    ControlStageSample adapted{};
+    ControlStageSample transmitted{};
+    ControlStageSample dynamics{};
+  };
+
   struct ControlData {
     fsai::types::ControlCmd control_cmd{};
     float applied_throttle{0.0f};
@@ -116,9 +133,20 @@ struct RuntimeTelemetry {
     TimedSample<fsai::types::ControlCmd> ai_command{};
     bool ai_command_enabled{false};
     bool ai_command_applied{false};
+    bool ai_command_stale{false};
+    bool controller_ready{true};
     bool fallback_to_manual{false};
+    std::string ai_command_status;
+    bool velox_healthy{true};
+    std::string velox_status;
+    double io_command_age_s{std::numeric_limits<double>::infinity()};
+    double io_telemetry_age_s{std::numeric_limits<double>::infinity()};
+    bool io_command_stale{true};
+    bool io_telemetry_stale{true};
+    std::string io_status;
     bool has_last_command{false};
     std::optional<fsai::control::runtime::Ai2VcuCommandSet> last_command{};
+    ControlPipeline pipeline{};
   } control;
 
   struct ModeData {
@@ -128,4 +156,3 @@ struct RuntimeTelemetry {
 };
 
 }  // namespace fsai::sim::app
-

@@ -10,6 +10,7 @@
 #include <ctime>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -32,15 +33,11 @@
 #include "backends/imgui_impl_sdl2.h"
 #include "backends/imgui_impl_sdlrenderer2.h"
 
-#include "Graphics.h"
 #include "budget.h"
 #include "fsai_clock.h"
 #include "csv_logger.hpp"
-#include "logging.hpp"
-#include "gui_world_adapter.hpp"
-#include "provider_registry.hpp"
+#include "../include/logging.hpp"
 #include "stereo_display.hpp"
-#include "sim_stereo_source.hpp"
 #include "edge_preview.hpp"
 #include "vision/frame_ring_buffer.hpp"
 #include "vision/vision_node.hpp"
@@ -50,7 +47,9 @@
 #include "vision/detection_buffer_registry.hpp"
 #include "types.h"
 #include "World.hpp"
-#include "sim/cone_constants.hpp"
+#include "WorldRenderAdapter.hpp"
+#include "sim/vehicle/VeloxVehicleDynamics.hpp"
+#include "sim/vehicle/VehicleParam.hpp"
 #include "sim/mission/MissionDefinition.hpp"
 #include "sim/mission/TrackCsvLoader.hpp"
 #include "adsdv_dbc.hpp"
@@ -58,9 +57,12 @@
 #include "can_link.hpp"
 #include "ai2vcu_adapter.hpp"
 #include "can_iface.hpp"
+#include "control_signal_adapter.hpp"
 #include "runtime_telemetry.hpp"
-#include "centerline.hpp"
 #include "human/IUserInput.hpp"
+#include "sim/app/telemetry_units.hpp"
+
+using fsai::sim::app::TelemetryUnits;
 
 namespace {
 constexpr std::size_t kDefaultMissionIndex = 2;
@@ -98,6 +100,14 @@ std::string Trim(std::string_view text) {
   }
   const auto end = text.find_last_not_of(" \t\r\n");
   return std::string(text.substr(begin, end - begin + 1));
+}
+
+constexpr float kMaxSteerAngleRad =
+    fsai::sim::svcu::dbc::kMaxSteerDeg * fsai::sim::svcu::dbc::kDegToRad;
+
+float NormalizedSteerToRad(float normalized) {
+  const float clamped = std::clamp(normalized, -1.0f, 1.0f);
+  return clamped * kMaxSteerAngleRad;
 }
 
 const MissionOption* LookupMissionByToken(std::string_view token) {
@@ -197,7 +207,7 @@ fsai::sim::MissionDescriptor ResolveMissionSelection(
 #ifndef FSAI_PROJECT_ROOT
 #define FSAI_PROJECT_ROOT "."
 #endif
- 
+
 std::filesystem::path MakeProjectRelativePath(const std::filesystem::path& path) {
   if (path.is_absolute()) {
     return path;
@@ -205,7 +215,7 @@ std::filesystem::path MakeProjectRelativePath(const std::filesystem::path& path)
 
   return std::filesystem::path(FSAI_PROJECT_ROOT) / path;
 }
- 
+
 std::filesystem::path MakeProjectRelativePath(const std::string& path) {
   return MakeProjectRelativePath(std::filesystem::path(path));
 }
@@ -223,6 +233,13 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
       definition.targetLaps = 1;
       definition.allowRegeneration = false;
       definition.trackSource = fsai::sim::TrackSource::kCsv;
+      if (definition.track.checkpoints.size() >= 2) {
+        const auto& start = definition.track.checkpoints.front();
+        const auto& finish = definition.track.checkpoints.back();
+        const float dx = finish.position.x - start.position.x;
+        const float dz = finish.position.z - start.position.z;
+        definition.track_length_m = std::sqrt(dx * dx + dz * dz);
+      }
       break;
     }
     case fsai::sim::MissionType::kSkidpad: {
@@ -253,10 +270,7 @@ fsai::sim::MissionDefinition BuildMissionDefinition(
 
 
 constexpr double kDefaultDt = 0.01;
-constexpr int kWindowWidth = 800;
-constexpr int kWindowHeight = 600;
 constexpr int kReportIntervalFrames = 120;
-constexpr float kConeDisplayScale = 12.0f;
 constexpr uint16_t kDefaultCommandPort = fsai::sim::svcu::kDefaultCommandPort;
 constexpr uint16_t kDefaultTelemetryPort = fsai::sim::svcu::kDefaultTelemetryPort;
 constexpr double kCommandStaleSeconds = 0.1;
@@ -422,6 +436,8 @@ std::string MissionRunStatusLabel(fsai::sim::MissionRunStatus status, bool stop_
         return "Stop Commanded";
       }
       return "Running";
+    case fsai::sim::MissionRunStatus::kBraking:
+      return "Braking";
     case fsai::sim::MissionRunStatus::kCompleted:
       return stop_commanded ? "Completed (Stop Commanded)" : "Completed";
   }
@@ -449,6 +465,8 @@ ImVec4 MissionStatusColor(fsai::sim::MissionRunStatus status, bool stop_commande
         return Rgba255(239, 108, 0);
       }
       return Rgba255(255, 213, 79);
+    case fsai::sim::MissionRunStatus::kBraking:
+      return Rgba255(239, 108, 0);
     case fsai::sim::MissionRunStatus::kCompleted:
       return stop_commanded ? Rgba255(102, 187, 106) : Rgba255(76, 175, 80);
   }
@@ -563,6 +581,63 @@ void WithFreshnessColor(const fsai::sim::app::RuntimeTelemetry::TimedSample<T>& 
   fn();
   ImGui::PopStyleColor();
 }
+
+fsai::types::ControlCmd StageCommandFromAi2Vcu(
+    const fsai::control::runtime::Ai2VcuCommandSet& commands) {
+  fsai::types::ControlCmd cmd{};
+  cmd.throttle = commands.throttle_clamped;
+  cmd.brake = commands.brake_clamped;
+  cmd.steer_rad = commands.steer.steer_deg * fsai::sim::svcu::dbc::kDegToRad;
+  return cmd;
+}
+
+fsai::types::ControlCmd StageCommandFromVelox(
+    const fsai::vehicle::VeloxVehicleDynamics::Command& command) {
+  fsai::types::ControlCmd cmd{};
+  cmd.throttle = command.throttle;
+  cmd.brake = command.brake;
+  cmd.steer_rad = command.steer_rad;
+  return cmd;
+}
+
+std::string StageDetailFromAdapter(const fsai::sim::app::ControlSignalAdapterResult& adapter,
+                                   bool fallback_to_manual) {
+  if (!adapter.errors.empty()) {
+    return "Error: " + adapter.errors.back();
+  }
+  if (fallback_to_manual) {
+    return "Fallback to controller";
+  }
+  if (!adapter.warnings.empty()) {
+    return "Warning: " + adapter.warnings.back();
+  }
+  return "Adapted control command";
+}
+
+std::string StageDetailFromTransmitted(const fsai::control::runtime::Ai2VcuCommandSet& commands) {
+  char buf[128];
+  std::snprintf(buf, sizeof(buf),
+                "Torques F/R: %.1f/%.1f Nm | Brake F/R: %.1f/%.1f%% | Handshake: %s",
+                commands.front_drive.axle_torque_request_nm,
+                commands.rear_drive.axle_torque_request_nm, commands.brake.front_pct,
+                commands.brake.rear_pct,
+                commands.status.handshake ? "yes" : "no");
+  return std::string(buf);
+}
+
+std::string StageDetailFromDynamics(
+    const fsai::vehicle::VeloxVehicleDynamics::Command& command) {
+  if (command.front_axle_torque_nm && command.rear_axle_torque_nm) {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "Velox torques F/R: %.1f/%.1f Nm",
+                  *command.front_axle_torque_nm, *command.rear_axle_torque_nm);
+    return std::string(buf);
+  }
+  return "Dynamics command";
+}
+
+constexpr std::array<const char*, 4> kControlPipelineStageLabels = {
+    "Racing outputs", "Adapted commands", "Transmitted frames", "Dynamics inputs"};
 
 void DrawMissionPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   const auto& mission = telemetry.mission;
@@ -752,8 +827,8 @@ void DrawSimulationPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   ImGui::Text("Runtime mode: %s",
               telemetry.mode.runtime_mode.empty() ? "N/A"
                                                   : telemetry.mode.runtime_mode.c_str());
-  ImGui::Text("Control mode: %s",
-              telemetry.mode.use_controller ? "automatic" : "manual");
+  ImGui::Text("Controller readiness: %s",
+              telemetry.control.controller_ready ? "healthy" : "standby");
   ImGui::Text("Simulation time: %.2f s", telemetry.physics.simulation_time_s);
 
   if (ImGui::CollapsingHeader("Vehicle Pose", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -889,9 +964,19 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
   const bool ai_applied = telemetry.control.ai_command_applied;
   const bool fallback_manual = telemetry.control.fallback_to_manual;
 
-  ImGui::Text("Control mode: %s",
-              telemetry.mode.use_controller ? "automatic" : "manual");
+  ImGui::Text("Controller health: %s",
+              telemetry.control.controller_ready ? "healthy" : "standby");
   ImGui::Text("AI command stream: %s", ai_enabled ? "enabled" : "disabled");
+  if (telemetry.control.ai_command_stale) {
+    const ImVec4 stale_color{0.95f, 0.6f, 0.15f, 1.0f};
+    const std::string& status =
+        telemetry.control.ai_command_status.empty()
+            ? "AI commands stale or missing"
+            : telemetry.control.ai_command_status;
+    ImGui::TextColored(stale_color, "%s", status.c_str());
+  } else if (!telemetry.control.ai_command_status.empty()) {
+    ImGui::Text("%s", telemetry.control.ai_command_status.c_str());
+  }
 
   ImGui::Separator();
   ImGui::Text("AI request");
@@ -914,12 +999,15 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
 
   if (fallback_manual) {
     ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f),
-                       "Falling back to manual inputs");
+                       "AI stream degraded; controller running autonomously");
   } else if (ai_applied) {
     ImGui::TextColored(ImVec4(0.2f, 0.75f, 0.2f, 1.0f), "AI command applied");
+  } else if (telemetry.control.controller_ready) {
+    ImGui::TextColored(ImVec4(0.2f, 0.55f, 0.95f, 1.0f),
+                       "Controller running without AI overrides");
   } else {
-    ImGui::TextColored(ImVec4(0.95f, 0.85f, 0.25f, 1.0f),
-                       "Manual control active");
+    ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f),
+                       "Controller offline");
   }
 
   ImGui::Separator();
@@ -929,7 +1017,24 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
               telemetry.control.applied_brake,
               telemetry.control.applied_steer_rad *
                   fsai::sim::svcu::dbc::kRadToDeg);
-  ImGui::Text("Source: %s", ai_applied ? "AI" : "Manual");
+  ImGui::Text("Source: %s",
+              ai_applied ? "AI command" : "controller planner");
+  const ImVec4 velox_color =
+      telemetry.control.velox_healthy ? ImVec4(0.2f, 0.75f, 0.2f, 1.0f)
+                                      : ImVec4(0.9f, 0.3f, 0.3f, 1.0f);
+  ImGui::TextColored(velox_color, "Velox dynamics: %s",
+                     telemetry.control.velox_healthy ? "healthy" : "error");
+  if (!telemetry.control.velox_status.empty()) {
+    ImGui::TextWrapped("Velox note: %s", telemetry.control.velox_status.c_str());
+  }
+  const bool io_stale = telemetry.control.io_command_stale || telemetry.control.io_telemetry_stale;
+  const ImVec4 io_color =
+      io_stale ? ImVec4(0.95f, 0.6f, 0.15f, 1.0f) : ImVec4(0.2f, 0.75f, 0.2f, 1.0f);
+  ImGui::TextColored(io_color, "IO health (cmd/telemetry age [s]): %.3f / %.3f",
+                     telemetry.control.io_command_age_s, telemetry.control.io_telemetry_age_s);
+  if (!telemetry.control.io_status.empty()) {
+    ImGui::TextWrapped("IO note: %s", telemetry.control.io_status.c_str());
+  }
 
   if (telemetry.control.has_last_command && telemetry.control.last_command) {
     const auto& last = *telemetry.control.last_command;
@@ -984,8 +1089,77 @@ void DrawControlPanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
     ImGui::TextColored(ImVec4(0.9f, 0.3f, 0.3f, 1.0f),
                        "CAN acknowledgements lagging");
   } else {
-    ImGui::TextColored(ImVec4(0.2f, 0.75f, 0.2f, 1.0f),
+  ImGui::TextColored(ImVec4(0.2f, 0.75f, 0.2f, 1.0f),
                        "CAN acknowledgements healthy");
+  }
+
+  ImGui::End();
+}
+
+void DrawControlPipelinePanel(const fsai::sim::app::RuntimeTelemetry& telemetry) {
+  static const ImVec4 kHealthyColor{0.2f, 0.75f, 0.2f, 1.0f};
+  static const ImVec4 kStaleColor{0.95f, 0.6f, 0.15f, 1.0f};
+  static const ImVec4 kDisabledColor{0.6f, 0.6f, 0.6f, 1.0f};
+
+  ImGui::Begin("Control Pipeline");
+  const auto& pipeline = telemetry.control.pipeline;
+  const std::array<const fsai::sim::app::RuntimeTelemetry::ControlStageSample*, 4> samples = {
+      &pipeline.racing, &pipeline.adapted, &pipeline.transmitted, &pipeline.dynamics};
+
+  if (ImGui::BeginTable("control_pipeline", 4,
+                        ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                            ImGuiTableFlags_NoHostExtendX)) {
+    ImGui::TableSetupColumn("Stage", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+    ImGui::TableSetupColumn("Values");
+    ImGui::TableSetupColumn("Flags", ImGuiTableColumnFlags_WidthFixed, 140.0f);
+    ImGui::TableSetupColumn("Details");
+    ImGui::TableHeadersRow();
+
+    for (size_t i = 0; i < samples.size(); ++i) {
+      const auto* sample = samples[i];
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TextUnformatted(kControlPipelineStageLabels[i]);
+
+      const bool has_age = sample->valid && std::isfinite(sample->age_s);
+      const float steer_deg =
+          sample->command.steer_rad * fsai::sim::svcu::dbc::kRadToDeg;
+      ImGui::TableSetColumnIndex(1);
+      ImGui::Text("Throttle: %.2f | Brake: %.2f | Steer: %.1f°",
+                  sample->command.throttle, sample->command.brake, steer_deg);
+      std::string age_label = "n/a";
+      if (has_age) {
+        age_label = std::to_string(static_cast<int>(sample->age_s * 1000.0));
+      }
+      ImGui::Text("Age: %s", age_label.c_str());
+
+      ImGui::TableSetColumnIndex(2);
+      std::string flags;
+      if (sample->disabled) {
+        flags = "disabled";
+      }
+      if (sample->stale) {
+        if (!flags.empty()) {
+          flags += ", ";
+        }
+        flags += "stale";
+      }
+      if (flags.empty()) {
+        flags = "healthy";
+      }
+      const ImVec4 flag_color = sample->disabled ? kDisabledColor
+                                                  : (sample->stale ? kStaleColor : kHealthyColor);
+      ImGui::TextColored(flag_color, "%s", flags.c_str());
+
+      ImGui::TableSetColumnIndex(3);
+      if (!sample->detail.empty()) {
+        ImGui::TextWrapped("%s", sample->detail.c_str());
+      } else {
+        ImGui::TextUnformatted("-");
+      }
+    }
+
+    ImGui::EndTable();
   }
 
   ImGui::End();
@@ -1304,193 +1478,6 @@ void DrawDetectionPreviewPanel(fsai::vision::DetectionPreview& preview, uint64_t
   }
   ImGui::End();
 }
-namespace {
-
-void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
-                    float base_width_m, const SDL_Color& color) {
-  if (graphics == nullptr || graphics->renderer == nullptr) {
-    return;
-  }
-
-  const float base_radius_px =
-      0.5f * base_width_m * K_RENDER_SCALE * kConeDisplayScale;
-  const int radius_px =
-      std::max(1, static_cast<int>(std::lround(base_radius_px)));
-
-  SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
-                         color.a);
-  Graphics_DrawFilledCircle(graphics, center_x, center_y, radius_px);
-}
-
-}  // namespace
-
-void DrawWorldScene(Graphics* graphics,
-                    const fsai::sim::app::GuiWorldSnapshot& world,
-                    const fsai::sim::app::RuntimeTelemetry& telemetry) {
-  (void)telemetry;
-  fsai::time::SimulationStageTimer render_timer("renderer");
-  Graphics_Clear(graphics);
-  Graphics_DrawGrid(graphics, 50);
-
-  const auto& left_cones = world.left_cones;
-  const auto& right_cones = world.right_cones;
-  const std::size_t gate_count =
-      std::min(left_cones.size(), right_cones.size());
-
-  if (gate_count > 0) {
-    for (std::size_t i = 0; i < gate_count; ++i) {
-      const bool is_current_gate = (i == 0);
-      const SDL_Color color = is_current_gate
-                                  ? SDL_Color{200, 0, 200, 255}
-                                  : SDL_Color{120, 120, 200, 180};
-      const auto& left = left_cones[i];
-      const auto& right = right_cones[i];
-
-      const float left_x = left.x * K_RENDER_SCALE + graphics->width / 2.0f;
-      const float left_y = left.z * K_RENDER_SCALE + graphics->height / 2.0f;
-      const float right_x = right.x * K_RENDER_SCALE + graphics->width / 2.0f;
-      const float right_y = right.z * K_RENDER_SCALE + graphics->height / 2.0f;
-
-      SDL_SetRenderDrawColor(graphics->renderer, color.r, color.g, color.b,
-                             color.a);
-      SDL_RenderDrawLineF(graphics->renderer, left_x, left_y, right_x,
-                          right_y);
-
-      if (is_current_gate) {
-        const float thickness = std::max(1.5f, K_RENDER_SCALE * 0.15f);
-        const float dx = right_x - left_x;
-        const float dy = right_y - left_y;
-        const float length = std::hypot(dx, dy);
-        if (length > std::numeric_limits<float>::epsilon()) {
-          const float nx = -dy / length;
-          const float ny = dx / length;
-          const float offset_x = nx * thickness * 0.5f;
-          const float offset_y = ny * thickness * 0.5f;
-          SDL_RenderDrawLineF(graphics->renderer, left_x + offset_x,
-                              left_y + offset_y, right_x + offset_x,
-                              right_y + offset_y);
-          SDL_RenderDrawLineF(graphics->renderer, left_x - offset_x,
-                              left_y - offset_y, right_x - offset_x,
-                              right_y - offset_y);
-        }
-      }
-    }
-  } else {
-    const auto& checkpoints = world.checkpoints;
-    if (!checkpoints.empty()) {
-      SDL_SetRenderDrawColor(graphics->renderer, 200, 0, 200, 255);
-      Graphics_DrawFilledCircle(
-          graphics,
-          static_cast<int>(checkpoints.front().x * K_RENDER_SCALE +
-                           graphics->width / 2.0f),
-          static_cast<int>(checkpoints.front().z * K_RENDER_SCALE +
-                           graphics->height / 2.0f),
-          static_cast<int>(K_RENDER_SCALE));
-    }
-  }
-
-  const auto& lookahead = world.lookahead;
-
-  const auto& start_cones = world.start_cones;
-  const SDL_Color start_color{255, 140, 0, 255};
-  for (const auto& cone : start_cones) {
-    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
-                                        graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
-                                        graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y,
-                  fsai::sim::kLargeConeRadiusMeters * 2.0f, start_color);
-  }
-  // Blue 0, 102, 204, 255
-  const SDL_Color left_base{255, 214, 0, 255};
-  for (size_t i = 0; i < world.left_cones.size(); ++i) {
-    SDL_Color color = left_base;
-    if (i == 0) {
-      color = SDL_Color{0, 255, 0, 255};
-    } else if (static_cast<int>(i) == lookahead.speed) {
-      color = SDL_Color{255, 255, 0, 255};
-    } else if (static_cast<int>(i) == lookahead.steer) {
-      color = SDL_Color{255, 0, 255, 255};
-    }
-    const auto& cone = world.left_cones[i];
-    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
-                                        graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
-                                        graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y,
-                  fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
-  }
-  // Yellow 255, 214, 0, 255
-  const SDL_Color right_base{0, 102, 204, 255};
-  for (size_t i = 0; i < world.right_cones.size(); ++i) {
-    SDL_Color color = right_base;
-    if (i == 0) {
-      color = SDL_Color{0, 255, 0, 255};
-    } else if (static_cast<int>(i) == lookahead.speed) {
-      color = SDL_Color{255, 255, 0, 255};
-    } else if (static_cast<int>(i) == lookahead.steer) {
-      color = SDL_Color{255, 0, 255, 255};
-    }
-    const auto& cone = world.right_cones[i];
-    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
-                                        graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
-                                        graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y,
-                  fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
-  }
-
-  const auto& transform = world.vehicle_transform;
-  const float car_screen_x = transform.position.x * K_RENDER_SCALE +
-                             graphics->width / 2.0f;
-  const float car_screen_y = transform.position.z * K_RENDER_SCALE +
-                             graphics->height / 2.0f;
-  const float car_radius = 2.0f * K_RENDER_SCALE;
-  Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
-                   transform.yaw);
-
-    if (world.detections != nullptr) {
-      for (const auto& cone : *world.detections) {
-          // printf("\n\n cone conf %f \n\n", cone.conf);
-          int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
-                                        graphics->width / 2.0f);
-          int cone_y = static_cast<int>(cone.y * K_RENDER_SCALE +
-                                        graphics->height / 2.0f);
-          if (cone.side == FSAI_CONE_LEFT) {
-            SDL_SetRenderDrawColor(graphics->renderer, 5, 200, 5, 255);
-          } else if (cone.side == FSAI_CONE_RIGHT) {
-            SDL_SetRenderDrawColor(graphics->renderer, 200, 5, 5, 255);
-          } else if (cone.side == FSAI_CONE_UNKNOWN) {
-            SDL_SetRenderDrawColor(graphics->renderer, 150, 150, 150, 250);
-          }
-          Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 5);
-      }
-    }
-  auto to_cones = [](const std::vector<Vector3>& positions, ConeType type) {
-    std::vector<Cone> cones;
-    cones.reserve(positions.size());
-    for (const auto& pos : positions) {
-      Cone cone{};
-      cone.position = pos;
-      cone.type = type;
-      cones.push_back(cone);
-    }
-    return cones;
-  };
-
-  std::vector<std::pair<Vector2, Vector2>> triangulationEdges =
-      getVisibleTriangulationEdges(world.vehicle_state,
-                                   to_cones(world.left_cones, ConeType::Left),
-                                   to_cones(world.right_cones, ConeType::Right))
-          .second;
-  for (auto edge: triangulationEdges) {
-    Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
-  }
-  for (auto edge: world.best_path_edges) {
-    Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 255, 50, 50);
-  }
-}
-
 struct ChannelNoiseConfig {
   double noise_std{0.0};
   double latency_s{0.0};
@@ -1556,6 +1543,11 @@ class SensorDelayLine {
       }
     }
     return last_value_;
+  }
+
+  void clear() {
+    queue_.clear();
+    last_value_.reset();
   }
 
  private:
@@ -1692,6 +1684,11 @@ class LocalUserInput final : public human::IUserInput {
 int main(int argc, char* argv[]) {
   std::srand(static_cast<unsigned>(std::time(nullptr)));
 
+  // =============================
+  // HUMAN INPUT + MISSION SETUP
+  // Collect operator intent (mission selection, emergency stop) before wiring
+  // up the rest of the sim stack. Everything below flows from this mission
+  // descriptor: track generation, control targets, and GUI labeling.
   auto parse_port = [](const char* text, uint16_t fallback) {
     if (!text) return fallback;
     char* end = nullptr;
@@ -1770,13 +1767,27 @@ int main(int argc, char* argv[]) {
                          kDefaultDt);
     dt = kDefaultDt;
   }
+  const std::string default_udp_can = "udp:47000";
+#if defined(__linux__)
+  constexpr bool kPlatformHasSocketCan = true;
+#else
+  constexpr bool kPlatformHasSocketCan = false;
+#endif
+
   if (!can_iface_overridden) {
     if (mode == "sim") {
-      can_iface = "vcan0";
+      can_iface = kPlatformHasSocketCan ? "vcan0" : default_udp_can;
     } else if (mode == "car") {
-      can_iface = "can0";
+      can_iface = kPlatformHasSocketCan ? "can0" : default_udp_can;
     }
   }
+#if !defined(__linux__)
+  if (mode == "car" && !kPlatformHasSocketCan) {
+    fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                         "Car mode runs over UDP transport (%s) on this platform",
+                         can_iface.c_str());
+  }
+#endif
   can_iface = fsai::sim::svcu::canonicalize_can_endpoint(can_iface);
   const bool can_is_udp = fsai::sim::svcu::is_udp_endpoint(can_iface);
   fsai::sim::log::Logf(
@@ -1790,8 +1801,13 @@ int main(int argc, char* argv[]) {
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Mission: %s",
                        mission.name.c_str());
 
-  const fsai::sim::MissionDefinition mission_definition =
+  const fsai::sim::MissionDefinition base_mission_definition =
       BuildMissionDefinition(mission);
+  const auto world_config_path =
+      MakeProjectRelativePath(std::filesystem::path("configs/sim/world.yaml"));
+  const WorldConfig world_config =
+      LoadWorldConfig(world_config_path.string(), base_mission_definition);
+  const fsai::sim::MissionDefinition& mission_definition = world_config.mission;
   const char* track_source =
       mission_definition.trackSource == fsai::sim::TrackSource::kCsv ? "CSV" : "Random";
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
@@ -1824,6 +1840,7 @@ int main(int argc, char* argv[]) {
   };
 
   auto io_bus = std::make_shared<fsai::io::InProcessIoBus>();
+  fsai::io::InProcessIoBus::Health io_health{};
   fsai::io::TelemetryNoiseConfig bus_noise{};
   constexpr double kDegToRad = std::numbers::pi / 180.0;
   bus_noise.steer_rad_stddev = sensor_cfg.steering_deg.noise_std * kDegToRad;
@@ -1835,6 +1852,13 @@ int main(int argc, char* argv[]) {
   bus_noise.imu_stddev = sensor_cfg.imu.accel_longitudinal_std;
   bus_noise.gps_speed_stddev = sensor_cfg.gps.speed_std_mps;
   io_bus->set_noise_config(bus_noise);
+  io_bus->set_staleness_thresholds(kCommandStaleSeconds, kAckLagWarningSeconds);
+  io_bus->set_health_sink([&](const fsai::io::InProcessIoBus::Health& health) {
+    io_health = health;
+    if (!health.last_error.empty()) {
+      fsai::sim::log::LogWarning(health.last_error);
+    }
+  });
 
   fsai_clock_config clock_cfg{};
   clock_cfg.mode = FSAI_CLOCK_MODE_SIMULATED;
@@ -1877,6 +1901,10 @@ int main(int argc, char* argv[]) {
   GpsSample gps_meas{};
   bool has_gps_meas = false;
 
+  // =============================
+  // SIMULATION BUDGET + CONFIG PIPELINE
+  // Establish per-subsystem timing budgets and load vehicle/world configs that
+  // downstream Control, Vision, and World components will consume.
   fsai_budget_init();
   fsai_budget_configure(FSAI_BUDGET_SUBSYSTEM_SIMULATION, "Simulation Renderer",
                         fsai_clock_from_seconds(1.0 / 60.0));
@@ -1893,72 +1921,143 @@ int main(int argc, char* argv[]) {
       FSAI_BUDGET_SUBSYSTEM_CAN,
       "CAN transport not wired; pending hardware integration.");
 
-  const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
+  const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/ads-dv.yaml"));
   const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
-  VehicleDynamics vehicle_dynamics(vehicle_param);
+  fsai::vehicle::VeloxVehicleDynamics::Config dynamics_cfg{};
+  dynamics_cfg.config_root = MakeProjectRelativePath(std::filesystem::path("velox/config"));
+  dynamics_cfg.parameter_root = MakeProjectRelativePath(std::filesystem::path("velox/parameters"));
+  dynamics_cfg = fsai::vehicle::VeloxVehicleDynamics::Config::FromVehicleConfig(vehicle_config_path,
+                                                                                dynamics_cfg);
+  dynamics_cfg.max_steer_rad = vehicle_param.input_ranges.delta.max > 0.0
+                                   ? vehicle_param.input_ranges.delta.max
+                                   : dynamics_cfg.max_steer_rad;
+  dynamics_cfg.front_axle_max_torque_nm =
+      static_cast<float>(vehicle_param.powertrain.torque_front_max_nm);
+  dynamics_cfg.rear_axle_max_torque_nm =
+      static_cast<float>(vehicle_param.powertrain.torque_rear_max_nm);
+  const auto model_name = [model = dynamics_cfg.model]() {
+    switch (model) {
+      case velox::simulation::ModelType::MB: return "MB";
+      case velox::simulation::ModelType::ST: return "ST";
+      case velox::simulation::ModelType::STD: return "STD";
+    }
+    return "unknown";
+  }();
+  fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                       "Initializing Velox ADS-DV dynamics (model=%s vehicle_id=%d)",
+                       model_name, dynamics_cfg.vehicle_id);
+  fsai::vehicle::VeloxVehicleDynamics vehicle_dynamics(dynamics_cfg);
+  const double velox_wheel_radius = vehicle_dynamics.wheel_radius();
+  // =============================
+  // WORLD + VEHICLE DYNAMICS SECTION
+  // Bind the vehicle model into the World subsystem so it can handle track
+  // generation, mission runtime, collision resets, and publish debug info.
   World world;
-  WorldConfig world_config{mission_definition};
-  world.init(vehicle_dynamics, world_config);
-  vehicle_dynamics.setState(world.vehicleSpawnState().state,
-                            world.vehicleSpawnState().transform);
-  world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
-
-  Graphics graphics{};
-  if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,
-                    kWindowHeight) != 0) {
-    std::fprintf(stderr, "Graphics_Init failed\n");
-    return EXIT_FAILURE;
-  }
-
-  IMGUI_CHECKVERSION();
-  ImGui::CreateContext();
-  ImGuiIO& io = ImGui::GetIO();
-  (void)io;
-  ImGui::StyleColorsDark();
-  if (!ImGui_ImplSDL2_InitForSDLRenderer(graphics.window, graphics.renderer)) {
-    std::fprintf(stderr, "ImGui_ImplSDL2_InitForSDLRenderer failed\n");
-    ImGui::DestroyContext();
-    Graphics_Cleanup(&graphics);
-    return EXIT_FAILURE;
-  }
-  if (!ImGui_ImplSDLRenderer2_Init(graphics.renderer)) {
-    std::fprintf(stderr, "ImGui_ImplSDLRenderer2_Init failed\n");
-    ImGui_ImplSDL2_Shutdown();
-    ImGui::DestroyContext();
-    Graphics_Cleanup(&graphics);
-    return EXIT_FAILURE;
-  }
-
-  auto shutdown_imgui = [&]() {
-    ImGui_ImplSDLRenderer2_Shutdown();
-    ImGui_ImplSDL2_Shutdown();
-    ImGui::DestroyContext();
+  world.set_debug_publisher(io_bus.get());
+  bool mission_finished = false;
+  std::optional<WorldVehicleSpawn> pending_vehicle_reset;
+  const auto describe_reset_reason = [](fsai::sim::WorldRuntime::ResetReason reason)
+      -> const char* {
+    switch (reason) {
+      case fsai::sim::WorldRuntime::ResetReason::kConeCollision:
+        return "cone collision";
+      case fsai::sim::WorldRuntime::ResetReason::kBoundaryCollision:
+        return "boundary collision";
+      case fsai::sim::WorldRuntime::ResetReason::kTrackRegeneration:
+        return "track regeneration";
+      case fsai::sim::WorldRuntime::ResetReason::kExternal:
+        return "external reset";
+      case fsai::sim::WorldRuntime::ResetReason::kUnknown:
+      default:
+        return "unknown";
+    }
   };
+  world.runtime_controller().AddResetListener(
+      [describe_reset_reason](const fsai::sim::WorldRuntime::ResetEvent& evt) {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                             "World reset requested (%s)",
+                             describe_reset_reason(evt.reason));
+      });
+  world.runtime_controller().AddMissionCompleteListener(
+      [&mission_finished](const fsai::sim::MissionRuntimeState& state) {
+        fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                             "Mission '%s' complete after %.2f s (%zu/%zu laps)",
+                             state.mission().descriptor.name.c_str(),
+                             state.mission_time_seconds(),
+                             state.completed_laps(), state.target_laps());
+        mission_finished = true;
+      });
+  WorldVehicleContext world_vehicle_ctx{};
+  world_vehicle_ctx.dynamics = &vehicle_dynamics;
+  world_vehicle_ctx.reset_handler =
+      [&world, &vehicle_dynamics, &pending_vehicle_reset](const WorldVehicleSpawn& spawn) {
+        vehicle_dynamics.set_state(spawn.state, spawn.transform);
+        pending_vehicle_reset = spawn;
+      };
+  world.init(world_vehicle_ctx, world_config);
+
+  if (pending_vehicle_reset) {
+    world.acknowledgeVehicleReset(pending_vehicle_reset->transform);
+    pending_vehicle_reset.reset();
+  }
+
+  fsai::sim::world::WorldRenderAdapter renderer(world_config.renderer, world,
+                                                *io_bus);
+  if (!renderer.Initialize()) {
+    return EXIT_FAILURE;
+  }
+
+  bool imgui_initialized = false;
+  std::function<void()> shutdown_imgui = []() {};
+  if (renderer.window_enabled()) {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    (void)io;
+    ImGui::StyleColorsDark();
+    if (!ImGui_ImplSDL2_InitForSDLRenderer(renderer.window(),
+                                           renderer.renderer())) {
+      std::fprintf(stderr, "ImGui_ImplSDL2_InitForSDLRenderer failed\n");
+      ImGui::DestroyContext();
+      renderer.Shutdown();
+      return EXIT_FAILURE;
+    }
+    if (!ImGui_ImplSDLRenderer2_Init(renderer.renderer())) {
+      std::fprintf(stderr, "ImGui_ImplSDLRenderer2_Init failed\n");
+      ImGui_ImplSDL2_Shutdown();
+      ImGui::DestroyContext();
+      renderer.Shutdown();
+      return EXIT_FAILURE;
+    }
+    imgui_initialized = true;
+    shutdown_imgui = [&]() {
+      ImGui_ImplSDLRenderer2_Shutdown();
+      ImGui_ImplSDL2_Shutdown();
+      ImGui::DestroyContext();
+      imgui_initialized = false;
+    };
+  }
 
   fsai::sim::integration::CsvLogger logger("CarStateLog.csv", "RALog.csv");
   if (!logger.valid()) {
     std::fprintf(stderr, "Failed to open CSV logs\n");
     shutdown_imgui();
-    Graphics_Cleanup(&graphics);
+    renderer.Shutdown();
     return EXIT_FAILURE;
   }
 
-  fsai::sim::integration::registerBuiltInStereoProviders();
-  auto stereo_factory =
-      fsai::sim::integration::lookupStereoProvider("sim_stereo");
-  std::unique_ptr<fsai::io::camera::sim_stereo::SimStereoSource> stereo_source;
+  // =============================
+  // VISION SECTION
+  // Wire stereo output from WorldRenderer into the Vision ring buffers and
+  // launch the perception node plus optional GUI previews for edges/detections.
   std::shared_ptr<fsai::vision::FrameRingBuffer> stereo_frame_buffer;
   //vision_node
   std::shared_ptr<fsai::vision::VisionNode> vision_node;
-  if (stereo_factory) {
-    stereo_source = stereo_factory();
-    if (stereo_source) {
-      constexpr std::size_t kFrameRingCapacity = 4;
-      stereo_frame_buffer = fsai::vision::makeFrameRingBuffer(kFrameRingCapacity);
-      fsai::vision::setActiveFrameRingBuffer(stereo_frame_buffer);
-    }
-  }
-  if (!stereo_frame_buffer) {
+  if (renderer.stereo_enabled()) {
+    constexpr std::size_t kFrameRingCapacity = 4;
+    stereo_frame_buffer = fsai::vision::makeFrameRingBuffer(kFrameRingCapacity);
+    fsai::vision::setActiveFrameRingBuffer(stereo_frame_buffer);
+  } else {
     fsai::vision::setActiveFrameRingBuffer(nullptr);
   }
   std::unique_ptr<fsai::sim::integration::StereoDisplay> stereo_display;
@@ -1967,13 +2066,18 @@ int main(int argc, char* argv[]) {
   }
 
   fsai::vision::EdgePreview edge_preview;
+  SDL_Renderer* sdl_renderer = renderer.renderer();
   if (edge_preview_enabled && !stereo_frame_buffer) {
     fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
                          "Edge preview disabled: stereo source unavailable");
     edge_preview_enabled = false;
+  } else if (edge_preview_enabled && sdl_renderer == nullptr) {
+    fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                         "Edge preview disabled: renderer unavailable");
+    edge_preview_enabled = false;
   } else if (edge_preview_enabled && stereo_frame_buffer) {
     std::string preview_error;
-    if (!edge_preview.start(graphics.renderer, stereo_frame_buffer, preview_error)) {
+    if (!edge_preview.start(sdl_renderer, stereo_frame_buffer, preview_error)) {
       if (preview_error.empty()) {
         preview_error = "edge worker initialization failed";
       }
@@ -2010,6 +2114,8 @@ int main(int argc, char* argv[]) {
   } catch (const std::exception& e) {
     fsai::sim::log::Logf(fsai::sim::log::Level::kError,
                          "Failed to start VisionNode: %s", e.what());
+    shutdown_imgui();
+    renderer.Shutdown();
     return EXIT_FAILURE;
   }
   // --------------------------------------------------------
@@ -2019,12 +2125,16 @@ int main(int argc, char* argv[]) {
       fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
                          "Detection preview disabled: vision node unavailable");
       detection_preview_enabled = false;
+    } else if (renderer.renderer() == nullptr) {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                           "Detection preview disabled: renderer unavailable");
+      detection_preview_enabled = false;
     } else {
       // If we are here, we are good to start
       fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
                             "Attempting to start DetectionPreview...");
       std::string preview_error;
-      if (!detection_preview.start(graphics.renderer, vision_node, preview_error)) {
+      if (!detection_preview.start(renderer.renderer(), vision_node, preview_error)) {
         if (preview_error.empty()) {
           preview_error = "start() returned false";
         }
@@ -2037,19 +2147,32 @@ int main(int argc, char* argv[]) {
       }
     }
   }
-  std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
 
+  // =============================
+  // IO/CAN/NETWORK SECTION
+  // Bridge Control outputs and telemetry between the sim and external
+  // interfaces: configure CAN endpoints, UDP telemetry links, and adapters
+  // that translate controller intent into vehicle commands.
   fsai::control::runtime::CanIface::Config can_cfg{};
   can_cfg.endpoint = can_iface;
   can_cfg.enable_loopback = true;
+#if defined(__linux__)
   can_cfg.mode = (mode == "car") ? fsai::control::runtime::CanIface::Mode::kFsAiApi
-                                   : fsai::control::runtime::CanIface::Mode::kSimulation;
+                                 : fsai::control::runtime::CanIface::Mode::kSimulation;
   if (can_cfg.mode == fsai::control::runtime::CanIface::Mode::kFsAiApi) {
     can_cfg.enable_loopback = false;
   }
-  can_cfg.wheel_radius_m = vehicle_param.tire.radius;
+#else
+  can_cfg.mode = fsai::control::runtime::CanIface::Mode::kSimulation;
+  if (mode == "car") {
+    fsai::sim::log::Logf(
+        fsai::sim::log::Level::kInfo,
+        "Car mode running on this platform via UDP instead of SocketCAN");
+  }
+#endif
+  can_cfg.wheel_radius_m = velox_wheel_radius > 0.0 ? velox_wheel_radius : vehicle_param.tire.radius;
 
   fsai::control::runtime::CanIface can_interface;
   if (!can_interface.Initialize(can_cfg)) {
@@ -2062,13 +2185,13 @@ int main(int argc, char* argv[]) {
       if (!can_interface.Initialize(can_cfg)) {
         std::fprintf(stderr, "Failed to open CAN endpoint %s\n", can_cfg.endpoint.c_str());
         shutdown_imgui();
-        Graphics_Cleanup(&graphics);
+        renderer.Shutdown();
         return EXIT_FAILURE;
       }
     } else {
       std::fprintf(stderr, "Failed to open CAN endpoint %s\n", can_cfg.endpoint.c_str());
       shutdown_imgui();
-      Graphics_Cleanup(&graphics);
+      renderer.Shutdown();
       return EXIT_FAILURE;
     }
   }
@@ -2077,7 +2200,7 @@ int main(int argc, char* argv[]) {
   if (!command_rx.bind(command_port)) {
     std::fprintf(stderr, "Failed to bind command UDP port %u\n", command_port);
     shutdown_imgui();
-    Graphics_Cleanup(&graphics);
+    renderer.Shutdown();
     return EXIT_FAILURE;
   }
 
@@ -2086,7 +2209,7 @@ int main(int argc, char* argv[]) {
     std::fprintf(stderr, "Failed to connect telemetry UDP port %u\n",
                  telemetry_port);
     shutdown_imgui();
-    Graphics_Cleanup(&graphics);
+    renderer.Shutdown();
     return EXIT_FAILURE;
   }
   io_bus->set_telemetry_sink(
@@ -2119,20 +2242,122 @@ int main(int argc, char* argv[]) {
   adapter_cfg.max_speed_kph =
       static_cast<float>(vehicle_param.input_ranges.vel.max * 3.6);
   adapter_cfg.mission_descriptor = mission_definition.descriptor;
+  adapter_cfg = fsai::control::runtime::Ai2VcuAdapter::SanitizeConfig(adapter_cfg);
   fsai::control::runtime::Ai2VcuAdapter ai2vcu_adapter(adapter_cfg);
+
+  fsai::sim::app::ControlSignalAdapterConfig control_signal_cfg{};
+  const double steer_limit = vehicle_param.input_ranges.delta.max > 0.0
+                                 ? vehicle_param.input_ranges.delta.max
+                                 : fsai::sim::svcu::dbc::kMaxSteerDeg *
+                                       fsai::sim::svcu::dbc::kDegToRad;
+  control_signal_cfg.max_abs_steer_rad = static_cast<float>(steer_limit);
+  control_signal_cfg.front_axle_max_torque_nm = adapter_cfg.front_axle_max_torque_nm;
+  control_signal_cfg.rear_axle_max_torque_nm = adapter_cfg.rear_axle_max_torque_nm;
+  control_signal_cfg.front_torque_fraction = adapter_cfg.front_torque_fraction;
+  control_signal_cfg.rear_torque_fraction = adapter_cfg.rear_torque_fraction;
+  fsai::sim::app::ControlSignalAdapter control_signal_adapter(control_signal_cfg);
 
   fsai::control::runtime::Ai2VcuCommandSet last_ai2vcu_commands{};
   bool has_last_ai_command = false;
+  struct ControlPipelineSnapshot {
+    fsai::types::ControlCmd command{};
+    uint64_t timestamp_ns{0};
+    bool disabled{false};
+    std::string detail;
+  };
+  ControlPipelineSnapshot stage_racing{};
+  ControlPipelineSnapshot stage_adapted{};
+  ControlPipelineSnapshot stage_transmitted{};
+  ControlPipelineSnapshot stage_dynamics{};
+  enum class PipelineStageHealth { kUnknown, kHealthy, kStale, kDisabled };
+  std::array<PipelineStageHealth, 4> stage_health_state{};
+  stage_health_state.fill(PipelineStageHealth::kUnknown);
+  auto log_stage_transition = [&](std::size_t idx, PipelineStageHealth new_health,
+                                  double age_s, const std::string& detail) {
+    if (stage_health_state[idx] == new_health) {
+      return;
+    }
+    stage_health_state[idx] = new_health;
+    const char* name = kControlPipelineStageLabels[idx];
+    switch (new_health) {
+      case PipelineStageHealth::kDisabled:
+        fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                             "Control stage '%s' disabled (%s)", name,
+                             detail.empty() ? "inactive" : detail.c_str());
+        break;
+      case PipelineStageHealth::kStale:
+        if (std::isfinite(age_s)) {
+          fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                               "Control stage '%s' stale (age %.0f ms)", name,
+                               age_s * 1000.0);
+        } else {
+          fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                               "Control stage '%s' stale (no timestamp)", name);
+        }
+        break;
+      case PipelineStageHealth::kHealthy:
+        fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                             "Control stage '%s' healthy", name);
+        break;
+      default:
+        break;
+    }
+  };
+
+  // RESET/BUFFER MANAGEMENT: called when World asks for a reset (cone hit,
+  // track regeneration, or external trigger). Clears stale IO/vision buffers
+  // so the next mission attempt starts clean.
+  auto clear_runtime_state_for_reset = [&]() {
+    steer_delay.clear();
+    wheel_delay.clear();
+    torque_delay.clear();
+    brake_delay.clear();
+    speed_delay.clear();
+    imu_delay.clear();
+    gps_delay.clear();
+
+    has_steer_meas = false;
+    has_wheel_meas = false;
+    has_torque_meas = false;
+    has_brake_meas = false;
+    has_speed_meas = false;
+    has_imu_meas = false;
+    has_gps_meas = false;
+    has_last_ai_command = false;
+    last_ai2vcu_commands = {};
+    stage_racing = {};
+    stage_adapted = {};
+    stage_transmitted = {};
+    stage_dynamics = {};
+    stage_health_state.fill(PipelineStageHealth::kUnknown);
+
+    if (auto frame_buffer = stereo_frame_buffer) {
+      while (frame_buffer->tryPop()) {
+      }
+    }
+    if (auto detection_buffer = fsai::vision::getActiveDetectionBuffer()) {
+      while (detection_buffer->tryPop()) {
+      }
+    }
+
+    io_bus->clear_state();
+  };
 
   const uint64_t stale_threshold_ns =
       fsai_clock_from_seconds(kCommandStaleSeconds);
+
+  bool ai_command_stale_reported = false;
+  bool ai_command_missing_reported = false;
+  bool ai_command_disabled_reported = false;
 
 
   while (running) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-      ImGui_ImplSDL2_ProcessEvent(&event);
-      Graphics_HandleWindowEvent(&graphics, &event);
+      if (imgui_initialized) {
+        ImGui_ImplSDL2_ProcessEvent(&event);
+      }
+      renderer.HandleEvent(event);
       if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
         switch (event.key.keysym.sym) {
           case SDLK_ESCAPE:
@@ -2171,31 +2396,59 @@ int main(int argc, char* argv[]) {
       break;
     }
 
-    ImGui_ImplSDLRenderer2_NewFrame();
-    ImGui_ImplSDL2_NewFrame();
-    ImGui::NewFrame();
+    if (imgui_initialized) {
+      ImGui_ImplSDLRenderer2_NewFrame();
+      ImGui_ImplSDL2_NewFrame();
+      ImGui::NewFrame();
+    }
 
     can_interface.Poll(fsai_clock_now());
 
     float autopThrottle = world.throttleInput;
     float autopBrake = world.brakeInput;
     float autopSteer = world.steeringAngle;
-    if (world.useController) {
-      float raThrottle = 0.0f;
-      float raSteer = 0.0f;
-      if (world.computeRacingControl(step_seconds, raThrottle, raSteer)) {
-        autopSteer = raSteer;
-        if (raThrottle >= 0.0f) {
-          autopThrottle = raThrottle;
-          autopBrake = 0.0f;
-        } else {
-          autopThrottle = 0.0f;
-          autopBrake = -raThrottle;
-        }
+    float requestedThrottle = world.throttleInput;
+    float requestedBrake = world.brakeInput;
+    float requestedSteer = world.steeringAngle;
+    float controllerThrottle = 0.0f;
+    float controllerSteer = 0.0f;
+    float controllerSteerRad = 0.0f;
+    const bool controller_ready = world.computeRacingControl(step_seconds, controllerThrottle, controllerSteer);
+    if (controller_ready) {
+      requestedSteer = NormalizedSteerToRad(controllerSteer);
+      autopSteer = requestedSteer;
+      controllerSteerRad = requestedSteer;
+      if (controllerThrottle >= 0.0f) {
+        requestedThrottle = controllerThrottle;
+        autopThrottle = requestedThrottle;
+        requestedBrake = 0.0f;
+        autopBrake = 0.0f;
+      } else {
+        requestedThrottle = 0.0f;
+        autopThrottle = 0.0f;
+        //Controller gives negative throttle for braking, and we make requested brake positive...
+        requestedBrake = -controllerThrottle;
+        autopBrake = requestedBrake;
       }
     }
+    if (world.missionRunStatus() == fsai::sim::MissionRunStatus::kBraking) {
+        requestedSteer = 0;
+        autopSteer = 0;
+        controllerSteerRad = 0;
+        autopBrake = 1.0f;
+        requestedBrake = 1.0f;
+        autopThrottle = 0.0f;
+        requestedThrottle = 0.0f;
 
-    const VehicleState& veh_state = world.vehicleState();
+
+        const auto& state = world.vehicle_state();
+        if (state.velocity.norm() < 0.1) {
+            world.runtime_controller().MarkMissionCompleted();
+        }
+    }
+    world.useController = controller_ready ? 1 : 0;
+
+    const VehicleState& veh_state = world.vehicle_state();
     const double vx = veh_state.velocity.x();
     const double vy = veh_state.velocity.y();
     const float speed_mps = static_cast<float>(std::sqrt(vx * vx + vy * vy));
@@ -2221,24 +2474,35 @@ int main(int argc, char* argv[]) {
       return static_cast<double>(now_ns - timestamp_ns) * 1e-9;
     };
 
-    float appliedThrottle = autopThrottle;
-    float appliedBrake = autopBrake;
-    float appliedSteer = autopSteer;
+    if (controller_ready) {
+      stage_racing.command.steer_rad = controllerSteerRad;
+      if (controllerThrottle >= 0.0f) {
+        stage_racing.command.throttle = controllerThrottle;
+        stage_racing.command.brake = 0.0f;
+      } else {
+        stage_racing.command.throttle = 0.0f;
+        stage_racing.command.brake = -controllerThrottle;
+      }
+      stage_racing.timestamp_ns = now_ns;
+      stage_racing.disabled = false;
+      stage_racing.detail = "Controller output";
+    } else {
+      stage_racing.disabled = true;
+      stage_racing.detail = "Controller offline";
+    }
+
     bool ai_command_applied = false;
+    bool ai_command_stale = false;
+    std::string ai_command_status;
     auto latest_command = io_bus->latest_command();
     const bool ai_command_enabled = latest_command && latest_command->enabled != 0;
-    if (latest_command) {
-      if (latest_command->t_ns <= now_ns &&
-          now_ns - latest_command->t_ns <= stale_threshold_ns) {
-        appliedThrottle = latest_command->throttle;
-        appliedBrake = latest_command->brake;
-        appliedSteer = latest_command->steer_rad;
-        ai_command_applied = true;
-      }
-    }
+    const bool ai_command_disabled = latest_command && latest_command->enabled == 0;
+    // The AI control stream is assumed to stay enabled; a zero bit is a hard
+    // error that must be surfaced via telemetry.
 
     fsai::sim::app::RuntimeTelemetry::TimedSample<fsai::types::ControlCmd>
         ai_command_sample{};
+    std::string ai_command_disable_reason;
     if (latest_command) {
       ai_command_sample.valid = true;
       ai_command_sample.value.steer_rad = latest_command->steer_rad;
@@ -2246,19 +2510,88 @@ int main(int argc, char* argv[]) {
       ai_command_sample.value.brake = latest_command->brake;
       ai_command_sample.value.t_ns = latest_command->t_ns;
       ai_command_sample.age_s = compute_age_seconds(latest_command->t_ns);
+
+      const bool fresh = latest_command->t_ns <= now_ns &&
+                         now_ns - latest_command->t_ns <= stale_threshold_ns;
+      const bool apply_ai_command = fresh && ai_command_enabled;
+      if (apply_ai_command) {
+        requestedThrottle = latest_command->throttle;
+        requestedBrake = latest_command->brake;
+        requestedSteer = latest_command->steer_rad;
+        ai_command_applied = true;
+        ai_command_stale = false;
+        ai_command_status.clear();
+        if (ai_command_stale_reported || ai_command_missing_reported ||
+            ai_command_disabled_reported) {
+          fsai::sim::log::LogInfo("AI command stream healthy; applying AI inputs");
+          ai_command_stale_reported = false;
+          ai_command_missing_reported = false;
+          ai_command_disabled_reported = false;
+        }
+      } else {
+        ai_command_stale = true;
+        if (ai_command_enabled && !fresh) {
+          ai_command_status =
+              "AI command stale (age " + std::to_string(ai_command_sample.age_s) +
+              " s); controller continuing onboard plan";
+          if (!ai_command_stale_reported) {
+            fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
+                                 "AI command stale (age %.3f s); continuing controller outputs",
+                                 ai_command_sample.age_s);
+            ai_command_stale_reported = true;
+          }
+        }
+        if (ai_command_disabled) {
+          ai_command_disable_reason =
+              "AI command stream disabled; manual/hold inputs detected";
+          ai_command_status = ai_command_disable_reason;
+          if (!ai_command_disabled_reported) {
+            fsai::sim::log::Logf(fsai::sim::log::Level::kError,
+                                 "AI command stream disabled; manual hold requested");
+            ai_command_disabled_reported = true;
+          }
+        }
+      }
     } else {
       ai_command_sample.age_s = std::numeric_limits<double>::infinity();
+      if (ai_command_enabled && !ai_command_missing_reported) {
+        fsai::sim::log::LogWarning(
+            "AI command stream enabled but no commands received; continuing controller outputs");
+        ai_command_missing_reported = true;
+      }
+      if (ai_command_enabled) {
+        ai_command_stale = true;
+        if (ai_command_status.empty()) {
+          ai_command_status =
+              "AI command stream missing; controller running autonomously";
+        }
+      }
     }
-    const bool fallback_to_manual = ai_command_enabled && !ai_command_applied;
+    const bool fallback_to_manual =
+        (ai_command_enabled && !ai_command_applied) || ai_command_disabled;
 
-    appliedThrottle = std::clamp(appliedThrottle, 0.0f, 1.0f);
-    appliedBrake = std::clamp(appliedBrake, 0.0f, 1.0f);
+    fsai::types::ControlCmd raw_cmd{};
+    raw_cmd.throttle = requestedThrottle;
+    raw_cmd.brake = requestedBrake;
+    raw_cmd.steer_rad = requestedSteer;
+    raw_cmd.t_ns = now_ns;
 
-    fsai::types::ControlCmd control_cmd{};
-    control_cmd.throttle = appliedThrottle;
-    control_cmd.brake = appliedBrake;
-    control_cmd.steer_rad = appliedSteer;
-    control_cmd.t_ns = now_ns;
+    auto adapted_cmd = control_signal_adapter.Adapt(raw_cmd);
+    if (!ai_command_disable_reason.empty()) {
+      adapted_cmd.errors.emplace_back(ai_command_disable_reason);
+    }
+    fsai::types::ControlCmd control_cmd = adapted_cmd.clamped_cmd;
+    stage_adapted.command = control_cmd;
+    stage_adapted.timestamp_ns = now_ns;
+    stage_adapted.disabled = fallback_to_manual;
+    stage_adapted.detail = StageDetailFromAdapter(adapted_cmd, fallback_to_manual);
+    if (ai_command_status.empty()) {
+      if (!adapted_cmd.errors.empty()) {
+        ai_command_status = adapted_cmd.errors.back();
+      } else if (!adapted_cmd.warnings.empty()) {
+        ai_command_status = adapted_cmd.warnings.back();
+      }
+    }
 
     if (now_ns - last_ai2vcu_tx_ns >= ai2vcu_period_ns) {
       const auto& mission_state = world.missionRuntime();
@@ -2278,111 +2611,162 @@ int main(int argc, char* argv[]) {
       adapter_telemetry.mission_finished =
           mission_state.run_status() == fsai::sim::MissionRunStatus::kCompleted ||
           mission_state.stop_commanded();
-      const auto total_cones = world.getLeftCones().size() +
-                               world.getRightCones().size() +
-                               world.getStartCones().size();
-      if (total_cones > 0) {
-        adapter_telemetry.cones_count_all = static_cast<uint16_t>(
-            std::min<size_t>(total_cones, std::numeric_limits<uint16_t>::max()));
+      if (world.public_ground_truth_enabled()) {
+        const auto total_cones = world.getLeftCones().size() +
+                                 world.getRightCones().size() +
+                                 world.getStartCones().size();
+        if (total_cones > 0) {
+          adapter_telemetry.cones_count_all = static_cast<uint16_t>(
+              std::min<size_t>(total_cones, std::numeric_limits<uint16_t>::max()));
+        }
       }
 
       auto command_frames = ai2vcu_adapter.Adapt(
           control_cmd, can_interface.RawStatus(), adapter_telemetry);
-      if (can_interface.Send(command_frames, now_ns)) {
+      const bool sent = can_interface.Send(command_frames, now_ns);
+      if (sent) {
         last_ai2vcu_tx_ns = now_ns;
         last_ai2vcu_commands = command_frames;
         has_last_ai_command = true;
+        stage_transmitted.command = StageCommandFromAi2Vcu(command_frames);
+        stage_transmitted.timestamp_ns = now_ns;
+        stage_transmitted.disabled = false;
+        stage_transmitted.detail = StageDetailFromTransmitted(command_frames);
+      } else {
+        stage_transmitted.disabled = true;
+        stage_transmitted.detail = "CAN transmission failed";
       }
     }
 
     can_interface.Poll(now_ns);
 
-    world.setSvcuCommand(appliedThrottle, appliedBrake, appliedSteer);
-    world.throttleInput = appliedThrottle;
-    world.brakeInput = appliedBrake;
-    world.steeringAngle = appliedSteer;
+    world.throttleInput = control_cmd.throttle;
+    world.brakeInput = control_cmd.brake;
+    world.steeringAngle = control_cmd.steer_rad;
 
-    vehicle_dynamics.setCommand(appliedThrottle, appliedBrake, appliedSteer);
+    stage_dynamics.command = StageCommandFromVelox(adapted_cmd.velox_command);
+    stage_dynamics.timestamp_ns = now_ns;
+    stage_dynamics.disabled = !vehicle_dynamics.healthy();
+    stage_dynamics.detail = StageDetailFromDynamics(adapted_cmd.velox_command);
+    if (!vehicle_dynamics.healthy()) {
+      stage_dynamics.detail += " (dynamics unhealthy)";
+    }
+    adapted_cmd.velox_command.throttle = requestedThrottle;
+    adapted_cmd.velox_command.brake = requestedBrake;
+    adapted_cmd.velox_command.steer_rad = requestedSteer;
+
+    vehicle_dynamics.set_command(adapted_cmd.velox_command);
     vehicle_dynamics.step(step_seconds);
 
     {
       fsai::time::ControlStageTimer control_timer("world_update");
       world.update(step_seconds);
     }
-    if (world.vehicleResetPending()) {
-      world.coneDetections.clear();
-      vision_node.reset();
-      vehicle_dynamics.setState(world.vehicleSpawnState().state,
-                                world.vehicleSpawnState().transform);
-      world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
+
+    if (const auto pending_reason = world.runtime_controller().pending_reset_reason()) {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                           "Reset pending (%s); clearing buffered IO/vision state",
+                           describe_reset_reason(*pending_reason));
+      clear_runtime_state_for_reset();
+      mission_finished = false;
+      if (pending_vehicle_reset) {
+        world.acknowledgeVehicleReset(pending_vehicle_reset->transform);
+        pending_vehicle_reset.reset();
+      }
+      if (imgui_initialized) {
+        ImGui::EndFrame();
+      }
+      continue;
     }
     const double sim_time_s = fsai_clock_to_seconds(now_ns);
 
-    const auto& vehicle_state = world.vehicleState();
-    const auto& model = world.model();
-    const auto& pt_status = model.lastPowertrainStatus();
-    const auto& brake_status = model.lastBrakeStatus();
-    const WheelsInfo& wheel_info = world.wheelsInfo();
-    const double wheel_radius = std::max(0.01, model.param().tire.radius);
-    const double front_drive_force = pt_status.front_drive_force - pt_status.front_regen_force;
-    const double rear_drive_force = pt_status.rear_drive_force - pt_status.rear_regen_force;
-    const double front_net_force = front_drive_force - brake_status.front_force;
-    const double rear_net_force = rear_drive_force - brake_status.rear_force;
-    const double front_axle_torque_nm = front_drive_force * wheel_radius;
-    const double rear_axle_torque_nm = rear_drive_force * wheel_radius;
+    const auto& vehicle_state = world.vehicle_state();
+    const WheelsInfo& wheel_info = world.wheels_info();
+    const auto& velox_telemetry = vehicle_dynamics.telemetry();
+    const double wheel_radius = std::max(0.01, vehicle_dynamics.wheel_radius());
+    constexpr double kTwoPi = 2.0 * std::numbers::pi;
+    const auto wheel_speed_to_rpm = [wheel_radius, kTwoPi](double speed_mps) {
+      return static_cast<float>((speed_mps / (kTwoPi * wheel_radius)) * 60.0);
+    };
 
-    const double max_brake_force = std::max(1.0, model.param().brakes.max_force);
+    const std::array<float, 4> telemetry_wheel_rpm{
+        wheel_speed_to_rpm(velox_telemetry.front_axle.left.speed),
+        wheel_speed_to_rpm(velox_telemetry.front_axle.right.speed),
+        wheel_speed_to_rpm(velox_telemetry.rear_axle.left.speed),
+        wheel_speed_to_rpm(velox_telemetry.rear_axle.right.speed)};
+
+    const double front_drive_force = velox_telemetry.front_axle.drive_torque / wheel_radius;
+    const double rear_drive_force = velox_telemetry.rear_axle.drive_torque / wheel_radius;
+    const double front_brake_force = velox_telemetry.front_axle.brake_torque / wheel_radius;
+    const double rear_brake_force = velox_telemetry.rear_axle.brake_torque / wheel_radius;
+    const double front_regen_force = velox_telemetry.front_axle.regen_torque / wheel_radius;
+    const double rear_regen_force = velox_telemetry.rear_axle.regen_torque / wheel_radius;
+    const double front_drive_minus_regen = front_drive_force - front_regen_force;
+    const double rear_drive_minus_regen = rear_drive_force - rear_regen_force;
+    const double front_net_force = front_drive_force - front_brake_force - front_regen_force;
+    const double rear_net_force = rear_drive_force - rear_brake_force - rear_regen_force;
+    const double front_axle_torque_nm = velox_telemetry.front_axle.drive_torque -
+                                        velox_telemetry.front_axle.regen_torque;
+    const double rear_axle_torque_nm = velox_telemetry.rear_axle.drive_torque -
+                                       velox_telemetry.rear_axle.regen_torque;
+
+    const double max_brake_force = std::max(1.0, vehicle_param.brakes.max_force);
     const double front_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_front_bias);
     const double rear_max_force = std::max(1e-3, max_brake_force * adapter_cfg.brake_rear_bias);
+    const double total_front_brake_force = std::max(0.0, front_brake_force + front_regen_force);
+    const double total_rear_brake_force = std::max(0.0, rear_brake_force + rear_regen_force);
     const double front_brake_pct = front_max_force > 0.0
-                                       ? (std::max(0.0, brake_status.front_force) / front_max_force) * 100.0
+                                       ? (total_front_brake_force / front_max_force) * 100.0
                                        : 0.0;
     const double rear_brake_pct = rear_max_force > 0.0
-                                      ? (std::max(0.0, brake_status.rear_force) / rear_max_force) * 100.0
+                                      ? (total_rear_brake_force / rear_max_force) * 100.0
                                       : 0.0;
 
-    const double vehicle_speed_mps = std::sqrt(
-        vehicle_state.velocity.x() * vehicle_state.velocity.x() +
-        vehicle_state.velocity.y() * vehicle_state.velocity.y());
+    const double vehicle_speed_mps = velox_telemetry.velocity.speed;
     const float actual_speed_kph = static_cast<float>(vehicle_speed_mps * 3.6);
-    const float actual_steer_deg = static_cast<float>(wheel_info.steering *
-        fsai::sim::svcu::dbc::kRadToDeg);
+    const float actual_steer_deg =
+        static_cast<float>(TelemetryUnits::RadToDeg(
+            velox_telemetry.steering.actual_angle,
+            "telemetry.steering.actual_angle",
+            TelemetryUnits::kMaxTelemetrySteerRad));
 
     fsai::sim::app::RuntimeTelemetry runtime_telemetry{};
     runtime_telemetry.physics.simulation_time_s = sim_time_s;
     runtime_telemetry.physics.vehicle_speed_mps = static_cast<float>(vehicle_speed_mps);
     runtime_telemetry.physics.vehicle_speed_kph = actual_speed_kph;
+    // Steering telemetry arrives in radians; convert for telemetry/UI consumers.
     runtime_telemetry.physics.steering_deg = actual_steer_deg;
     runtime_telemetry.pose.position_x_m = static_cast<float>(vehicle_state.position.x());
     runtime_telemetry.pose.position_y_m = static_cast<float>(vehicle_state.position.y());
     runtime_telemetry.pose.position_z_m = static_cast<float>(vehicle_state.position.z());
-    runtime_telemetry.pose.yaw_deg = static_cast<float>(vehicle_state.yaw *
-                                                        fsai::sim::svcu::dbc::kRadToDeg);
-    runtime_telemetry.wheels.rpm = {wheel_info.lf_speed, wheel_info.rf_speed,
-                                    wheel_info.lb_speed, wheel_info.rb_speed};
+    // Vehicle state uses radians internally; convert to degrees for telemetry reporting.
+    runtime_telemetry.pose.yaw_deg =
+        static_cast<float>(TelemetryUnits::RadToDeg(vehicle_state.yaw, "vehicle_state.yaw"));
+    runtime_telemetry.wheels.rpm = telemetry_wheel_rpm;
     runtime_telemetry.drive.front_drive_force_n = static_cast<float>(front_drive_force);
     runtime_telemetry.drive.rear_drive_force_n = static_cast<float>(rear_drive_force);
     runtime_telemetry.drive.front_net_force_n = static_cast<float>(front_net_force);
     runtime_telemetry.drive.rear_net_force_n = static_cast<float>(rear_net_force);
     runtime_telemetry.drive.front_axle_torque_nm = static_cast<float>(front_axle_torque_nm);
     runtime_telemetry.drive.rear_axle_torque_nm = static_cast<float>(rear_axle_torque_nm);
-    runtime_telemetry.brake.front_force_n = static_cast<float>(brake_status.front_force);
-    runtime_telemetry.brake.rear_force_n = static_cast<float>(brake_status.rear_force);
+    runtime_telemetry.brake.front_force_n = static_cast<float>(total_front_brake_force);
+    runtime_telemetry.brake.rear_force_n = static_cast<float>(total_rear_brake_force);
     runtime_telemetry.brake.front_pct = static_cast<float>(front_brake_pct);
     runtime_telemetry.brake.rear_pct = static_cast<float>(rear_brake_pct);
     runtime_telemetry.acceleration.longitudinal_mps2 =
-        static_cast<float>(vehicle_state.acceleration.x());
+        static_cast<float>(velox_telemetry.acceleration.longitudinal);
     runtime_telemetry.acceleration.lateral_mps2 =
-        static_cast<float>(vehicle_state.acceleration.y());
-    runtime_telemetry.acceleration.vertical_mps2 =
-        static_cast<float>(vehicle_state.acceleration.z());
+        static_cast<float>(velox_telemetry.acceleration.lateral);
+    runtime_telemetry.acceleration.vertical_mps2 = static_cast<float>(vehicle_state.acceleration.z());
+    // Convert yaw rate from radians per second into degrees per second for display.
     runtime_telemetry.acceleration.yaw_rate_degps =
-        static_cast<float>(vehicle_state.rotation.z() * fsai::sim::svcu::dbc::kRadToDeg);
+        static_cast<float>(TelemetryUnits::RadToDeg(
+            velox_telemetry.velocity.yaw_rate, "telemetry.velocity.yaw_rate",
+            TelemetryUnits::kMaxAngularRateRadPerSec));
     runtime_telemetry.lap.current_lap_time_s = world.lapTimeSeconds();
     runtime_telemetry.lap.total_distance_m = world.totalDistanceMeters();
     runtime_telemetry.lap.completed_laps = world.completedLaps();
     const auto& mission_state = world.missionRuntime();
-    const auto& mission_definition = world.mission();
     runtime_telemetry.mission.mission_time_s = mission_state.mission_time_seconds();
     runtime_telemetry.mission.straight_progress_m = mission_state.straight_line_progress_m();
     runtime_telemetry.mission.target_laps = mission_state.target_laps();
@@ -2487,39 +2871,90 @@ int main(int argc, char* argv[]) {
     runtime_telemetry.can.gps = can_interface.LatestGps();
 
     runtime_telemetry.control.control_cmd = control_cmd;
-    runtime_telemetry.control.applied_throttle = appliedThrottle;
-    runtime_telemetry.control.applied_brake = appliedBrake;
-    runtime_telemetry.control.applied_steer_rad = appliedSteer;
+    runtime_telemetry.control.applied_throttle = control_cmd.throttle;
+    runtime_telemetry.control.applied_brake = control_cmd.brake;
+    runtime_telemetry.control.applied_steer_rad = control_cmd.steer_rad;
+    runtime_telemetry.control.controller_ready = controller_ready;
     runtime_telemetry.control.ai_command = ai_command_sample;
     runtime_telemetry.control.ai_command_enabled = ai_command_enabled;
     runtime_telemetry.control.ai_command_applied = ai_command_applied;
+    runtime_telemetry.control.ai_command_stale = ai_command_stale;
+    runtime_telemetry.control.ai_command_status = ai_command_status;
     runtime_telemetry.control.fallback_to_manual = fallback_to_manual;
+    runtime_telemetry.control.velox_healthy = vehicle_dynamics.healthy();
+    runtime_telemetry.control.velox_status = vehicle_dynamics.last_error();
+    runtime_telemetry.control.io_command_age_s = io_health.command_age_s;
+    runtime_telemetry.control.io_telemetry_age_s = io_health.telemetry_age_s;
+    runtime_telemetry.control.io_command_stale = io_health.command_stale;
+    runtime_telemetry.control.io_telemetry_stale = io_health.telemetry_stale;
+    runtime_telemetry.control.io_status = io_health.last_error;
     runtime_telemetry.control.has_last_command = has_last_ai_command;
     if (has_last_ai_command) {
       runtime_telemetry.control.last_command = last_ai2vcu_commands;
     }
 
-    runtime_telemetry.mode.use_controller = world.useController != 0;
+    auto fill_stage_sample =
+        [&](const ControlPipelineSnapshot& snapshot,
+            fsai::sim::app::RuntimeTelemetry::ControlStageSample& sample) {
+          sample.command = snapshot.command;
+          sample.detail = snapshot.detail;
+          sample.disabled = snapshot.disabled;
+          sample.valid = snapshot.timestamp_ns != 0;
+          sample.age_s = compute_age_seconds(snapshot.timestamp_ns);
+          sample.stale =
+              !sample.valid || sample.age_s > kCommandStaleSeconds;
+        };
+
+    fill_stage_sample(stage_racing, runtime_telemetry.control.pipeline.racing);
+    fill_stage_sample(stage_adapted, runtime_telemetry.control.pipeline.adapted);
+    fill_stage_sample(stage_transmitted, runtime_telemetry.control.pipeline.transmitted);
+    fill_stage_sample(stage_dynamics, runtime_telemetry.control.pipeline.dynamics);
+
+    const std::array<
+        const fsai::sim::app::RuntimeTelemetry::ControlStageSample*, 4>
+        pipeline_samples = {&runtime_telemetry.control.pipeline.racing,
+                            &runtime_telemetry.control.pipeline.adapted,
+                            &runtime_telemetry.control.pipeline.transmitted,
+                            &runtime_telemetry.control.pipeline.dynamics};
+    auto compute_stage_health =
+        [](const fsai::sim::app::RuntimeTelemetry::ControlStageSample& sample) {
+          if (sample.disabled) {
+            return PipelineStageHealth::kDisabled;
+          }
+          if (!sample.valid || sample.stale) {
+            return PipelineStageHealth::kStale;
+          }
+          return PipelineStageHealth::kHealthy;
+        };
+    for (size_t idx = 0; idx < pipeline_samples.size(); ++idx) {
+      const auto* sample = pipeline_samples[idx];
+      log_stage_transition(idx, compute_stage_health(*sample), sample->age_s,
+                           sample->detail);
+    }
+
+    runtime_telemetry.mode.use_controller = controller_ready;
     runtime_telemetry.mode.runtime_mode = mode;
     {
     std::lock_guard<std::mutex> lock(shared_telemetry.mutex);
     shared_telemetry.position.x() = runtime_telemetry.pose.position_x_m;
     shared_telemetry.position.y() = runtime_telemetry.pose.position_y_m;
-    // CRITICAL: Convert Telemetry degrees back to radians for Eigen rotation
-    constexpr double kDegToRad = std::numbers::pi / 180.0;
-    shared_telemetry.yaw_rad = runtime_telemetry.pose.yaw_deg * kDegToRad;
+    // Shared telemetry consumers require radians; convert from the telemetry degrees report.
+    shared_telemetry.yaw_rad =
+        TelemetryUnits::DegToRad(runtime_telemetry.pose.yaw_deg, "shared telemetry yaw");
     }
-    DrawMissionPanel(runtime_telemetry);
-    DrawSimulationPanel(runtime_telemetry);
-    DrawControlPanel(runtime_telemetry);
-    DrawCanPanel(runtime_telemetry);
-    DrawLogConsole();
-    if (edge_preview_enabled && edge_preview.running()) {
-      DrawEdgePreviewPanel(edge_preview, now_ns);
-    }
-    if (detection_preview_enabled && detection_preview.running()) {
-      DrawDetectionPreviewPanel(detection_preview, now_ns);
-
+    if (imgui_initialized) {
+      DrawMissionPanel(runtime_telemetry);
+      DrawSimulationPanel(runtime_telemetry);
+      DrawControlPipelinePanel(runtime_telemetry);
+      DrawControlPanel(runtime_telemetry);
+      DrawCanPanel(runtime_telemetry);
+      DrawLogConsole();
+      if (edge_preview_enabled && edge_preview.running()) {
+        DrawEdgePreviewPanel(edge_preview, now_ns);
+      }
+      if (detection_preview_enabled && detection_preview.running()) {
+        DrawDetectionPreviewPanel(detection_preview, now_ns);
+      }
     }
 
     steer_delay.push(now_ns, static_cast<float>(actual_steer_deg +
@@ -2529,8 +2964,7 @@ int main(int argc, char* argv[]) {
       has_steer_meas = true;
     }
 
-    std::array<float, 4> wheel_rpm_sample{wheel_info.lf_speed, wheel_info.rf_speed,
-                                          wheel_info.lb_speed, wheel_info.rb_speed};
+    std::array<float, 4> wheel_rpm_sample = telemetry_wheel_rpm;
     for (float& rpm : wheel_rpm_sample) {
       rpm = static_cast<float>(rpm + sample_noise(sensor_cfg.wheel_rpm.noise_std));
       if (!std::isfinite(rpm) || rpm < 0.0f) {
@@ -2543,13 +2977,11 @@ int main(int argc, char* argv[]) {
       has_wheel_meas = true;
     }
 
-    TorqueSample torque_sample{};
-    torque_sample.front_nm = static_cast<float>((pt_status.front_drive_force - pt_status.front_regen_force) *
-                                               wheel_radius +
-                                               sample_noise(sensor_cfg.drive_torque.front_noise_std_nm));
-    torque_sample.rear_nm = static_cast<float>((pt_status.rear_drive_force - pt_status.rear_regen_force) *
-                                              wheel_radius +
-                                              sample_noise(sensor_cfg.drive_torque.rear_noise_std_nm));
+      TorqueSample torque_sample{};
+      torque_sample.front_nm = static_cast<float>((front_drive_minus_regen * wheel_radius) +
+                                                 sample_noise(sensor_cfg.drive_torque.front_noise_std_nm));
+      torque_sample.rear_nm = static_cast<float>((rear_drive_minus_regen * wheel_radius) +
+                                                sample_noise(sensor_cfg.drive_torque.rear_noise_std_nm));
     torque_delay.push(now_ns, torque_sample);
     if (auto sample = torque_delay.poll(now_ns)) {
       torque_meas = *sample;
@@ -2557,8 +2989,8 @@ int main(int argc, char* argv[]) {
     }
 
     BrakeSample brake_sample{};
-    const double front_pct_raw = (std::max(0.0, brake_status.front_force) / front_max_force) * 100.0;
-    const double rear_pct_raw = (std::max(0.0, brake_status.rear_force) / rear_max_force) * 100.0;
+      const double front_pct_raw = (std::max(0.0, total_front_brake_force) / front_max_force) * 100.0;
+      const double rear_pct_raw = (std::max(0.0, total_rear_brake_force) / rear_max_force) * 100.0;
     brake_sample.front_pct = static_cast<float>(std::clamp(front_pct_raw +
                                            sample_noise(sensor_cfg.brake_pct.noise_std), 0.0, 100.0));
     brake_sample.rear_pct = static_cast<float>(std::clamp(rear_pct_raw +
@@ -2580,11 +3012,11 @@ int main(int argc, char* argv[]) {
 
     fsai::sim::svcu::dbc::Ai2LogDynamics2 imu_sample{};
     imu_sample.accel_longitudinal_mps2 = static_cast<float>(
-        vehicle_state.acceleration.x() + sample_noise(sensor_cfg.imu.accel_longitudinal_std));
+        velox_telemetry.acceleration.longitudinal + sample_noise(sensor_cfg.imu.accel_longitudinal_std));
     imu_sample.accel_lateral_mps2 = static_cast<float>(
-        vehicle_state.acceleration.y() + sample_noise(sensor_cfg.imu.accel_lateral_std));
+        velox_telemetry.acceleration.lateral + sample_noise(sensor_cfg.imu.accel_lateral_std));
     imu_sample.yaw_rate_degps = static_cast<float>(
-        vehicle_state.rotation.z() * fsai::sim::svcu::dbc::kRadToDeg +
+        velox_telemetry.velocity.yaw_rate * fsai::sim::svcu::dbc::kRadToDeg +
         sample_noise(sensor_cfg.imu.yaw_rate_std_degps));
     imu_delay.push(now_ns, imu_sample);
     if (auto sample = imu_delay.poll(now_ns)) {
@@ -2593,9 +3025,9 @@ int main(int argc, char* argv[]) {
     }
 
     GpsSample gps_sample{};
-    gps_sample.lat_deg = metersToLatitude(vehicle_state.position.y()) +
+    gps_sample.lat_deg = metersToLatitude(velox_telemetry.pose.y) +
                          sample_noise(sensor_cfg.gps.lat_std_deg);
-    gps_sample.lon_deg = metersToLongitude(vehicle_state.position.x()) +
+    gps_sample.lon_deg = metersToLongitude(velox_telemetry.pose.x) +
                          sample_noise(sensor_cfg.gps.lon_std_deg);
     gps_sample.speed_mps = std::max(0.0, vehicle_speed_mps +
                                     sample_noise(sensor_cfg.gps.speed_std_mps));
@@ -2605,22 +3037,36 @@ int main(int argc, char* argv[]) {
       has_gps_meas = true;
     }
 
-    const float steer_for_msg = has_steer_meas ? steer_meas_deg : 0.0f;
+    const float steer_for_msg = has_steer_meas ? steer_meas_deg : actual_steer_deg;
     const std::array<float, 4> wheel_for_msg = has_wheel_meas ? wheel_meas_rpm
-                                                              : std::array<float, 4>{0.0f, 0.0f, 0.0f, 0.0f};
-    const TorqueSample torque_for_msg = has_torque_meas ? torque_meas : TorqueSample{};
-    const BrakeSample brake_for_msg = has_brake_meas ? brake_meas : BrakeSample{};
+                                                              : telemetry_wheel_rpm;
+    const TorqueSample torque_for_msg = has_torque_meas
+                                            ? torque_meas
+                                            : TorqueSample{static_cast<float>(front_axle_torque_nm),
+                                                           static_cast<float>(rear_axle_torque_nm)};
+    BrakeSample brake_for_msg = has_brake_meas ? brake_meas : BrakeSample{};
+    if (!has_brake_meas) {
+      brake_for_msg.front_pct = static_cast<float>(front_brake_pct);
+      brake_for_msg.rear_pct = static_cast<float>(rear_brake_pct);
+      brake_for_msg.front_req_pct = has_last_ai_command ? last_ai2vcu_commands.brake.front_pct : 0.0f;
+      brake_for_msg.rear_req_pct = has_last_ai_command ? last_ai2vcu_commands.brake.rear_pct : 0.0f;
+    }
     const float speed_for_msg_kph = has_speed_meas ? speed_meas_kph : actual_speed_kph;
 
     fsai::sim::svcu::dbc::Vcu2AiStatus status_msg{};
     status_msg.handshake = true;
     status_msg.as_switch_on = true;
     status_msg.ts_switch_on = true;
-    status_msg.go_signal = true;
-    status_msg.as_state = world.useController
+    status_msg.go_signal = !mission_state.stop_commanded();
+    status_msg.as_state = controller_ready
                               ? fsai::sim::svcu::dbc::AsState::kDriving
                               : fsai::sim::svcu::dbc::AsState::kReady;
     status_msg.steering_status = fsai::sim::svcu::dbc::SteeringStatus::kActive;
+    status_msg.mission_complete = mission_state.mission_complete();
+    status_msg.mission_status = mission_state.run_status() == fsai::sim::MissionRunStatus::kCompleted
+                                    ? fsai::sim::svcu::dbc::MissionStatus::kFinished
+                                    : fsai::sim::svcu::dbc::MissionStatus::kRunning;
+    status_msg.mission_id = static_cast<uint8_t>(static_cast<int>(mission_definition.descriptor.type) + 1);
 
     fsai::sim::svcu::dbc::Vcu2AiSteer steer_msg{};
     steer_msg.angle_deg = steer_for_msg;
@@ -2684,6 +3130,17 @@ int main(int argc, char* argv[]) {
     dyn_msg.drive_trq_actual_pct = torque_to_pct(total_actual_torque_nm);
     dyn_msg.drive_trq_target_pct = torque_to_pct(total_req_torque_nm);
 
+    const fsai::sim::svcu::dbc::Ai2LogDynamics2 imu_for_msg{
+        .accel_longitudinal_mps2 = has_imu_meas ? imu_meas.accel_longitudinal_mps2
+                                                : static_cast<float>(velox_telemetry.acceleration.longitudinal),
+        .accel_lateral_mps2 = has_imu_meas ? imu_meas.accel_lateral_mps2
+                                           : static_cast<float>(velox_telemetry.acceleration.lateral),
+        .yaw_rate_degps = has_imu_meas
+                              ? imu_meas.yaw_rate_degps
+                              : static_cast<float>(velox_telemetry.velocity.yaw_rate *
+                                                   fsai::sim::svcu::dbc::kRadToDeg),
+    };
+
     auto send_sim_frame = [&](const can_frame& frame) {
       if (!can_interface.SendSimulationFrame(frame)) {
         fsai::sim::log::Logf(fsai::sim::log::Level::kError,
@@ -2698,7 +3155,7 @@ int main(int argc, char* argv[]) {
     send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2ai_speeds(speed_msg));
     send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2ai_brake(brake_msg));
     send_sim_frame(fsai::sim::svcu::dbc::encode_vcu2log_dynamics1(dyn_msg));
-    send_sim_frame(fsai::sim::svcu::dbc::encode_ai2log_dynamics2(imu_meas));
+    send_sim_frame(fsai::sim::svcu::dbc::encode_ai2log_dynamics2(imu_for_msg));
 
     if (has_gps_meas) {
       can_interface.SetSimulationGpsSample(gps_meas.lat_deg, gps_meas.lon_deg,
@@ -2709,99 +3166,28 @@ int main(int argc, char* argv[]) {
 
     fsai::sim::svcu::TelemetryPacket telemetry{};
     telemetry.t_ns = now_ns;
-    telemetry.steer_angle_rad = appliedSteer;
-    telemetry.front_axle_torque_nm = static_cast<float>(front_net_force * wheel_radius);
-    telemetry.rear_axle_torque_nm = static_cast<float>(rear_net_force * wheel_radius);
-    telemetry.wheel_speed_rpm[0] = wheel_info.lf_speed;
-    telemetry.wheel_speed_rpm[1] = wheel_info.rf_speed;
-    telemetry.wheel_speed_rpm[2] = wheel_info.lb_speed;
-    telemetry.wheel_speed_rpm[3] = wheel_info.rb_speed;
+    telemetry.steer_angle_rad = static_cast<float>(velox_telemetry.steering.actual_angle);
+    telemetry.front_axle_torque_nm = static_cast<float>(front_axle_torque_nm);
+    telemetry.rear_axle_torque_nm = static_cast<float>(rear_axle_torque_nm);
+    telemetry.wheel_speed_rpm[0] = telemetry_wheel_rpm[0];
+    telemetry.wheel_speed_rpm[1] = telemetry_wheel_rpm[1];
+    telemetry.wheel_speed_rpm[2] = telemetry_wheel_rpm[2];
+    telemetry.wheel_speed_rpm[3] = telemetry_wheel_rpm[3];
     telemetry.brake_pressure_front_bar =
-        static_cast<float>(std::max(0.0, brake_status.front_force) / 1000.0);
+        static_cast<float>(total_front_brake_force / 1000.0);
     telemetry.brake_pressure_rear_bar =
-        static_cast<float>(std::max(0.0, brake_status.rear_force) / 1000.0);
-    telemetry.imu_ax_mps2 = static_cast<float>(vehicle_state.acceleration.x());
-    telemetry.imu_ay_mps2 = static_cast<float>(vehicle_state.acceleration.y());
-    telemetry.imu_yaw_rate_rps = static_cast<float>(vehicle_state.rotation.z());
-    telemetry.gps_lat_deg = static_cast<float>(
-        metersToLatitude(vehicle_state.position.y()));
-    telemetry.gps_lon_deg = static_cast<float>(
-        metersToLongitude(vehicle_state.position.x()));
-    telemetry.gps_speed_mps = static_cast<float>(
-        std::sqrt(vehicle_state.velocity.x() * vehicle_state.velocity.x() +
-                  vehicle_state.velocity.y() * vehicle_state.velocity.y()));
-    telemetry.status_flags = static_cast<uint8_t>(world.useController ? 0x3 : 0x1);
+        static_cast<float>(total_rear_brake_force / 1000.0);
+    telemetry.imu_ax_mps2 = static_cast<float>(velox_telemetry.acceleration.longitudinal);
+    telemetry.imu_ay_mps2 = static_cast<float>(velox_telemetry.acceleration.lateral);
+    telemetry.imu_yaw_rate_rps = static_cast<float>(velox_telemetry.velocity.yaw_rate);
+    telemetry.gps_lat_deg = static_cast<float>(metersToLatitude(velox_telemetry.pose.y));
+    telemetry.gps_lon_deg = static_cast<float>(metersToLongitude(velox_telemetry.pose.x));
+    telemetry.gps_speed_mps = static_cast<float>(velox_telemetry.velocity.speed);
+    telemetry.status_flags = static_cast<uint8_t>(controller_ready ? 0x3 : 0x1);
     io_bus->publish_telemetry(telemetry);
 
-    logger.logState(sim_time_s, world.vehicleState());
+    logger.logState(sim_time_s, world.vehicle_state());
     logger.logControl(sim_time_s, world.throttleInput, world.steeringAngle);
-
-    if (stereo_source) {
-      const auto& transform = world.vehicleTransform();
-      stereo_source->setBodyPose(transform.position.x, transform.position.y,
-                                 transform.position.z, transform.yaw);
-
-      cone_positions.clear();
-      const auto& left_cones = world.getLeftCones();
-      const auto& right_cones = world.getRightCones();
-      const auto& start_cones_for_render = world.getStartCones();
-      cone_positions.reserve(left_cones.size() + right_cones.size() +
-                             start_cones_for_render.size());
-
-      const float color_scale = 1.0f / 255.0f;
-      auto makeColor = [color_scale](int r, int g, int b) {
-        return std::array<float, 3>{r * color_scale, g * color_scale,
-                                    b * color_scale};
-      };
-
-      const auto start_body = makeColor(255, 140, 0);
-      const auto start_stripe = makeColor(255, 255, 255);
-      const auto left_body = makeColor(255, 214, 0);
-      const auto left_stripe = makeColor(50, 50, 50);
-      const auto right_body = makeColor(0, 102, 204);
-      const auto right_stripe = makeColor(255, 255, 255);
-
-      auto appendCone = [&](const Cone& cone) {
-        fsai::io::camera::sim_stereo::SimConeInstance instance{};
-        instance.position =
-            {cone.position.x, cone.position.y, cone.position.z};
-        instance.base_width = cone.radius * 2.0f;
-        instance.height =
-            (cone.type == ConeType::Start) ? fsai::sim::kLargeConeHeightMeters
-                                           : fsai::sim::kSmallConeHeightMeters;
-        switch (cone.type) {
-          case ConeType::Start:
-            instance.body_color = start_body;
-            instance.stripe_color = start_stripe;
-            instance.stripe_count = 2;
-            break;
-          case ConeType::Left:
-            instance.body_color = left_body;
-            instance.stripe_color = left_stripe;
-            instance.stripe_count = 1;
-            break;
-          case ConeType::Right:
-            instance.body_color = right_body;
-            instance.stripe_color = right_stripe;
-            instance.stripe_count = 1;
-            break;
-        }
-        cone_positions.push_back(instance);
-      };
-
-      for (const auto& cone : left_cones) {
-        appendCone(cone);
-      }
-      for (const auto& cone : right_cones) {
-        appendCone(cone);
-      }
-      for (const auto& cone : start_cones_for_render) {
-        appendCone(cone);
-      }
-      stereo_source->setCones(cone_positions);
-      const FsaiStereoFrame& frame = stereo_source->capture(now_ns);
-      io_bus->publish_stereo_frame(frame);
-    }
 
     std::shared_ptr<fsai::vision::DetectionRingBuffer> detection_buffer = fsai::vision::getActiveDetectionBuffer();
     if (detection_buffer == nullptr) {
@@ -2809,25 +3195,29 @@ int main(int argc, char* argv[]) {
       exit(-1);
     }
     auto detections = detection_buffer->tryPop();
+    std::vector<FsaiConeDet> debug_detections;
     if (detections != std::nullopt) {
-        // [FIX] Clear the old detections! 
-        // We are receiving a full map snapshot, not just new cones.
-        world.coneDetections.clear(); 
-
-        for (int i = 0; i < detections->n; i++) {
-          world.coneDetections.push_back(detections->dets[i]);
-      }
+        debug_detections.assign(detections->dets, detections->dets + detections->n);
     }
-    fsai::sim::app::GuiWorldAdapter gui_adapter(world);
-    const auto world_snapshot = gui_adapter.snapshot();
-    DrawWorldScene(&graphics, world_snapshot, runtime_telemetry);
-    ImGui::Render();
-    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), graphics.renderer);
-    Graphics_Present(&graphics);
+    world.set_debug_detections(std::move(debug_detections));
+    world.publish_debug_state();
+
+    renderer.Render(now_ns, runtime_telemetry);
+    if (imgui_initialized) {
+      ImGui::Render();
+      ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(),
+                                            renderer.renderer());
+    }
+    renderer.Present();
 
     SDL_Delay(static_cast<Uint32>(step_seconds * 1000.0));
 
     frame_counter++;
+    if (mission_finished) {
+      fsai::sim::log::Logf(fsai::sim::log::Level::kInfo,
+                           "Mission completion acknowledged; exiting runtime loop");
+      running = false;
+    }
   }
   if (vision_node) {
     vision_node->stop();
@@ -2843,7 +3233,7 @@ int main(int argc, char* argv[]) {
     stereo_frame_buffer.reset();
   }
   shutdown_imgui();
-  Graphics_Cleanup(&graphics);
+  renderer.Shutdown();
   fsai::sim::log::LogInfoToStdout(
       "Simulation complete. Car state log saved to CarStateLog.csv");
   return EXIT_SUCCESS;

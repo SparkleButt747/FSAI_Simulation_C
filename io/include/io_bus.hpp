@@ -6,9 +6,12 @@
 #include <queue>
 #include <random>
 #include <utility>
+#include <string>
+#include <limits>
 
 #include "common/types.h"
 #include "link.hpp"
+#include "sim/architecture/WorldDebug.hpp"
 
 namespace fsai::io {
 
@@ -21,7 +24,7 @@ struct TelemetryNoiseConfig {
   double gps_speed_stddev{0.0};
 };
 
-class IoBus {
+class IoBus : public fsai::world::IWorldDebugPublisher {
  public:
   virtual ~IoBus() = default;
 
@@ -36,18 +39,40 @@ class IoBus {
 
   virtual void publish_stereo_frame(const FsaiStereoFrame& frame) = 0;
   virtual std::optional<FsaiStereoFrame> latest_stereo_frame() = 0;
+
+  virtual void publish_world_debug(const fsai::world::WorldDebugPacket& packet) = 0;
+  virtual std::optional<fsai::world::WorldDebugPacket> latest_world_debug() = 0;
+
+  void publish_debug_packet(const fsai::world::WorldDebugPacket& packet) override {
+    publish_world_debug(packet);
+  }
 };
 
 class InProcessIoBus final : public IoBus {
  public:
   using TelemetrySink = std::function<void(const fsai::sim::svcu::TelemetryPacket&)>;
   using StereoSink = std::function<void(const FsaiStereoFrame&)>;
+  using WorldDebugSink =
+      std::function<void(const fsai::world::WorldDebugPacket&)>;
+  struct Health {
+    bool telemetry_valid{false};
+    bool telemetry_stale{true};
+    double telemetry_age_s{std::numeric_limits<double>::infinity()};
+    bool command_valid{false};
+    bool command_stale{true};
+    double command_age_s{std::numeric_limits<double>::infinity()};
+    std::string last_error;
+  };
 
   InProcessIoBus();
 
   void set_noise_config(const TelemetryNoiseConfig& cfg) override;
   void set_telemetry_sink(TelemetrySink sink);
   void set_stereo_sink(StereoSink sink);
+  void set_debug_sink(WorldDebugSink sink);
+   void set_health_sink(std::function<void(const Health&)> sink);
+
+  void set_staleness_thresholds(double command_age_s, double telemetry_age_s);
 
   void publish_telemetry(const fsai::sim::svcu::TelemetryPacket& raw) override;
   std::optional<fsai::sim::svcu::TelemetryPacket> latest_raw_telemetry() override;
@@ -59,20 +84,34 @@ class InProcessIoBus final : public IoBus {
   void publish_stereo_frame(const FsaiStereoFrame& frame) override;
   std::optional<FsaiStereoFrame> latest_stereo_frame() override;
 
+  void publish_world_debug(const fsai::world::WorldDebugPacket& packet) override;
+  std::optional<fsai::world::WorldDebugPacket> latest_world_debug() override;
+  void clear_state();
+  Health health() const { return health_; }
+
  private:
   fsai::sim::svcu::TelemetryPacket apply_noise(
       const fsai::sim::svcu::TelemetryPacket& raw);
 
+  void publish_health();
+
   TelemetryNoiseConfig noise_{};
   TelemetrySink telemetry_sink_{};
   StereoSink stereo_sink_{};
+  WorldDebugSink debug_sink_{};
+  std::function<void(const Health&)> health_sink_{};
 
   std::optional<fsai::sim::svcu::TelemetryPacket> raw_telemetry_{};
   std::optional<fsai::sim::svcu::TelemetryPacket> noisy_telemetry_{};
   std::optional<fsai::sim::svcu::CommandPacket> latest_command_{};
   std::optional<FsaiStereoFrame> last_frame_{};
+  std::optional<fsai::world::WorldDebugPacket> last_debug_{};
   std::mt19937 rng_;
+  double command_stale_threshold_s_{0.25};
+  double telemetry_stale_threshold_s_{0.25};
+  uint64_t last_telemetry_t_ns_{0};
+  uint64_t last_command_t_ns_{0};
+  Health health_{};
 };
 
 }  // namespace fsai::io
-

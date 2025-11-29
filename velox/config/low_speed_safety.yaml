@@ -1,0 +1,13 @@
+# Thresholds used to keep dynamic models stable near standstill.
+drift_enabled: false
+stop_speed_epsilon: 0.05
+normal:
+  engage_speed: 0.4
+  release_speed: 0.8
+  yaw_rate_limit: 0.5
+  slip_angle_limit: 0.35
+drift:
+  engage_speed: 0.3
+  release_speed: 1.0
+  yaw_rate_limit: 0.8
+  slip_angle_limit: 0.6

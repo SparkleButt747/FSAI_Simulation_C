@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -10,6 +11,7 @@
 #include "Vector.h"
 #include "WheelsInfo.h"
 #include "common/types.h"
+#include "sim/WorldRuntime.hpp"
 
 namespace fsai::world {
 
@@ -32,18 +34,20 @@ class IWorldView {
   virtual const std::vector<Vector3>& start_cones() const = 0;
   virtual const std::vector<Vector3>& left_cones() const = 0;
   virtual const std::vector<Vector3>& right_cones() const = 0;
+  virtual const std::vector<Vector3>& orange_cones() const = 0;
   virtual const LookaheadIndices& lookahead_indices() const = 0;
-  virtual const std::vector<std::pair<Vector2, Vector2>>& best_path_edges() const = 0;
-
   // --- Mission/runtime bookkeeping ---
   virtual const fsai::sim::MissionRuntimeState& mission_runtime() const = 0;
   virtual double lap_time_seconds() const = 0;
   virtual double total_distance_meters() const = 0;
   virtual double time_step_seconds() const = 0;
   virtual int lap_count() const = 0;
+  virtual std::optional<fsai::sim::WorldRuntime::ResetReason>
+  pending_reset_reason() const = 0;
 
-  // --- Sensor/vision ground truth ---
-  virtual const std::vector<FsaiConeDet>& ground_truth_detections() const = 0;
+  virtual const std::vector<std::pair<Vector2, Vector2>>& controller_path_edges()
+      const = 0;
+  virtual const std::vector<FsaiConeDet>& debug_detections() const = 0;
 
   // --- Lifecycle helpers for consumers holding stale state ---
   virtual bool vehicle_reset_pending() const = 0;

@@ -1,0 +1,33 @@
+# Simulation world configuration
+# Adjust visibility/debug toggles, physics thresholds, and controller defaults here.
+visibility:
+  debug_mode: true
+  public_ground_truth: true
+  render_ground_truth: true
+
+tuning:
+  collision_threshold: 1.75
+  vehicle_collision_radius: 0.386
+  lap_completion_threshold: 0.2
+
+control:
+  use_controller: true
+  regenerate_track: true
+  speed_lookahead_sensitivity: 0.0
+  steering_lookahead_sensitivity: 0.0
+  acceleration_factor: 0.008
+  path_search_max_length: 30
+  path_search_min_length: 2
+  path_search_beam_width: 20
+
+renderer:
+  enable_window: true
+  publish_stereo_frames: true
+  show_debug_overlays: true
+  window_width: 800
+  window_height: 600
+  window_title: "Car Simulation 2D"
+  stereo_provider: sim_stereo
+
+# Optional mission overrides. Leave values unset to keep mission defaults.
+mission_override: {}

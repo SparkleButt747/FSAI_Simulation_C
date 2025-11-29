@@ -3,8 +3,11 @@
  * {0: 'blue_cone', 1: 'orange_cone', 2: 'large_orange_cone', 3: 'yellow_cone'}
  */
 #include "vision/vision_node.hpp"
+#include "../../../sim/include/logging.hpp"
+
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <algorithm>
 #include <iomanip>
 
 #include "detect.hpp"
@@ -14,9 +17,12 @@
 
 #include "vision/detection_buffer_registry.hpp"
 #include "common/include/common/types.h"
-#include "logging.hpp"
 #include <iostream>
 #include <chrono>
+
+#include <opencv2/opencv.hpp>
+#include <opencv2/features2d.hpp>  // For SIFT and other feature detectors
+#include <opencv2/imgproc.hpp>
 
 const char* PATH_TO_MODEL = "../vision/models/cone_model.onnx";
 constexpr std::chrono::milliseconds kIdleSleep(5);
@@ -32,6 +38,7 @@ VisionNode::VisionNode(){
     constexpr size_t DETECTION_BUFFER_CAPACITY = 10; // Choose a suitable size
     detection_buffer_ = std::make_shared<DetectionsRingBuffer>(DETECTION_BUFFER_CAPACITY);
     sift_detector_ = cv::SIFT::create();
+    reset_requested_ = false;
 
     setActiveDetectionBuffer(detection_buffer_);
 
@@ -151,6 +158,8 @@ std::optional<fsai::types::Detections> VisionNode::getLatestDetections(){
         std::lock_guard<std::mutex> lock(detection_mutex_);
         return latest_detections_;
     }
+
+    return std::nullopt;
 }
 
 void VisionNode::runProcessingLoop(){
@@ -192,10 +201,6 @@ void VisionNode::runProcessingLoop(){
         auto t1 = std::chrono::high_resolution_clock::now();
         cv::Mat left_mat = frameToMat(handle_opt->frame.left);
         cv::Mat right_mat = frameToMat(handle_opt->frame.right);
-        
-        fsai::types::Detections new_detections{};
-        new_detections.t_ns = handle_opt->frame.t_sync_ns;
-        new_detections.n = 0; // Number of cones found
 
         
         // 1. Object detection logic
@@ -222,7 +227,9 @@ void VisionNode::runProcessingLoop(){
         std::vector<ConeMatches> matched_features;
         try {
             // This is the line causing the crash
-            matched_features = match_features_per_cone(left_mat, right_mat, detections,sift_detector_);
+            matched_features = match_features_per_cone(left_mat, right_mat, detections, sift_detector_);
+            fsai::sim::log::LogInfo("Features extracted: " +
+                                    std::to_string(matched_features.size()));
         } 
         catch (const cv::Exception& e) {
             // If a crop fails, log it and skip this frame instead of killing the OS process
@@ -233,30 +240,6 @@ void VisionNode::runProcessingLoop(){
         // 3. Stereo triangulation
         auto t4 = std::chrono::high_resolution_clock::now();
 
-        std::vector<ConeCluster> cone_cluster;
-
-        std::vector<Eigen::Vector2d> local_centres;
-
-        for(const auto& cone:matched_features){
-            //iterate over each feature for every cone
-            ConeCluster cluster;
-            cluster.coneId = cone.cone_index;
-            for(const auto& feat: cone.matches ){
-                //determine depth for each match and update cone cluster
-                Eigen::Vector3d res;
-                if(triangulatePoint(feat,res)){
-                    cluster.points.push_back(res);
-                }
-            }
-            if(!cluster.points.empty()){
-                // refactored to run the centroid recovery here to save space
-                // find 2d centre coord and add to intermittent vector
-                Eigen::Vector2d center = Centroid::centroid_linear(cluster.points);
-                if(!center.isZero()){
-                    local_centres.push_back(center);
-                }
-            }
-        }
         // 5. Recovering global position
         //apply rigid body transformation and translation
 
@@ -374,5 +357,6 @@ void VisionNode::runProcessingLoop(){
         fsai::sim::log::LogInfo("[VISION/CTRL] SIZE OF BUFFER " + std::to_string(detection_buffer_->size()));
     }
 }
-}
-}//vision
+
+}  // namespace vision
+}  // namespace fsai

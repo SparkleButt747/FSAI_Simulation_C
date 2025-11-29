@@ -1,9 +1,11 @@
 #pragma once
-#include <vector>
-#include <opencv2/opencv.hpp>
+
+#include "common/include/common/types.h"
 #include <opencv2/features2d.hpp>
+#include <opencv2/opencv.hpp>
+#include <vector>
+
 #include "detect.hpp"
-#include "common/types.h"
 
 // Structure for a matched pair of features across stereo frames
 struct Feature
@@ -23,16 +25,15 @@ struct PseudoFeature{
 // NEW: Structure to group matched features by their originating cone (bounding box)
 struct ConeMatches {
     int cone_index;                 // Index matching the input vector of BoxBounds
-    fsai::types::BoxBound bound;   // The bounding box these matches belong to
-    std::vector<Feature> matches;
-    FsaiConeSide side;  // The list of stereo matched features for this specific cone
+    fsai::types::BoxBound bound;    // The bounding box these matches belong to
+    FsaiConeSide side;              // Cone side from detection
+    std::vector<Feature> matches;   // Stereo matched features for this cone
 };
 
 // --- Function Declarations ---
 
 // Main entry point: matching features for specific objects (cones)
-std::vector<ConeMatches> match_features_per_cone(
-    const cv::Mat& left_frame,
-    const cv::Mat& right_frame,
-    const std::vector<fsai::types::BoxBound>& box_bounds,
-    const cv::Ptr<cv::SIFT> sift_detector_);
+std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
+                                                 const cv::Mat& right_frame,
+                                                 const std::vector<fsai::types::BoxBound>& box_bounds,
+                                                 const cv::Ptr<cv::SIFT> sift_detector);

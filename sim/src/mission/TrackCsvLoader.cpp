@@ -183,11 +183,7 @@ TrackResult LoadTrackFromCsv(const std::filesystem::path& csv_path) {
     } else if (row.tag == "big_orange") {
       track.startCones.push_back(row.transform);
     } else if (row.tag == "orange") {
-      if (row.transform.position.z >= 0.0f) {
-        track.leftCones.push_back(row.transform);
-      } else {
-        track.rightCones.push_back(row.transform);
-      }
+      track.smallOrangeCones.push_back(row.transform);
     } else if (row.tag == "midpoint") {
       collected_midpoints.push_back(row.transform);
     } else if (row.tag == "car_start") {
@@ -199,14 +195,14 @@ TrackResult LoadTrackFromCsv(const std::filesystem::path& csv_path) {
   }
 
   std::vector<Transform> checkpoints;
-  checkpoints.reserve(collected_midpoints.size() + (car_start.has_value() ? 1 : 0));
-  if (car_start.has_value()) {
-    checkpoints.push_back(*car_start);
+  if (!collected_midpoints.empty()) {
+      checkpoints = collected_midpoints;
+  } else {
+      checkpoints = BuildCheckpointsFromBoundaries(left_primary, right_primary);
   }
-  checkpoints.insert(checkpoints.end(), collected_midpoints.begin(), collected_midpoints.end());
 
-  if (checkpoints.empty()) {
-    checkpoints = BuildCheckpointsFromBoundaries(left_primary, right_primary);
+  if (car_start.has_value()) {
+    checkpoints.insert(checkpoints.begin(), *car_start);
   }
 
   if (checkpoints.empty()) {

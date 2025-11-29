@@ -80,6 +80,7 @@ float Controller_GetThrottleInput(const Vector3* checkpointPositions, int nCheck
     // Choose the lookahead index for throttle.
     LookaheadIndices indices = Controller_GetLookaheadIndices(nCheckpoints, carVelocity, config);
     int lookaheadIndex = indices.speed;
+    printf("Throttle Lookahead Index: %d\n", lookaheadIndex);
     int lookaheadMax = indices.max;
 
     if (lookaheadIndex == -1) {
@@ -113,12 +114,20 @@ float Controller_GetThrottleInput(const Vector3* checkpointPositions, int nCheck
     float expectedSpeed = CalculateExpectedSpeed(angle, config->accelerationFactor);
 
     // Compute acceleration needed to reach expected speed.
+    // Use the real speed, but keep a small floor to avoid divide-by-zero.
+    // A large artificial speed (the previous 10 m/s floor) could flip the
+    // sign of acceleration when the car is nearly stopped and the checkpoint
+    // sits behind a sharp angle, which led to full braking at ~0 m/s.
     float speed = (float)carVelocity;
-    if (fabsf(speed) < EPSILON)
-        speed = 0.1f; // Prevent division by zero.
-    float accelerationNeeded = (expectedSpeed - speed) / (distanceToCheckpoint / speed);
-    if (fabsf(accelerationNeeded) < EPSILON)
-        accelerationNeeded = 1.0f;
+    const float minSpeedForCalc = 0.5f;
+    if (speed < minSpeedForCalc) {
+        speed = minSpeedForCalc;
+    }
+    float timeToCheckpoint = distanceToCheckpoint / speed;
+    if (timeToCheckpoint < EPSILON) {
+        timeToCheckpoint = EPSILON;
+    }
+    float accelerationNeeded = (expectedSpeed - speed) / timeToCheckpoint;
 
     return CalculateThrottle(accelerationNeeded);
 }
@@ -242,4 +251,3 @@ float Controller_GetSteeringInput(
 
     return steeringInput;
 }
-
