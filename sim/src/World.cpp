@@ -79,6 +79,13 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
             const auto& p = beamSearchedCheckpoints[i];
             std::printf("  [%zu] (%f, %f, %f)\n", i, p.x, p.y, p.z);
         }
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            const auto& n = nodes[i];
+            std::printf("Node [%zu]: Midpoint (%f, %f), First Cone (%f, %f), Second Cone (%f, %f)\n",
+                        i, n.midpoint.x, n.midpoint.y,
+                        n.first.x, n.first.y,
+                        n.second.x, n.second.y);
+        }
     } else {
         throttle_out = Controller_GetThrottleInput(
             checkpointPositions.data(), static_cast<int>(checkpointPositions.size()),
