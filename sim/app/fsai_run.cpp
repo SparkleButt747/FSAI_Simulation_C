@@ -3191,10 +3191,20 @@ int main(int argc, char* argv[]) {
       printf("Detection Buffer not initialised");
       exit(-1);
     }
+    static std::vector<FsaiConeDet> last_debug_detections;
+    static uint64_t last_detection_ts_ns = 0;
+    constexpr uint64_t kDetectionHoldNs = 250'000'000;  // 250 ms hold to reduce flicker
+
     auto detections = detection_buffer->tryPop();
     std::vector<FsaiConeDet> debug_detections;
     if (detections != std::nullopt) {
         debug_detections.assign(detections->dets, detections->dets + detections->n);
+        last_debug_detections = debug_detections;
+        last_detection_ts_ns = detections->t_ns == 0 ? now_ns : detections->t_ns;
+    } else if (!last_debug_detections.empty() && last_detection_ts_ns != 0 &&
+               now_ns >= last_detection_ts_ns &&
+               now_ns - last_detection_ts_ns <= kDetectionHoldNs) {
+        debug_detections = last_debug_detections;
     }
     world.set_debug_detections(std::move(debug_detections));
     world.publish_debug_state();
