@@ -620,7 +620,7 @@ std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode
 }
 
 Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
-    Vector3 checkpoints[static_cast<int>(path.size())];
+    Vector3* checkpoints = new Vector3[path.size()];
     for (int i = 0; i < path.size(); i++) {
         checkpoints[i] = Vector3{
             path[i].midpoint.x,

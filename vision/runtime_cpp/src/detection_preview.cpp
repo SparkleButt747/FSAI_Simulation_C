@@ -218,7 +218,7 @@ void DetectionPreview::workerLoop() {
       cv::rectangle(data.image, p1, p2, color, 2);
 
       std::stringstream ss;
-      ss << std::fixed << std::setprecision(2) << box.track_id;
+      ss << std::fixed << std::setprecision(2) << box.conf;
       cv::Point text_pos(box.x, box.y - 5);
       cv::putText(data.image, ss.str(), text_pos, cv::FONT_HERSHEY_SIMPLEX,
                   0.5, color, 1, cv::LINE_AA);

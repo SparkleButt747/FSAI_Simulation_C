@@ -13,7 +13,6 @@
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <random>
 #include <string>
@@ -37,7 +36,6 @@
 #include "fsai_clock.h"
 #include "csv_logger.hpp"
 #include "logging.hpp"
-#include "gui_world_adapter.hpp"
 #include "provider_registry.hpp"
 #include "stereo_display.hpp"
 #include "sim_stereo_source.hpp"
@@ -46,7 +44,6 @@
 #include "vision/vision_node.hpp"
 #include "vision/detection_preview.hpp"
 #include "vision/shared_ring_buffer.hpp"
-#include "io_bus.hpp"
 #include "vision/detection_buffer_registry.hpp"
 #include "types.h"
 #include "World.hpp"
@@ -60,7 +57,6 @@
 #include "can_iface.hpp"
 #include "runtime_telemetry.hpp"
 #include "centerline.hpp"
-#include "human/IUserInput.hpp"
 
 namespace {
 constexpr std::size_t kDefaultMissionIndex = 2;
@@ -146,9 +142,9 @@ bool StdinIsInteractive() {
 }
 
 fsai::sim::MissionDescriptor ResolveMissionSelection(
-    human::IUserInput& user_input) {
-  if (const auto override = user_input.ConsumeMissionOverride()) {
-    return *override;
+    const std::optional<fsai::sim::MissionDescriptor>& cli_override) {
+  if (cli_override.has_value()) {
+    return *cli_override;
   }
 
   const MissionOption& default_option = kMissionOptions[kDefaultMissionIndex];
@@ -265,7 +261,6 @@ constexpr double kBaseLatitudeDeg = 37.4275;
 constexpr double kBaseLongitudeDeg = -122.1697;
 constexpr double kMetersPerDegreeLat = 111111.0;
 constexpr const char* kDefaultSensorConfig = "configs/sim/sensors.yaml";
-
 
 template <size_t Capacity>
 class RollingBuffer {
@@ -1283,10 +1278,10 @@ void DrawEdgePreviewPanel(fsai::vision::EdgePreview& preview, uint64_t now_ns) {
 
 void DrawDetectionPreviewPanel(fsai::vision::DetectionPreview& preview, uint64_t now_ns) {
   // Force position and size every frame to guarantee visibility
-  // ImGui::SetNextWindowPos(ImVec2(100, 400), ImGuiCond_Always);
+  ImGui::SetNextWindowPos(ImVec2(100, 400), ImGuiCond_Always);
   // ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_Always);
 
-  if (ImGui::Begin("Cone detection", nullptr)) {
+  if (ImGui::Begin("Cone detection", nullptr, ImGuiWindowFlags_NoCollapse)) {
       ImGui::Text("Model used: Yolov8 ");
       ImGui::Separator();
 
@@ -1324,16 +1319,15 @@ void DrawConeMarker(Graphics* graphics, int center_x, int center_y,
 
 }  // namespace
 
-void DrawWorldScene(Graphics* graphics,
-                    const fsai::sim::app::GuiWorldSnapshot& world,
+void DrawWorldScene(Graphics* graphics, const World& world,
                     const fsai::sim::app::RuntimeTelemetry& telemetry) {
   (void)telemetry;
   fsai::time::SimulationStageTimer render_timer("renderer");
   Graphics_Clear(graphics);
   Graphics_DrawGrid(graphics, 50);
 
-  const auto& left_cones = world.left_cones;
-  const auto& right_cones = world.right_cones;
+  const auto& left_cones = world.getLeftCones();
+  const auto& right_cones = world.getRightCones();
   const std::size_t gate_count =
       std::min(left_cones.size(), right_cones.size());
 
@@ -1343,8 +1337,8 @@ void DrawWorldScene(Graphics* graphics,
       const SDL_Color color = is_current_gate
                                   ? SDL_Color{200, 0, 200, 255}
                                   : SDL_Color{120, 120, 200, 180};
-      const auto& left = left_cones[i];
-      const auto& right = right_cones[i];
+      const auto& left = left_cones[i].position;
+      const auto& right = right_cones[i].position;
 
       const float left_x = left.x * K_RENDER_SCALE + graphics->width / 2.0f;
       const float left_y = left.z * K_RENDER_SCALE + graphics->height / 2.0f;
@@ -1376,7 +1370,7 @@ void DrawWorldScene(Graphics* graphics,
       }
     }
   } else {
-    const auto& checkpoints = world.checkpoints;
+    const auto& checkpoints = world.checkpointPositionsWorld();
     if (!checkpoints.empty()) {
       SDL_SetRenderDrawColor(graphics->renderer, 200, 0, 200, 255);
       Graphics_DrawFilledCircle(
@@ -1389,21 +1383,20 @@ void DrawWorldScene(Graphics* graphics,
     }
   }
 
-  const auto& lookahead = world.lookahead;
+  const auto& lookahead = world.lookahead();
 
-  const auto& start_cones = world.start_cones;
+  const auto& start_cones = world.getStartCones();
   const SDL_Color start_color{255, 140, 0, 255};
   for (const auto& cone : start_cones) {
-    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
+    const int cone_x = static_cast<int>(cone.position.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
+    const int cone_y = static_cast<int>(cone.position.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y,
-                  fsai::sim::kLargeConeRadiusMeters * 2.0f, start_color);
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, start_color);
   }
   // Blue 0, 102, 204, 255
   const SDL_Color left_base{255, 214, 0, 255};
-  for (size_t i = 0; i < world.left_cones.size(); ++i) {
+  for (size_t i = 0; i < world.getLeftCones().size(); ++i) {
     SDL_Color color = left_base;
     if (i == 0) {
       color = SDL_Color{0, 255, 0, 255};
@@ -1412,17 +1405,16 @@ void DrawWorldScene(Graphics* graphics,
     } else if (static_cast<int>(i) == lookahead.steer) {
       color = SDL_Color{255, 0, 255, 255};
     }
-    const auto& cone = world.left_cones[i];
-    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
+    const auto& cone = world.getLeftCones()[i];
+    const int cone_x = static_cast<int>(cone.position.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
+    const int cone_y = static_cast<int>(cone.position.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y,
-                  fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
   // Yellow 255, 214, 0, 255
   const SDL_Color right_base{0, 102, 204, 255};
-  for (size_t i = 0; i < world.right_cones.size(); ++i) {
+  for (size_t i = 0; i < world.getRightCones().size(); ++i) {
     SDL_Color color = right_base;
     if (i == 0) {
       color = SDL_Color{0, 255, 0, 255};
@@ -1431,16 +1423,15 @@ void DrawWorldScene(Graphics* graphics,
     } else if (static_cast<int>(i) == lookahead.steer) {
       color = SDL_Color{255, 0, 255, 255};
     }
-    const auto& cone = world.right_cones[i];
-    const int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
+    const auto& cone = world.getRightCones()[i];
+    const int cone_x = static_cast<int>(cone.position.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
-    const int cone_y = static_cast<int>(cone.z * K_RENDER_SCALE +
+    const int cone_y = static_cast<int>(cone.position.z * K_RENDER_SCALE +
                                         graphics->height / 2.0f);
-    DrawConeMarker(graphics, cone_x, cone_y,
-                  fsai::sim::kSmallConeRadiusMeters * 2.0f, color);
+    DrawConeMarker(graphics, cone_x, cone_y, cone.radius * 2.0f, color);
   }
 
-  const auto& transform = world.vehicle_transform;
+  const auto& transform = world.vehicleTransform();
   const float car_screen_x = transform.position.x * K_RENDER_SCALE +
                              graphics->width / 2.0f;
   const float car_screen_y = transform.position.z * K_RENDER_SCALE +
@@ -1449,9 +1440,8 @@ void DrawWorldScene(Graphics* graphics,
   Graphics_DrawCar(graphics, car_screen_x, car_screen_y, car_radius,
                    transform.yaw);
 
-    if (world.detections != nullptr) {
-      for (const auto& cone : *world.detections) {
-          // printf("\n\n cone conf %f \n\n", cone.conf);
+    for (auto cone : world.coneDetections) {
+          printf("\n\n cone conf %f \n\n", cone.conf);
           int cone_x = static_cast<int>(cone.x * K_RENDER_SCALE +
                                         graphics->width / 2.0f);
           int cone_y = static_cast<int>(cone.y * K_RENDER_SCALE +
@@ -1464,29 +1454,12 @@ void DrawWorldScene(Graphics* graphics,
             SDL_SetRenderDrawColor(graphics->renderer, 150, 150, 150, 250);
           }
           Graphics_DrawFilledCircle(graphics, cone_x, cone_y, 5);
-      }
     }
-  auto to_cones = [](const std::vector<Vector3>& positions, ConeType type) {
-    std::vector<Cone> cones;
-    cones.reserve(positions.size());
-    for (const auto& pos : positions) {
-      Cone cone{};
-      cone.position = pos;
-      cone.type = type;
-      cones.push_back(cone);
-    }
-    return cones;
-  };
-
-  std::vector<std::pair<Vector2, Vector2>> triangulationEdges =
-      getVisibleTriangulationEdges(world.vehicle_state,
-                                   to_cones(world.left_cones, ConeType::Left),
-                                   to_cones(world.right_cones, ConeType::Right))
-          .second;
+  std::vector<std::pair<Vector2, Vector2>> triangulationEdges = getVisibleTriangulationEdges(world.vehicleState(), world.getLeftCones(), world.getRightCones()).second;
   for (auto edge: triangulationEdges) {
     Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 50, 0, 255);
   }
-  for (auto edge: world.best_path_edges) {
+  for (auto edge: world.bestPathEdges) {
     Graphics_DrawSegment(graphics, edge.first.x, edge.first.y, edge.second.x, edge.second.y, 255, 50, 50);
   }
 }
@@ -1653,41 +1626,7 @@ struct ThreadSafeTelemetry {
     Eigen::Vector2d position{0.0, 0.0};
     double yaw_rad = 0.0;
 
-};
-
-class LocalUserInput final : public human::IUserInput {
- public:
-  void PublishEmergencyStop() override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    emergency_stop_requested_ = true;
-  }
-
-  void PublishMissionOverride(
-      const fsai::sim::MissionDescriptor& mission) override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    mission_override_ = mission;
-  }
-
-  bool ConsumeEmergencyStop() override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    const bool requested = emergency_stop_requested_;
-    emergency_stop_requested_ = false;
-    return requested;
-  }
-
-  std::optional<fsai::sim::MissionDescriptor> ConsumeMissionOverride() override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto value = mission_override_;
-    mission_override_.reset();
-    return value;
-  }
-
- private:
-  std::mutex mutex_{};
-  bool emergency_stop_requested_{false};
-  std::optional<fsai::sim::MissionDescriptor> mission_override_{};
-};
-}  // namespace
+};}  // namespace
 
 int main(int argc, char* argv[]) {
   std::srand(static_cast<unsigned>(std::time(nullptr)));
@@ -1702,7 +1641,6 @@ int main(int argc, char* argv[]) {
     return static_cast<uint16_t>(value);
   };
 
-  LocalUserInput user_input;
   double dt = kDefaultDt;
   std::string can_iface = fsai::sim::svcu::default_can_endpoint();
   std::string mode = "sim";
@@ -1712,6 +1650,7 @@ int main(int argc, char* argv[]) {
   std::string sensor_config_path = kDefaultSensorConfig;
   std::optional<bool> edge_preview_override;
   std::optional<bool> detection_preview_override;
+  std::optional<fsai::sim::MissionDescriptor> mission_override;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -1744,7 +1683,7 @@ int main(int argc, char* argv[]) {
                              "Unrecognized mission '%s'", mission_value.c_str());
         return EXIT_FAILURE;
       }
-      user_input.PublishMissionOverride(*parsed_mission);
+      mission_override = *parsed_mission;
     } else if (arg == "--mission") {
       fsai::sim::log::Logf(fsai::sim::log::Level::kError,
                            "--mission flag requires an argument");
@@ -1786,7 +1725,7 @@ int main(int argc, char* argv[]) {
       command_port, telemetry_port);
 
   const fsai::sim::MissionDescriptor mission =
-      ResolveMissionSelection(user_input);
+      ResolveMissionSelection(mission_override);
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Mission: %s",
                        mission.name.c_str());
 
@@ -1822,19 +1761,6 @@ int main(int argc, char* argv[]) {
     std::normal_distribution<double> dist(0.0, stddev);
     return dist(noise_rng);
   };
-
-  auto io_bus = std::make_shared<fsai::io::InProcessIoBus>();
-  fsai::io::TelemetryNoiseConfig bus_noise{};
-  constexpr double kDegToRad = std::numbers::pi / 180.0;
-  bus_noise.steer_rad_stddev = sensor_cfg.steering_deg.noise_std * kDegToRad;
-  bus_noise.axle_torque_stddev =
-      std::max(sensor_cfg.drive_torque.front_noise_std_nm,
-               sensor_cfg.drive_torque.rear_noise_std_nm);
-  bus_noise.wheel_rpm_stddev = sensor_cfg.wheel_rpm.noise_std;
-  bus_noise.brake_bar_stddev = sensor_cfg.brake_pct.noise_std * 0.01;
-  bus_noise.imu_stddev = sensor_cfg.imu.accel_longitudinal_std;
-  bus_noise.gps_speed_stddev = sensor_cfg.gps.speed_std_mps;
-  io_bus->set_noise_config(bus_noise);
 
   fsai_clock_config clock_cfg{};
   clock_cfg.mode = FSAI_CLOCK_MODE_SIMULATED;
@@ -1893,15 +1819,9 @@ int main(int argc, char* argv[]) {
       FSAI_BUDGET_SUBSYSTEM_CAN,
       "CAN transport not wired; pending hardware integration.");
 
-  const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
-  const VehicleParam vehicle_param = VehicleParam::loadFromFile(vehicle_config_path.c_str());
-  VehicleDynamics vehicle_dynamics(vehicle_param);
   World world;
-  WorldConfig world_config{mission_definition};
-  world.init(vehicle_dynamics, world_config);
-  vehicle_dynamics.setState(world.vehicleSpawnState().state,
-                            world.vehicleSpawnState().transform);
-  world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
+  const auto vehicle_config_path = MakeProjectRelativePath(std::filesystem::path("configs/vehicle/configDry.yaml"));
+  world.init(vehicle_config_path.c_str(), mission_definition);
 
   Graphics graphics{};
   if (Graphics_Init(&graphics, "Car Simulation 2D", kWindowWidth,
@@ -1983,19 +1903,6 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  io_bus->set_stereo_sink([stereo_frame_buffer, &stereo_display](const FsaiStereoFrame& frame) {
-    if (stereo_frame_buffer) {
-      while (!stereo_frame_buffer->tryPush(frame)) {
-        if (!stereo_frame_buffer->tryPop().has_value()) {
-          break;
-        }
-      }
-    }
-    if (stereo_display) {
-      stereo_display->present(frame);
-    }
-  });
-
 
   fsai::sim::log::Logf(fsai::sim::log::Level::kInfo, "Starting VisionNode...");
   ThreadSafeTelemetry shared_telemetry;
@@ -2040,6 +1947,9 @@ int main(int argc, char* argv[]) {
   std::vector<fsai::io::camera::sim_stereo::SimConeInstance> cone_positions;
   bool running = true;
   size_t frame_counter = 0;
+
+  const VehicleParam& vehicle_param = world.model().param();
+
 
   fsai::control::runtime::CanIface::Config can_cfg{};
   can_cfg.endpoint = can_iface;
@@ -2089,10 +1999,6 @@ int main(int argc, char* argv[]) {
     Graphics_Cleanup(&graphics);
     return EXIT_FAILURE;
   }
-  io_bus->set_telemetry_sink(
-      [&telemetry_tx](const fsai::sim::svcu::TelemetryPacket& pkt) {
-        telemetry_tx.send(&pkt, sizeof(pkt));
-      });
 
   float tmp_brake_front_bias = static_cast<float>(vehicle_param.brakes.front_bias);
   float tmp_brake_rear_bias = static_cast<float>(vehicle_param.brakes.rear_bias);
@@ -2124,6 +2030,7 @@ int main(int argc, char* argv[]) {
   fsai::control::runtime::Ai2VcuCommandSet last_ai2vcu_commands{};
   bool has_last_ai_command = false;
 
+  std::optional<fsai::sim::svcu::CommandPacket> latest_command;
   const uint64_t stale_threshold_ns =
       fsai_clock_from_seconds(kCommandStaleSeconds);
 
@@ -2133,39 +2040,9 @@ int main(int argc, char* argv[]) {
     while (SDL_PollEvent(&event)) {
       ImGui_ImplSDL2_ProcessEvent(&event);
       Graphics_HandleWindowEvent(&graphics, &event);
-      if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
-        switch (event.key.keysym.sym) {
-          case SDLK_ESCAPE:
-            user_input.PublishEmergencyStop();
-            break;
-          case SDLK_1:
-          case SDLK_KP_1:
-            user_input.PublishMissionOverride(kMissionOptions[0].descriptor);
-            break;
-          case SDLK_2:
-          case SDLK_KP_2:
-            user_input.PublishMissionOverride(kMissionOptions[1].descriptor);
-            break;
-          case SDLK_3:
-          case SDLK_KP_3:
-            user_input.PublishMissionOverride(kMissionOptions[2].descriptor);
-            break;
-          case SDLK_4:
-          case SDLK_KP_4:
-            user_input.PublishMissionOverride(kMissionOptions[3].descriptor);
-            break;
-          default:
-            break;
-        }
-      }
       if (event.type == SDL_QUIT) {
         running = false;
       }
-    }
-    if (user_input.ConsumeEmergencyStop()) {
-      fsai::sim::log::Logf(fsai::sim::log::Level::kWarning,
-                           "Emergency stop requested; shutting down simulator");
-      running = false;
     }
     if (!running) {
       break;
@@ -2208,7 +2085,7 @@ int main(int argc, char* argv[]) {
     fsai::sim::svcu::CommandPacket command_packet{};
     while (auto bytes = command_rx.receive(&command_packet, sizeof(command_packet))) {
       if (*bytes == sizeof(command_packet)) {
-        io_bus->push_command(command_packet);
+        latest_command = command_packet;
       }
     }
 
@@ -2225,7 +2102,6 @@ int main(int argc, char* argv[]) {
     float appliedBrake = autopBrake;
     float appliedSteer = autopSteer;
     bool ai_command_applied = false;
-    auto latest_command = io_bus->latest_command();
     const bool ai_command_enabled = latest_command && latest_command->enabled != 0;
     if (latest_command) {
       if (latest_command->t_ns <= now_ns &&
@@ -2302,19 +2178,9 @@ int main(int argc, char* argv[]) {
     world.brakeInput = appliedBrake;
     world.steeringAngle = appliedSteer;
 
-    vehicle_dynamics.setCommand(appliedThrottle, appliedBrake, appliedSteer);
-    vehicle_dynamics.step(step_seconds);
-
     {
       fsai::time::ControlStageTimer control_timer("world_update");
       world.update(step_seconds);
-    }
-    if (world.vehicleResetPending()) {
-      world.coneDetections.clear();
-      vision_node.reset();
-      vehicle_dynamics.setState(world.vehicleSpawnState().state,
-                                world.vehicleSpawnState().transform);
-      world.acknowledgeVehicleReset(world.vehicleSpawnState().transform);
     }
     const double sim_time_s = fsai_clock_to_seconds(now_ns);
 
@@ -2731,7 +2597,7 @@ int main(int argc, char* argv[]) {
         std::sqrt(vehicle_state.velocity.x() * vehicle_state.velocity.x() +
                   vehicle_state.velocity.y() * vehicle_state.velocity.y()));
     telemetry.status_flags = static_cast<uint8_t>(world.useController ? 0x3 : 0x1);
-    io_bus->publish_telemetry(telemetry);
+    telemetry_tx.send(&telemetry, sizeof(telemetry));
 
     logger.logState(sim_time_s, world.vehicleState());
     logger.logControl(sim_time_s, world.throttleInput, world.steeringAngle);
@@ -2800,7 +2666,16 @@ int main(int argc, char* argv[]) {
       }
       stereo_source->setCones(cone_positions);
       const FsaiStereoFrame& frame = stereo_source->capture(now_ns);
-      io_bus->publish_stereo_frame(frame);
+      if (stereo_frame_buffer) {
+        while (!stereo_frame_buffer->tryPush(frame)) {
+          if (!stereo_frame_buffer->tryPop().has_value()) {
+            break;
+          }
+        }
+      }
+      if (stereo_display) {
+        stereo_display->present(frame);
+      }
     }
 
     std::shared_ptr<fsai::vision::DetectionRingBuffer> detection_buffer = fsai::vision::getActiveDetectionBuffer();
@@ -2810,17 +2685,12 @@ int main(int argc, char* argv[]) {
     }
     auto detections = detection_buffer->tryPop();
     if (detections != std::nullopt) {
-        // [FIX] Clear the old detections! 
-        // We are receiving a full map snapshot, not just new cones.
-        world.coneDetections.clear(); 
-
         for (int i = 0; i < detections->n; i++) {
           world.coneDetections.push_back(detections->dets[i]);
       }
     }
-    fsai::sim::app::GuiWorldAdapter gui_adapter(world);
-    const auto world_snapshot = gui_adapter.snapshot();
-    DrawWorldScene(&graphics, world_snapshot, runtime_telemetry);
+
+    DrawWorldScene(&graphics, world, runtime_telemetry);
     ImGui::Render();
     ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), graphics.renderer);
     Graphics_Present(&graphics);
