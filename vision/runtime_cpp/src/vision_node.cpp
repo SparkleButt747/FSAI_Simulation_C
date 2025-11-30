@@ -17,8 +17,6 @@
 // #include "logging.hpp"
 #include <iostream>
 #include <chrono>
-#include <future>
-#include <optional>
 
 const char* PATH_TO_MODEL = "../vision/models/cone_model.onnx";
 constexpr std::chrono::milliseconds kIdleSleep(5);
@@ -117,15 +115,11 @@ std::vector<cv::Point3d> VisionNode::getConeObjectPoints(const int cone_type) {
         cone_height = SMALL_CONE_HEIGHT;
         cone_width = SMALL_CONE_WIDTH;
     }
-    objectPoints.clear();
-    // 1. Bottom Center (Anchor)
-    objectPoints.emplace_back(cone_width / 2.0, 0.0, 0.01); 
-    // 2. Top Tip
-    objectPoints.emplace_back(cone_width / 2.0, cone_height, 0.0);
-    // 3. Bottom Left Corner
     objectPoints.emplace_back(0.0, 0.0, 0.0);
-    // 4. Top Left Corner
-    objectPoints.emplace_back(0.0, cone_height, 0.0);
+    // Bottom-Right
+    objectPoints.emplace_back(cone_width, 0.0, 0.0);
+    // Top-Tip (Centered)
+    objectPoints.emplace_back(cone_width / 2.0, cone_height, 0.0);
     return objectPoints;
 }
 
@@ -133,21 +127,18 @@ std::vector<cv::Point3d> VisionNode::getConeObjectPoints(const int cone_type) {
 std::vector<cv::Point2d> VisionNode::getConeImagePoints(const types::BoxBound& det) {
     std::vector<cv::Point2d> imagePoints;
     
-    // CHANGE: Use double precision for PnP input consistency
-    double x = static_cast<double>(det.x);
-    double y = static_cast<double>(det.y);
-    double w = static_cast<double>(det.w);
-    double h = static_cast<double>(det.h);
+    float x = static_cast<float>(det.x);
+    float y = static_cast<float>(det.y);
+    float w = static_cast<float>(det.w);
+    float h = static_cast<float>(det.h);
 
-    // 1. Bottom Center (Anchor)
-    imagePoints.emplace_back(x + w / 2.0, y + h); 
-    // 2. Top Tip
-    imagePoints.emplace_back(x + w / 2.0, y);
-    // 3. Bottom Left Corner
+    // Bottom-Left
     imagePoints.emplace_back(x, y + h);
-    // 4. Top Left Corner
-    imagePoints.emplace_back(x, y);
-
+    // Bottom-Right
+    imagePoints.emplace_back(x + w, y + h);
+    // Top-Tip
+    imagePoints.emplace_back(x + w / 2.0f, y);
+    
     return imagePoints;
 }
 cv::Rect VisionNode::getPnPROI(const types::BoxBound& det, int im_width, int im_height){
@@ -160,7 +151,7 @@ cv::Rect VisionNode::getPnPROI(const types::BoxBound& det, int im_width, int im_
     K.at<double>(1, 1) = cameraParams_.fy;
     K.at<double>(1, 2) = cameraParams_.cy;
     
-    cv::Mat distCoeffs = cv::Mat::zeros(4,1,CV_64F);
+    cv::Mat distCoeffs = cv::Mat::zeros(4,1,CV_64F)
     
     cv::Mat rvec, tvec;
     bool success = cv::solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec, tvec, false, cv::SOLVEPNP_ITERATIVE);
@@ -187,32 +178,9 @@ cv::Rect VisionNode::getPnPROI(const types::BoxBound& det, int im_width, int im_
 
     
     cv::Rect roi(x, y, w, h);
-    cv::Rect img_bounds(0, 0, im_width, im_height);
+    cv::Rect img_bounds(0, 0, img_width, img_height);
     
     return roi & img_bounds;
-}
-Eigen::Vector3d VisionNode::getMedianPoint(const std::vector<Eigen::Vector3d>& points) {
-    if (points.empty()) return Eigen::Vector3d::Zero();
-
-    size_t n = points.size();
-    std::vector<double> xs, ys, zs;
-    xs.reserve(n); ys.reserve(n); zs.reserve(n);
-
-    for (const auto& p : points) {
-        xs.push_back(p.x());
-        ys.push_back(p.y());
-        zs.push_back(p.z());
-    }
-
-    std::sort(xs.begin(), xs.end());
-    std::sort(ys.begin(), ys.end());
-    std::sort(zs.begin(), zs.end());
-
-    auto get_med = [&](const std::vector<double>& v) {
-        return (n % 2 == 0) ? (v[n/2 - 1] + v[n/2]) / 2.0 : v[n/2];
-    };
-
-    return Eigen::Vector3d(get_med(xs), get_med(ys), get_med(zs));
 }
 
 RenderableFrame VisionNode::getRenderableFrame(){
@@ -260,137 +228,180 @@ std::optional<fsai::types::Detections> VisionNode::getLatestDetections(){
         return latest_detections_;
     }
 }
-#include <future>   // <--- Added for std::async, std::future
-#include <optional> // <--- Added for std::optional
-
-// ... (Your other includes and namespace setup) ...
 
 void VisionNode::runProcessingLoop(){
     
+    
     while(running_){
         if(reset_requested_){
-            mapper_.clearMap(); 
+            mapper_.clearMap(); // Now safe: we are in the only thread that touches mapper_
             reset_requested_ = false;
+            // Optional: Continue to skip processing this specific frame if you want
         }
-
-        // --- 1. Frame Acquisition and Preprocessing ---
+        // We use tryGetLatestFrame() for a non-blocking loop.
         std::optional<fsai::vision::FrameRingBuffer::FrameHandle> handle_opt =
             camera_->tryGetLatestFrame();
 
         if (!handle_opt) {
+            // No frame was available, so sleep and try again
             std::this_thread::sleep_for(kIdleSleep);
             continue;
         }
-
         auto t_start = std::chrono::high_resolution_clock::now();
-        
         if(!intrinsics_set_){
-            cameraParams_ = handle_opt->frame.left.K; 
+            cameraParams_ = handle_opt->frame.left.K; //params will be the same for both frames
             intrinsics_set_ = true;
         }
-
-        // --- 2. Telemetry and Time ---
+        // get car telem at start
         Eigen::Vector2d vehicle_pos {0.0, 0.0};
         double car_yaw_rad = 0.0;
+
         if(pose_provider_){
             std::pair<Eigen::Vector2d, double> pose = pose_provider_();
             vehicle_pos = pose.first;
             car_yaw_rad = pose.second;
         }
-
+        // --- Frame is available! ---
         const uint64_t t_now = handle_opt->frame.t_sync_ns;
+        // 1. Convert to Mat (local variable only for now)
+        auto t1 = std::chrono::high_resolution_clock::now();
         cv::Mat left_mat = frameToMat(handle_opt->frame.left);
         cv::Mat right_mat = frameToMat(handle_opt->frame.right);
         
-        // --- 3. YOLO Detection ---
+        fsai::types::Detections new_detections{};
+        new_detections.t_ns = handle_opt->frame.t_sync_ns;
+        new_detections.n = 0; // Number of cones found
+
+        
+        // 1. Object detection logic
         auto t2 = std::chrono::high_resolution_clock::now();
         std::vector<types::BoxBound> detections = detector_->detectCones(left_mat);
-        
-        // Render update (Using standard loop debug)
+        for(const auto& det: detections){
+            float area = det.w * det.h;
+            if(area > max_area_){
+                max_area_ = area;
+            }else if(area < min_area_){
+                min_area_ = area;
+            }
+        }
         {
             std::lock_guard<std::mutex> lock(render_mutex_);
-            latest_renderable_frame_.image = left_mat; 
+            latest_renderable_frame_.image = left_mat; // cv::Mat is ref-counted, this is fast
             latest_renderable_frame_.boxes = detections;
             latest_renderable_frame_.timestamp_ns = t_now;
             latest_renderable_frame_.valid = true;
         }
 
-        // --- 4. Synchronous Cone Processing Loop (PnP/Match/Median) ---
+        // 2. Feature matching
         auto t3 = std::chrono::high_resolution_clock::now();
-        std::vector<FsaiConeDet> raw_global_cones;
+        std::vector<ConeMatches> matched_features;
+        try {
+            // This is the line causing the crash
+            matched_features = match_features_per_cone(left_mat, right_mat, detections,sift_detector_);
+        } 
+        catch (const cv::Exception& e) {
+            // If a crop fails, log it and skip this frame instead of killing the OS process
+            std::cerr << "Skipping frame due to ROI error." << std::endl;
+            continue; // Skip to the next iteration of the while(running_) loop
+        }
+        // 3. Stereo triangulation
+        auto t4 = std::chrono::high_resolution_clock::now();
 
-        for (int i = 0; i < detections.size(); ++i) {
-    const auto& det = detections[i];
+        std::vector<ConeCluster> cone_cluster;
 
-    try { // <--- START TRY-CATCH
-        
-        // A. PnP: Get "Sniper" ROI
-        cv::Rect right_roi = getPnPROI(det, right_mat.cols, right_mat.rows);
-        if (right_roi.area() <= 0) continue; 
+        std::vector<Eigen::Vector2d> local_centres;
 
-        // B. Match: Targeted SIFT
-        cv::Rect left_roi(det.x, det.y, det.w, det.h);
-        left_roi = left_roi & cv::Rect(0, 0, left_mat.cols, left_mat.rows);
-        
-        ConeMatches matches = match_single_cone(left_mat, right_mat, left_roi, right_roi, i, sift_detector_);
-        if (matches.matches.empty()) continue; 
-
-        // C. Triangulate
-        std::vector<Eigen::Vector3d> points;
-        for (const auto& feat : matches.matches) {
-            Eigen::Vector3d res;
-            if (triangulatePoint(feat, res)) {
-                if (res.z() > 0.5 && res.z() < 25.0) {
-                    points.push_back(res);
+        for(const auto& cone:matched_features){
+            //iterate over each feature for every cone
+            ConeCluster cluster;
+            cluster.coneId = cone.cone_index;
+            for(const auto& feat: cone.matches ){
+                //determine depth for each match and update cone cluster
+                Eigen::Vector3d res;
+                if(triangulatePoint(feat,res)){
+                    cluster.points.push_back(res);
+                }
+            }
+            if(!cluster.points.empty()){
+                // refactored to run the centroid recovery here to save space
+                // find 2d centre coord and add to intermittent vector
+                Eigen::Vector2d center = Centroid::centroid_linear(cluster.points);
+                if(!center.isZero()){
+                    local_centres.push_back(center);
                 }
             }
         }
-        
-        if (points.empty()) continue; 
+        // 5. Recovering global position
+        //apply rigid body transformation and translation
 
-        // D. Filter (Median)
-        Eigen::Vector3d local_cam_pos = getMedianPoint(points);
-        if (local_cam_pos.isZero()) continue; 
-
-        // E. Global Transform & Packing (Rest of the loop)
-        Eigen::Vector2d vehicle_local_pos;
-        vehicle_local_pos.x() = local_cam_pos.z();
-        vehicle_local_pos.y() = -local_cam_pos.x();
 
         Eigen::Isometry2d car_to_global = Eigen::Isometry2d::Identity();
         car_to_global.translation() << vehicle_pos.x(), vehicle_pos.y();
         car_to_global.rotate(Eigen::Rotation2Dd(car_yaw_rad));
 
-        Eigen::Vector2d global_pos = car_to_global * vehicle_local_pos;
+        std::vector<FsaiConeDet> raw_global_cones;
 
-        FsaiConeDet glob_det;
-        glob_det.x = global_pos.x();
-        glob_det.y = 0.0f; 
-        glob_det.z = global_pos.y(); 
-        glob_det.side = det.side; 
-        
-        float dist_penalty = 0.02f * (float)local_cam_pos.z();
-        glob_det.conf = std::max(0.1f, 0.9f - dist_penalty);
+        for(const auto& cone : matched_features){
+            
+            // 1. Accumulate 3D points
+            std::vector<Eigen::Vector3d> points;
+            for(const auto& feat : cone.matches){
+                Eigen::Vector3d res;
+                if(triangulatePoint(feat, res)){
+                    // Filter out bad depths immediately
+                    // Ignore points behind camera or too close (< 0.5m) or too far (> 20m)
+                    if(res.z() > 0.5 && res.z() < 20.0) {
+                        points.push_back(res);
+                    }
+                }
+            }
 
-        raw_global_cones.push_back(glob_det);
+                    // 4. Filter: Get the robust Median point
+                    Eigen::Vector3d local_cam_pos = getMedianPoint(points);
+                    if (local_cam_pos.isZero()) return std::nullopt;
 
-    } catch (const cv::Exception& e) {
-        // CATCH OpenCV exceptions that cause the SIGABRT
-        std::cerr << "OpenCV CRITICAL FAIL on cone " << i << ": " << e.what() << std::endl;
-        continue;
-    } catch (...) {
-        // Catch any other unexpected crash
-        std::cerr << "Unknown CRITICAL FAIL on cone " << i << std::endl;
-        continue;
+                    // 5. Global Recovery: Transform to Map Coordinates
+                    // Camera Frame: X=Right, Y=Down, Z=Forward
+                    // Vehicle Frame: X=Forward, Y=Left
+                    Eigen::Vector2d vehicle_local_pos;
+                    vehicle_local_pos.x() = local_cam_pos.z();   
+                    vehicle_local_pos.y() = -local_cam_pos.x();  
+
+                    // Global Transform
+                    Eigen::Isometry2d car_to_global = Eigen::Isometry2d::Identity();
+                    car_to_global.translation() << vehicle_pos.x(), vehicle_pos.y();
+                    car_to_global.rotate(Eigen::Rotation2Dd(car_yaw_rad));
+
+                    Eigen::Vector2d global_pos = car_to_global * vehicle_local_pos;
+
+                    // 6. Pack Result
+                    FsaiConeDet glob_det;
+                    glob_det.x = global_pos.x();
+                    glob_det.y = 0.0f; // Elevation
+                    glob_det.z = global_pos.y(); // Mapped to Z in struct
+                    glob_det.side = det.side; // OR matches.side
+                    
+                    // Confidence heuristic based on distance
+                    float dist_penalty = 0.02f * (float)local_cam_pos.z();
+                    glob_det.conf = std::max(0.1f, 0.9f - dist_penalty);
+
+                    return glob_det;
+                }
+            ));
+        }
+
+// Collection Phase (Main Thread)
+for (auto& f : futures) {
+    auto result = f.get(); // Blocks until this specific cone is done
+    if (result.has_value()) {
+        raw_global_cones.push_back(result.value());
     }
-} // End of serial loop
-        
-        // --- 5. Map Update ---
+}
         mapper_.update(raw_global_cones, vehicle_pos);
 
-        // --- 6. Serialize Output ---
+        // 7. Serialize Output
         fsai::types::Detections out_msg{};
-        out_msg.t_ns = t_now;
+        out_msg.t_ns = handle_opt->frame.t_sync_ns;
         out_msg.n = 0;
 
         for(const auto& c : mapper_.cones){
@@ -398,7 +409,7 @@ void VisionNode::runProcessingLoop(){
             
             FsaiConeDet d;
             d.x = c.x;
-            d.y = c.y; 
+            d.y = c.y; // Map Y -> Output Z
             d.z = 0.0f;
             d.side = static_cast<FsaiConeSide>(c.side);
             d.conf = c.conf; 
@@ -407,8 +418,15 @@ void VisionNode::runProcessingLoop(){
             out_msg.n++;
         }
         detection_buffer_->push(out_msg);
+        auto t_end = std::chrono::high_resolution_clock::now();
+        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count();
+        auto ms_conv = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+        auto ms_yolo = std::chrono::duration_cast<std::chrono::milliseconds>(t3 - t2).count();
+        auto ms_match = std::chrono::duration_cast<std::chrono::milliseconds>(t4 - t3).count();
+        auto ms_rest = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t4).count();
+        auto ms_total = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count();
+
         
-        // Old timing logic removed for brevity, can be re-added here.
     }
 }
 }
