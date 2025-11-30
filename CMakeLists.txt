@@ -201,7 +201,7 @@ target_include_directories(fsai_telemetry PUBLIC
 target_link_libraries(fsai_telemetry PUBLIC Eigen3::Eigen)
 
 # ------------------------------------------------------------------------------
-# Vision-test libraries  [UNCHANGED]
+# Vision-test libraries
 # ------------------------------------------------------------------------------
 add_subdirectory(vision_test/runtime_cpp/src)
 target_include_directories(fsai_vision_runtime PUBLIC
@@ -211,6 +211,9 @@ target_include_directories(fsai_vision_runtime PUBLIC
 
     # This path lets vision use the logger
     "${CMAKE_SOURCE_DIR}/sim/include/"
+
+    # Temporarily use control/can_iface by vision/gps_localiser
+    "${CMAKE_SOURCE_DIR}/control/runtime_cpp"
 )
 file(GLOB VISION_NODE_SOURCES
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/src/*.cpp"
@@ -218,6 +221,9 @@ file(GLOB VISION_NODE_SOURCES
 )
 target_sources(fsai_vision_runtime PRIVATE
     ${VISION_NODE_SOURCES}
+    # Temp use
+    "${CMAKE_SOURCE_DIR}/control/runtime_cpp/can_iface.cpp"
+
 )
 target_include_directories(fsai_vision_runtime PUBLIC
     "${CMAKE_SOURCE_DIR}/vision/runtime_cpp/include"
