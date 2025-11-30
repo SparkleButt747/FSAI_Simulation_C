@@ -10,7 +10,7 @@
 #include "Vector.h"
 #include "Transform.h"
 #include "types.h"
-#include "TrackTypes.hpp"
+#include "sim/cone_types.hpp"
 
 #include <tuple>
 #include <typeinfo>
@@ -183,17 +183,6 @@ std::pair<Triangulation, std::vector<std::pair<Vector2, Vector2>>> getVisibleTri
 
 // Returns a simple path (sequence of PathNode) with the lowest cost according to calculateCost.
 // Explores candidate paths up to maxLen nodes using a beam search whose width can be tuned.
-std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
-    const std::vector<std::vector<int>>& adj,
-    const std::vector<PathNode>& nodes,
-    const Point& carFront,
-    std::size_t maxLen,
-    std::size_t minLen,
-    std::size_t beamWidth,
-    const std::function<float(const std::vector<PathNode>&, std::size_t)>& costFunc
-);
-
-// Convenience overload using default cost
 std::pair<std::vector<PathNode>, std::vector<std::pair<Vector2, Vector2>>> beamSearch(
     const std::vector<std::vector<int>>& adj,
     const std::vector<PathNode>& nodes,

@@ -11,7 +11,6 @@
 #include "Transform.h"
 #include "types.h"
 #include "centerline.hpp"
-#include "TrackTypes.hpp"
 
 #include <typeinfo>
 #include <cmath>

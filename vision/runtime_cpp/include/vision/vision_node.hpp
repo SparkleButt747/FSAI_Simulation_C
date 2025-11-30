@@ -81,15 +81,8 @@ class VisionNode{
 
     void runProcessingLoop();
 
-    // private helpers
-    inline bool triangulatePoint(const Feature& feat,Eigen::Vector3d& result);
     cv::Mat frameToMat(const fsai::types::Frame& frame);
 
-    // private members
-    PoseProvider pose_provider_;
-    bool intrinsics_set_ = false;
-    FsaiCameraIntrinsics cameraParams_;
-    const double BASE_LINE_ = 0.2;
     std::unique_ptr<fsai::vision::SimCamera> camera_;
     std::unique_ptr<fsai::vision::ConeDetector> detector_;
 
