@@ -33,7 +33,7 @@ public:
 
 private:
     // --- Tunable Parameters ---
-    const float MERGE_RADIUS = 2.5f;   // Meters. Cones closer than this are merged.
+    const float MERGE_RADIUS = 2.0f;   // Meters. Cones closer than this are merged.
     const float MAX_CONF_CAP = 10.0f;  // Maximum weight a cone can accumulate.
     const float REF_DIST = 10.0f;      // Distance at which weight is halved (for proximity calculation)
 };

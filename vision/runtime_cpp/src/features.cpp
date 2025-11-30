@@ -151,3 +151,62 @@ std::vector<ConeMatches> match_features_per_cone(const cv::Mat& left_frame,
     }
     return all_cone_matches;
 }
+
+ConeMatches match_single_cone(
+    const cv::Mat& left_img, 
+    const cv::Mat& right_img,
+    const cv::Rect& left_roi,   // From YOLO (clipped to image)
+    const cv::Rect& right_roi,  // From PnP (clipped to image)
+    const int cone_index,       // To track which cone this is
+    cv::Ptr<cv::SIFT>& sift
+) {
+    ConeMatches result;
+    result.cone_index = cone_index;
+
+    // 1. Safety Checks
+    if (left_roi.area() <= 0 || right_roi.area() <= 0) {
+        return result; // Return empty matches
+    }
+
+    // 2. Crop the Images (The "Sniper" Scope)
+    cv::Mat left_crop = left_img(left_roi);
+    cv::Mat right_crop = right_img(right_roi);
+
+    // 3. Detect Features
+    std::vector<cv::KeyPoint> kp1, kp2;
+    cv::Mat desc1, desc2;
+    
+    sift->detectAndCompute(left_crop, cv::noArray(), kp1, desc1);
+    sift->detectAndCompute(right_crop, cv::noArray(), kp2, desc2);
+
+    if (kp1.empty() || kp2.empty()) {
+        return result;
+    }
+
+    // 4. Match Features (Brute Force with L2 Norm)
+    // CrossCheck=true ensures matches are consistent both ways
+    cv::BFMatcher matcher(cv::NORM_L2, true); 
+    std::vector<cv::DMatch> matches;
+    matcher.match(desc1, desc2, matches);
+
+    // 5. Filter & Restore Coordinates
+    for (const auto& m : matches) {
+        Feature f;
+        
+        // Convert Local Crop Coords -> Global Image Coords
+        // Global = Crop_Offset + Local_Point
+        f.x_1 = left_roi.x + kp1[m.queryIdx].pt.x;
+        f.y_1 = left_roi.y + kp1[m.queryIdx].pt.y;
+        
+        f.x_2 = right_roi.x + kp2[m.trainIdx].pt.x;
+        f.y_2 = right_roi.y + kp2[m.trainIdx].pt.y;
+
+        // Epipolar Constraint Check (Vertical Alignment)
+        // Even with PnP, we discard matches that are vertically wildly off
+        if (std::abs(f.y_1 - f.y_2) < 5.0) { 
+            result.matches.push_back(f);
+        }
+    }
+
+    return result;
+}

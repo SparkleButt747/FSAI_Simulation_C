@@ -21,6 +21,11 @@
 
 namespace fsai{
 namespace vision{
+const double SMALL_CONE_WIDTH = 0.228; 
+const double SMALL_CONE_HEIGHT = 0.325;
+const double LARGE_CONE_WIDTH = 0.285;
+const double LARGE_CONE_HEIGHT = 0.505;
+const double BASE_LINE = 0.2;
 struct RenderableFrame {
     cv::Mat image;
     std::vector<fsai::types::BoxBound> boxes;

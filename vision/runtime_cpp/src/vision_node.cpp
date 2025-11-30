@@ -70,6 +70,7 @@ void VisionNode::reset(){
     empty_msg.n = 0;
     latest_detections_ = empty_msg;
 }
+
 std::optional<fsai::types::Detections> VisionNode::makeDetections(){
     std::lock_guard<std::mutex> lock(detection_mutex_); 
     return latest_detections_;
@@ -102,6 +103,85 @@ cv::Mat VisionNode::frameToMat(const fsai::types::Frame& frame){
             return cv::Mat();
     }
 }
+std::vector<cv::Point3d> VisionNode::getConeObjectPoints(const int cone_type) {
+    std::vector<cv::Point3d> objectPoints;
+    // Bottom-Left (Origin)
+    double cone_height;
+    double cone_width;
+    if(cone_type == 2){
+        cone_height = LARGE_CONE_HEIGHT;
+        cone_width = LARGE_CONE_WIDTH;
+    }else{
+        cone_height = SMALL_CONE_HEIGHT;
+        cone_width = SMALL_CONE_WIDTH;
+    }
+    objectPoints.emplace_back(0.0, 0.0, 0.0);
+    // Bottom-Right
+    objectPoints.emplace_back(cone_width, 0.0, 0.0);
+    // Top-Tip (Centered)
+    objectPoints.emplace_back(cone_width / 2.0, cone_height, 0.0);
+    return objectPoints;
+}
+
+// 2. Extract the "Pixel" Points (2D) from the Bounding Box
+std::vector<cv::Point2d> VisionNode::getConeImagePoints(const types::BoxBound& det) {
+    std::vector<cv::Point2d> imagePoints;
+    
+    float x = static_cast<float>(det.x);
+    float y = static_cast<float>(det.y);
+    float w = static_cast<float>(det.w);
+    float h = static_cast<float>(det.h);
+
+    // Bottom-Left
+    imagePoints.emplace_back(x, y + h);
+    // Bottom-Right
+    imagePoints.emplace_back(x + w, y + h);
+    // Top-Tip
+    imagePoints.emplace_back(x + w / 2.0f, y);
+    
+    return imagePoints;
+}
+cv::Rect VisionNode::getPnPROI(const types::BoxBound& det, int im_width, int im_height){
+    std::vector<cv::Point3d> objectPoints = getConeObjectPoints(det.side);
+    std::vector<cv::Point2d> imagePoints = getConeImagePoints(det);
+    
+    cv::Mat K = cv::Mat::eye(3, 3, CV_64F);
+    K.at<double>(0, 0) = cameraParams_.fx;
+    K.at<double>(0, 2) = cameraParams_.cx;
+    K.at<double>(1, 1) = cameraParams_.fy;
+    K.at<double>(1, 2) = cameraParams_.cy;
+    
+    cv::Mat distCoeffs = cv::Mat::zeros(4,1,CV_64F)
+    
+    cv::Mat rvec, tvec;
+    bool success = cv::solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec, tvec, false, cv::SOLVEPNP_ITERATIVE);
+    
+    if (!success) {
+        // Fallback: If PnP fails, return a "safe" zero rect or handle upstream
+        return cv::Rect(0,0,0,0);
+    }
+    
+    double X_left = tvec.at<double>(0);
+    double Z = tvec.at<double>(2); // Depth
+    
+    double X_right = X_left - BASE_LINE ;
+    double u_right = (cameraParams_.fx * X_right / Z) + cameraParams_.cx;
+    
+    const int H_PADDING = 30; // Pixels
+    const int V_PADDING = 20; // Pixels
+
+    int w = det.w + H_PADDING;
+    int h = det.h + V_PADDING;
+    
+    int x = static_cast<int>(u_right - (w / 2.0));
+    int y = static_cast<int>(det.y - (V_PADDING / 2.0)); // Keep vertical alignment mostly same
+
+    
+    cv::Rect roi(x, y, w, h);
+    cv::Rect img_bounds(0, 0, img_width, img_height);
+    
+    return roi & img_bounds;
+}
 
 RenderableFrame VisionNode::getRenderableFrame(){
             std::lock_guard<std::mutex> lock(render_mutex_);
@@ -119,22 +199,18 @@ RenderableFrame VisionNode::getRenderableFrame(){
  * @param Feature point the matched feature
  */
 inline bool VisionNode::triangulatePoint(const Feature& feat, Eigen::Vector3d& result){
-    const double max_depth = 10.0f;
+    const double max_depth = 20.0f; 
     const double disparity = feat.x_1 - feat.x_2;
 
-    // Check for near-zero disparity to avoid division by zero
     if (std::abs(disparity) < 1e-6) {
-        // Optimization: Use standard generic infinity if Eigen supports it, 
-        // or keep your specific error handling here.
         result.setConstant(std::numeric_limits<double>::infinity());
         return false;
     }
 
-    // Precompute common factor Q = Baseline / Disparity
-    // This saves multiple multiplications and divisions later.
     const double Q = BASE_LINE_ / disparity;
     result.z() = cameraParams_.fx * Q;
-    if(result.z() >= max_depth){
+    
+    if(result.z() >= max_depth || result.z() <= 0.0){ // Added <= 0 check for safety
         invalid_dets_ ++;
         return false;
     }
@@ -155,7 +231,6 @@ std::optional<fsai::types::Detections> VisionNode::getLatestDetections(){
 
 void VisionNode::runProcessingLoop(){
     
-    // FIX 2: Add the main "while(running_)" loop
     
     while(running_){
         if(reset_requested_){
@@ -281,57 +356,47 @@ void VisionNode::runProcessingLoop(){
                 }
             }
 
-            if(!points.empty()){
-                // 2. Explicit Centroid Calculation (Avoids Y/Z confusion)
-                // We only care about X (Lateral) and Z (Depth)
-                double sum_x = 0.0;
-                double sum_z = 0.0;
-                
-                for(const auto& p : points) {
-                    sum_x += p.x();
-                    sum_z += p.z();
+                    // 4. Filter: Get the robust Median point
+                    Eigen::Vector3d local_cam_pos = getMedianPoint(points);
+                    if (local_cam_pos.isZero()) return std::nullopt;
+
+                    // 5. Global Recovery: Transform to Map Coordinates
+                    // Camera Frame: X=Right, Y=Down, Z=Forward
+                    // Vehicle Frame: X=Forward, Y=Left
+                    Eigen::Vector2d vehicle_local_pos;
+                    vehicle_local_pos.x() = local_cam_pos.z();   
+                    vehicle_local_pos.y() = -local_cam_pos.x();  
+
+                    // Global Transform
+                    Eigen::Isometry2d car_to_global = Eigen::Isometry2d::Identity();
+                    car_to_global.translation() << vehicle_pos.x(), vehicle_pos.y();
+                    car_to_global.rotate(Eigen::Rotation2Dd(car_yaw_rad));
+
+                    Eigen::Vector2d global_pos = car_to_global * vehicle_local_pos;
+
+                    // 6. Pack Result
+                    FsaiConeDet glob_det;
+                    glob_det.x = global_pos.x();
+                    glob_det.y = 0.0f; // Elevation
+                    glob_det.z = global_pos.y(); // Mapped to Z in struct
+                    glob_det.side = det.side; // OR matches.side
+                    
+                    // Confidence heuristic based on distance
+                    float dist_penalty = 0.02f * (float)local_cam_pos.z();
+                    glob_det.conf = std::max(0.1f, 0.9f - dist_penalty);
+
+                    return glob_det;
                 }
-                
-                double avg_x = sum_x / points.size(); // Average Lateral (Camera Right)
-                double avg_z = sum_z / points.size(); // Average Depth (Camera Forward)
-
-                // 3. Coordinate Transformation
-                // Camera Frame: X=Right, Y=Down, Z=Forward
-                // Vehicle Frame: X=Forward, Y=Left, Z=Up
-                
-                Eigen::Vector2d vehicle_local_pos;
-                vehicle_local_pos.x() = avg_z;   // Camera Forward (Z) -> Vehicle Forward (X)
-                vehicle_local_pos.y() = -avg_x;  // Camera Right (X)   -> Vehicle Left (Y) (Note the negative)
-
-                // SANITY CHECK: Ignore cones that resolved to be "behind" the car
-                // This handles edge cases where calibration noise produces negative Z
-                if (vehicle_local_pos.x() <= 0.1) continue; 
-
-                // 4. Global Transform
-                Eigen::Vector2d global_pos = car_to_global * vehicle_local_pos;
-                
-                FsaiConeDet glob_det;
-                glob_det.x = global_pos.x();
-                glob_det.z = global_pos.y(); // Map Global Y -> Struct Z
-                glob_det.y = 0.0f;           // Elevation
-                
-                glob_det.side = cone.side;
-                
-                // --- Confidence Calculation ---
-                // Heuristic: Confidence drops with distance
-                // Base 0.9, minus 0.02 for every meter away
-                float dist_penalty = 0.02f * (float)avg_z;
-                glob_det.conf = std::max(0.1f, 0.9f - dist_penalty);
-                glob_det.side = cone.side;
-                raw_global_cones.push_back(glob_det);
-                
-                // [Optional Debugging]
-                // std::cout << "Cone Local: " << vehicle_local_pos.x() << "m Fwd, " 
-                //           << vehicle_local_pos.y() << "m Left" << std::endl;
-            }
+            ));
         }
 
-        // 7. Map Update
+// Collection Phase (Main Thread)
+for (auto& f : futures) {
+    auto result = f.get(); // Blocks until this specific cone is done
+    if (result.has_value()) {
+        raw_global_cones.push_back(result.value());
+    }
+}
         mapper_.update(raw_global_cones, vehicle_pos);
 
         // 7. Serialize Output
