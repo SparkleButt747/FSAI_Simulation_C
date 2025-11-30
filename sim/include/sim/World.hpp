@@ -6,10 +6,7 @@
 #include <utility>
 #include <vector>
 #include <Eigen/Dense>
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#include <CGAL/Delaunay_triangulation_2.h>
-#include <unordered_map>
-#include "DynamicBicycle.hpp"
+#include "types.h"
 #include "VehicleState.hpp"
 #include "common/telemetry/Telemetry.hpp"
 #include "controller.prot.h"
@@ -26,18 +23,6 @@
 #include "ResetPolicy.hpp"
 #include "TrackTypes.hpp"
 #include "sim/architecture/IVehicleDynamics.hpp"
-#include "PathConfig.hpp"
-#include "PathGenerator.hpp"
-#include "TrackGenerator.hpp"
-#include "sim/mission/MissionDefinition.hpp"
-#include "sim/MissionRuntimeState.hpp"
-#include "sim/cone_types.hpp"
-#include "types.h"
-
-using WorldVehicleResetHandler = std::function<void(const WorldVehicleSpawn&)>;
-using K=CGAL::Exact_predicates_inexact_constructions_kernel;
-using Triangulation=CGAL::Delaunay_triangulation_2<K>;
-using Point=Triangulation::Point;
 
 struct WorldVehicleSpawn {
     VehicleState state{Eigen::Vector3d::Zero(), 0.0,
@@ -46,19 +31,11 @@ struct WorldVehicleSpawn {
     Transform transform{};
 };
 
+using WorldVehicleResetHandler = std::function<void(const WorldVehicleSpawn&)>;
+
 struct WorldVehicleContext {
     fsai::vehicle::IVehicleDynamics* dynamics{nullptr};
     WorldVehicleResetHandler reset_handler{};
-};
-
-
-
-struct CollisionSegment {
-    Vector2 start{0.0f, 0.0f};
-    Vector2 end{0.0f, 0.0f};
-    float radius{0.0f};
-    Vector2 boundsMin{0.0f, 0.0f};
-    Vector2 boundsMax{0.0f, 0.0f};
 };
 
 class World : public fsai::world::IWorldView {
@@ -80,43 +57,17 @@ public:
     float brakeInput{0.0f};
     int useController{1};
     int regenTrack{1};
-    std::vector<std::pair<Vector2, Vector2>> bestPathEdges {};
     std::vector<std::pair<Vector2, Vector2>> triangulationEdges{}; // Keep an object for the world so that rendering is accurate.
 
-    
-    const VehicleState& vehicleState() const { return carState; }
-    const Transform& vehicleTransform() const { return carTransform; }
-    const std::vector<Vector3>& checkpointPositionsWorld() const {
-        return checkpointPositions;
-    }
 
-    const std::vector<Cone>& getStartCones() const { return startCones; }
-    const std::vector<Cone>& getLeftCones() const { return leftCones; }
-    const std::vector<Cone>& getRightCones() const { return rightCones; }
-    const std::vector<Vector3> getStartConePositions() const {
-        std::vector<Vector3> positions;
-        positions.reserve(startCones.size());
-        for (auto c: startCones) {
-            positions.push_back(c.position);
-        }
-        return positions;
-    }
-    const std::vector<Vector3> getLeftConePositions() const {
-        std::vector<Vector3> positions;
-        positions.reserve(leftCones.size());
-        for (auto c: leftCones) {
-            positions.push_back(c.position);
-        }
-        return positions;
-    }
-    const std::vector<Vector3> getRightConePositions() const {
-        std::vector<Vector3> positions;
-        positions.reserve(rightCones.size());
-        for (auto c: rightCones) {
-            positions.push_back(c.position);
-        }
-        return positions;
-    }
+    const std::vector<Vector3>& checkpointPositionsWorld() const;
+
+    const std::vector<Cone>& getStartCones() const;
+    const std::vector<Cone>& getLeftCones() const;
+    const std::vector<Cone>& getRightCones() const;
+    const std::vector<Vector3>& getStartConePositions() const;
+    const std::vector<Vector3>& getLeftConePositions() const;
+    const std::vector<Vector3>& getRightConePositions() const;
     const LookaheadIndices& lookahead() const { return lookaheadIndices; }
     double lapTimeSeconds() const { return runtime_.lap_time_seconds(); }
     double totalDistanceMeters() const { return runtime_.lap_distance_meters(); }
@@ -201,7 +152,6 @@ private:
     friend class WorldTestHelper;
     void moveNextCheckpointToLast();
     void reset(const ResetDecision& decision);
-    void initializeTriangulation();
     void configureTrackState(const TrackBuildResult& track);
     void initializeVehiclePose();
     TrackBuildResult buildTrackState();
@@ -211,9 +161,6 @@ private:
     bool vehicleResetPending_{false};
     WorldVehicleResetHandler vehicleResetHandler_{};
     Vector2 prevCarPos_{0.0f, 0.0f};
-
-    Triangulation triangulation_;
-    std::unordered_map<Point, FsaiConeSide> coneToSide_;
 
     std::vector<Vector3> checkpointPositions{};
     std::vector<Cone> startCones{};
