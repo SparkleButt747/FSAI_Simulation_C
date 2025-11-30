@@ -36,12 +36,3 @@ std::vector<ConeMatches> match_features_per_cone(
     const cv::Mat& right_frame,
     const std::vector<fsai::types::BoxBound>& box_bounds,
     const cv::Ptr<cv::SIFT> sift_detector_);
-    
-ConeMatches match_single_cone(
-    const cv::Mat& left_img, 
-    const cv::Mat& right_img,
-    const cv::Rect& left_roi,   // From YOLO (clipped to image)
-    const cv::Rect& right_roi,  // From PnP (clipped to image)
-    const int cone_index,       // To track which cone this is
-    cv::Ptr<cv::SIFT>& sift
-);

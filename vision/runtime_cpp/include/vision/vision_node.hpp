@@ -21,11 +21,6 @@
 
 namespace fsai{
 namespace vision{
-const double SMALL_CONE_WIDTH = 0.228; 
-const double SMALL_CONE_HEIGHT = 0.325;
-const double LARGE_CONE_WIDTH = 0.285;
-const double LARGE_CONE_HEIGHT = 0.505;
-const double BASE_LINE = 0.2;
 struct RenderableFrame {
     cv::Mat image;
     std::vector<fsai::types::BoxBound> boxes;
@@ -89,10 +84,7 @@ class VisionNode{
     // private helpers
     inline bool triangulatePoint(const Feature& feat,Eigen::Vector3d& result);
     cv::Mat frameToMat(const fsai::types::Frame& frame);
-    cv::Rect getPnPROI(const types::BoxBound& det, int im_width, int im_height);
-    std::vector<cv::Point2d> getConeImagePoints(const types::BoxBound& det);
-    std::vector<cv::Point3d> getConeObjectPoints(const int cone_type);
-    Eigen::Vector3d getMedianPoint(const std::vector<Eigen::Vector3d>& points);
+
     // private members
     PoseProvider pose_provider_;
     bool intrinsics_set_ = false;
@@ -108,7 +100,7 @@ class VisionNode{
     std::optional<fsai::types::Detections> latest_detections_;
     std::mutex render_mutex_;
     RenderableFrame latest_renderable_frame_;
-    std::atomic<int> invalid_dets_{0};
+    int invalid_dets_ = 0;
     float max_area_ = std::numeric_limits<float>::min();
     float min_area_ = std::numeric_limits<float>::max();
 
