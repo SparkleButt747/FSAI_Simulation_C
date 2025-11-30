@@ -148,15 +148,10 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
 
     Point carFront = getCarFront(vehicleState());
     double carYaw = vehicleState().yaw;
-    if (!(mission_.descriptor.type == fsai::sim::MissionType::kSkidpad)) {
+    if (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad) {
+        triangulationEdges = getVisibleTriangulationEdges(triangulation_, coneToSide_, vehicleState(), getLeftCones(), getRightCones(), getStartCones());
+    } else {
         removePassedCones(triangulation_, coneToSide_, carFront, carYaw);
-    }
-    if (mission_.descriptor.type == fsai::sim::MissionType::kSkidpad)
-    {
-        triangulationEdges = getVisibleTriangulationEdges(triangulation_, coneToSide_, vehicleState(), getLeftCones(), getRightCones(), getOrangeCones());
-    }
-    else
-    {
         triangulationEdges = getVisibleTriangulationEdges(triangulation_, coneToSide_, vehicleState(), getLeftCones(), getRightCones());
     }
 
@@ -177,7 +172,7 @@ bool World::computeRacingControl(double dt, float& throttle_out, float& steering
     if (needNewPath) {
         std::cout<<'\n'<<'\n'<<'\n'<<"COMPUTING!!!!"<<'\n'<<'\n'<<'\n';
         auto [nodes, adj] = generateGraph(triangulation_, carFront, coneToSide_);
-        auto searchResult = beamSearch(adj, nodes, carFront, 7, 2, 20, skidpadState_);
+        auto searchResult = beamSearch(adj, nodes, carFront, 15, 4, 64, skidpadState_);
 
         cachedPathNodes = std::move(searchResult.first);
         bestPathEdges   = std::move(searchResult.second);  // still used for visualisation
@@ -326,6 +321,13 @@ void World::update(double dt) {
     carInput.delta = steeringAngle;
 
     carModel.updateState(carState, carInput, dt);
+
+    // TODO: Remove this speed cap, it is for testing purposes only.
+    const double max_speed_mps = 5.0; // 5 m/s (18 km/h)
+    const double current_speed_sq = carState.velocity.squaredNorm();
+    if (current_speed_sq > (max_speed_mps * max_speed_mps)) {
+        carState.velocity = carState.velocity.normalized() * max_speed_mps;
+    }
 
     carTransform.position.x = static_cast<float>(carState.position.x());
     carTransform.position.z = static_cast<float>(carState.position.y());

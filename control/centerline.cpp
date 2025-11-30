@@ -318,7 +318,7 @@ float calculateCost(const std::vector<PathNode>& path, std::size_t minLen, const
         weights.rangeSq    * rangeCost +
         weights.skidpadDirection * skidpadDirectionCost +
 
-        10000.0f * straightnessPenalty +      // existing
+        0.0f * straightnessPenalty +      // existing
         5000.0f  * headingChangeCost +         // NEW
         8000.0f  * oscillationPenalty;         // NEW
 
@@ -593,7 +593,16 @@ void updateSkidpadTrackTriangulation(
 
     addCones(leftConePositions, FSAI_CONE_LEFT);
     addCones(rightConePositions, FSAI_CONE_RIGHT);
-    addCones(orangeConePositions, FSAI_CONE_ORANGE);
+
+    // For skidpad, we only consider orange cones for triangulation when the car
+    // is in the entry corridor. This prevents the triangulation from getting
+    // messed up by the orange cones that are far away, which causes the centerline
+    // to be too short.
+    // The track is flipped on the Z axis, so the entry corridor is at negative Z.
+    // carFront.y() corresponds to the Z coordinate of the car.
+    if (carFront.y() < -15.0f) {
+        addCones(orangeConePositions, FSAI_CONE_ORANGE);
+    }
 }
 
 std::vector<std::pair<Vector2, Vector2>> getVisibleTriangulationEdges(
@@ -878,7 +887,7 @@ std::vector<std::pair<Vector2, Vector2>> getPathEdges(const std::vector<PathNode
 
 Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
     Vector3* checkpoints = new Vector3[path.size()];
-    for (int i = 0; i < path.size(); i++) {
+    for (size_t i = 0; i < path.size(); i++) {
         checkpoints[i] = Vector3{
             path[i].midpoint.x,
             0,
@@ -888,6 +897,3 @@ Vector3* pathNodesToCheckpoints(std::vector<PathNode> path) {
 
     return checkpoints;
 }
-
-
-
