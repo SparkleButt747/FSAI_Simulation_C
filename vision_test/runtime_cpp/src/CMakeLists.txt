@@ -1,6 +1,6 @@
 set(VISION_RUNTIME_SOURCES
   edge_preview.cpp
-  detect.cpp
+        detect.cpp
   frame_ring_buffer.cpp
 )
 
